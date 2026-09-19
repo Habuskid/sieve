@@ -1,5 +1,11 @@
 import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
-import type { NetworkMode } from "../../core/domain/types";
+import {
+  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  ExtensionType,
+  getExtensionTypes,
+} from "@solana/spl-token";
+import type { NetworkMode, FundingAsset } from "../../core/domain/types";
 
 export const CANONICAL_MINTS = {
   mainnet: {
@@ -37,6 +43,11 @@ export class SolanaAdapter {
   private mainnetConnection: Connection;
   private devnetConnection: Connection;
 
+  /**
+   * Minimum SOL reserve required for rent-exemption and gas fees (0.005 SOL = 5,000,000 lamports).
+   */
+  public static readonly FEE_RESERVE_LAMPORTS = 5_000_000n;
+
   constructor(mainnetRpcUrl?: string, devnetRpcUrl?: string) {
     const mainnetUrl =
       mainnetRpcUrl ||
@@ -62,33 +73,119 @@ export class SolanaAdapter {
   }
 
   /**
-   * Resolves the token decimals for a given mint address.
+   * Resolves the token decimals for a given mint address with strict validation.
+   * Validates account existence, program owner (SPL Token or Token-2022), and rejects fee extensions.
+   * Never returns a silent fallback on failure.
    */
   async resolveMintDecimals(mintAddress: string, network: NetworkMode = "mainnet"): Promise<number> {
     if (mintDecimalsCache.has(mintAddress)) {
       return mintDecimalsCache.get(mintAddress)!;
     }
 
+    const pubkey = new PublicKey(mintAddress);
+    const conn = this.getConnection(network);
+    const accountInfo = await conn.getAccountInfo(pubkey);
+
+    if (!accountInfo) {
+      throw new Error(`Mint account ${mintAddress} does not exist on ${network}`);
+    }
+
+    const isToken = accountInfo.owner.equals(TOKEN_PROGRAM_ID);
+    const isToken2022 = accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID);
+
+    if (!isToken && !isToken2022) {
+      throw new Error(
+        `Mint ${mintAddress} is not owned by SPL Token or Token-2022 (owner: ${accountInfo.owner.toBase58()})`
+      );
+    }
+
+    if (accountInfo.data.length < 82) {
+      throw new Error(
+        `Account ${mintAddress} data is too short for an SPL mint (${accountInfo.data.length} bytes, expected >= 82)`
+      );
+    }
+
+    if (isToken2022) {
+      const extensions = getExtensionTypes(accountInfo.data);
+      if (
+        extensions.includes(ExtensionType.TransferFeeConfig) ||
+        extensions.includes(ExtensionType.TransferFeeAmount)
+      ) {
+        throw new Error(
+          `Mint ${mintAddress} has unsupported transfer fee extensions; Sieve only supports fee-free tokens`
+        );
+      }
+    }
+
+    // Decimals is at byte offset 44 (1 byte)
+    const decimals = accountInfo.data[44];
+    mintDecimalsCache.set(mintAddress, decimals);
+    return decimals;
+  }
+
+  /**
+   * Verifies that the wallet has sufficient balance for the trade and required gas.
+   */
+  async checkBalance(
+    walletAddress: string,
+    fundingAsset: FundingAsset,
+    requiredAmountRaw: bigint,
+    network: NetworkMode = "mainnet"
+  ): Promise<{ hasSufficient: boolean; error?: string }> {
+    if (network === "testnet") {
+      // Practice / Testnet mode: simulated balance is always sufficient
+      return { hasSufficient: true };
+    }
+
     try {
-      const pubkey = new PublicKey(mintAddress);
-      const conn = this.getConnection(network);
-      const accountInfo = await conn.getAccountInfo(pubkey);
+      const walletPubkey = new PublicKey(walletAddress);
+      const conn = this.getConnection("mainnet");
 
-      if (!accountInfo) {
-        // Fallback default for SPL tokens if account info not yet loaded
-        return 6;
+      const solBalance = BigInt(await conn.getBalance(walletPubkey));
+
+      if (fundingAsset === "SOL") {
+        const totalSolNeeded = requiredAmountRaw + SolanaAdapter.FEE_RESERVE_LAMPORTS;
+        if (solBalance < totalSolNeeded) {
+          return {
+            hasSufficient: false,
+            error: `Insufficient SOL balance: available ${(Number(solBalance) / 1e9).toFixed(4)} SOL, required ${(Number(totalSolNeeded) / 1e9).toFixed(4)} SOL (including gas reserve)`,
+          };
+        }
+        return { hasSufficient: true };
+      } else {
+        // USDC funding
+        if (solBalance < SolanaAdapter.FEE_RESERVE_LAMPORTS) {
+          return {
+            hasSufficient: false,
+            error: `Insufficient SOL for transaction fees: available ${(Number(solBalance) / 1e9).toFixed(4)} SOL, required at least ${(Number(SolanaAdapter.FEE_RESERVE_LAMPORTS) / 1e9).toFixed(4)} SOL for network fees`,
+          };
+        }
+
+        const usdcMintPubkey = new PublicKey(CANONICAL_MINTS.mainnet.USDC);
+        const tokenAccounts = await conn.getParsedTokenAccountsByOwner(walletPubkey, {
+          mint: usdcMintPubkey,
+        });
+
+        let totalUsdcRaw = 0n;
+        for (const ta of tokenAccounts.value) {
+          const amountStr = ta.account.data.parsed.info.tokenAmount.amount;
+          totalUsdcRaw += BigInt(amountStr);
+        }
+
+        if (totalUsdcRaw < requiredAmountRaw) {
+          return {
+            hasSufficient: false,
+            error: `Insufficient USDC balance: available ${(Number(totalUsdcRaw) / 1e6).toFixed(2)} USDC, required ${(Number(requiredAmountRaw) / 1e6).toFixed(2)} USDC`,
+          };
+        }
+
+        return { hasSufficient: true };
       }
-
-      // SPL Mint layout: decimals is at byte offset 44 (1 byte)
-      if (accountInfo.data.length >= 45) {
-        const decimals = accountInfo.data[44];
-        mintDecimalsCache.set(mintAddress, decimals);
-        return decimals;
-      }
-
-      return 6;
-    } catch {
-      return 6;
+    } catch (err) {
+      return {
+        hasSufficient: false,
+        error: `Failed to verify wallet balance: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
   }
 

@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as postCheck } from "../../app/api/check/route";

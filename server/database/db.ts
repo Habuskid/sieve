@@ -100,12 +100,14 @@ export class PostgresSieveRepository implements ISieveRepository {
         revalidation_reference_price_usd, revalidation_buy_price_usd, revalidation_premium_bps,
         minimum_output_raw, protection_method, protection_value,
         provider_request_id, transaction_hash, last_valid_block_height,
+        funding_asset, funding_amount_display, target_symbol, expected_target_amount, max_premium_pct,
         expires_at, status, created_at
       ) VALUES (
         ${intent.id}, ${intent.checkId}, ${intent.wallet}, ${intent.network},
         ${intent.summary.referencePriceUsd}, ${intent.summary.currentBuyPriceUsd}, ${parseInt(intent.summary.premiumPct) * 100 || 0},
         ${intent.minimumAcceptableOutputRaw.toString()}, ${intent.protectionMethod}, null,
         ${intent.requestId ?? null}, null, ${intent.lastValidBlockHeight ?? null},
+        ${intent.summary.fundingAsset}, ${intent.summary.fundingAmount}, ${intent.summary.targetSymbol}, ${intent.summary.expectedTargetAmount}, ${intent.summary.maxPremiumPct},
         ${intent.expiresAt}, 'READY_FOR_WALLET', NOW()
       )
       ON CONFLICT (id) DO NOTHING
@@ -128,16 +130,16 @@ export class PostgresSieveRepository implements ISieveRepository {
       transactionBase64: "", // Not persisted in DB for size/security
       lastValidBlockHeight: r.last_valid_block_height?.toString(),
       requestId: r.provider_request_id,
-      expiresAt: r.expires_at.toISOString(),
+      expiresAt: r.expires_at instanceof Date ? r.expires_at.toISOString() : new Date(r.expires_at).toISOString(),
       summary: {
-        fundingAsset: "USDC", // Default fallback
-        fundingAmount: "0",
-        targetSymbol: "",
-        expectedTargetAmount: "0",
+        fundingAsset: (r.funding_asset ?? "USDC") as any,
+        fundingAmount: r.funding_amount_display != null ? r.funding_amount_display.toString() : "0",
+        targetSymbol: r.target_symbol ?? "",
+        expectedTargetAmount: r.expected_target_amount != null ? r.expected_target_amount.toString() : "0",
         referencePriceUsd: r.revalidation_reference_price_usd.toString(),
         currentBuyPriceUsd: r.revalidation_buy_price_usd.toString(),
         premiumPct: (r.revalidation_premium_bps / 100).toFixed(2),
-        maxPremiumPct: "0",
+        maxPremiumPct: r.max_premium_pct != null ? r.max_premium_pct.toString() : "0",
       },
     };
   }
@@ -300,19 +302,27 @@ export class PostgresSieveRepository implements ISieveRepository {
 }
 
 // Global repository singleton: uses Postgres if DATABASE_URL is set, otherwise InMemory
-let repoInstance: ISieveRepository | null = null;
+const globalForRepo = globalThis as unknown as {
+  sieveRepoInstance?: ISieveRepository;
+};
 
 export function getRepository(): ISieveRepository {
-  if (!repoInstance) {
+  if (!globalForRepo.sieveRepoInstance) {
     if (process.env.DATABASE_URL) {
-      repoInstance = new PostgresSieveRepository(process.env.DATABASE_URL);
+      globalForRepo.sieveRepoInstance = new PostgresSieveRepository(process.env.DATABASE_URL);
     } else {
-      repoInstance = new InMemorySieveRepository();
+      if (
+        process.env.NODE_ENV === "production" &&
+        process.env.NEXT_PHASE !== "phase-production-build"
+      ) {
+        throw new Error("DATABASE_URL must be configured in production environment");
+      }
+      globalForRepo.sieveRepoInstance = new InMemorySieveRepository();
     }
   }
-  return repoInstance;
+  return globalForRepo.sieveRepoInstance;
 }
 
 export function setRepository(repo: ISieveRepository): void {
-  repoInstance = repo;
+  globalForRepo.sieveRepoInstance = repo;
 }

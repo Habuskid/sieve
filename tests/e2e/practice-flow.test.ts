@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { GET as getMarkets } from "../../app/api/markets/route";

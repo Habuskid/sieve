@@ -13,6 +13,7 @@ import {
   isExpired,
   evaluatePriceBoundary,
   deriveAllowedExecutionTolerance,
+  calculateMinimumTargetTokensRaw,
   Decimal,
 } from "../../core";
 
@@ -251,12 +252,35 @@ describe("Policy Evaluator (BR-005, BR-006, BR-007, BR-008)", () => {
   });
 });
 
-describe("Protection Derivation (BR-017)", () => {
-  it("derives conservative slippage and minimum raw target output within policy limit", () => {
+describe("Protection Derivation (BR-017, Audit Repair 3)", () => {
+  it("calculates minimum raw target tokens using ROUND_CEIL to strictly prevent price limit breach", () => {
+    // Exact integer division: $100 funding, $10 max price, 6 decimals -> exactly 10.0 tokens -> 10,000,000 units
+    const exactRaw = calculateMinimumTargetTokensRaw("100.00", "10.00", 6);
+    expect(exactRaw).toBe(10_000_000n);
+
+    // Fractional raw units: $10 funding, $105 max price, 6 decimals
+    // 10 / 105 = 0.095238095238... tokens = 95238.095238... raw units
+    // Ceiling MUST yield 95239n (floor would yield 95238n)
+    const ceilRaw = calculateMinimumTargetTokensRaw("10.00", "105.00", 6);
+    expect(ceilRaw).toBe(95239n);
+
+    // Mathematical verification:
+    // With 95239 units (0.095239 tokens):
+    // Buy price = 10 / 0.095239 = 104.99899... <= 105.00 (PASSES INVARIANT)
+    const priceAtCeil = new Decimal(10).div(new Decimal(95239).div(1_000_000));
+    expect(priceAtCeil.lessThanOrEqualTo(105)).toBe(true);
+
+    // With 1 raw unit below (95238 units, 0.095238 tokens):
+    // Buy price = 10 / 0.095238 = 105.000105... > 105.00 (VIOLATES INVARIANT!)
+    const priceAtFloor = new Decimal(10).div(new Decimal(95238).div(1_000_000));
+    expect(priceAtFloor.greaterThan(105)).toBe(true);
+  });
+
+  it("derives conservative slippage and minimum raw target output within policy limit using ceiling", () => {
     // Reference = 100, Limit = 5% -> Max Price M = 105
     // Funding = $10.00, Target Decimals = 6
     // Minimum required tokens = 10 / 105 = 0.095238095... tokens
-    // Minimum raw target = 95,238 units
+    // Minimum raw target with ROUND_CEIL = 95,239 units
     // Quoted target = 0.098 tokens (current price = $102.04, inside limit)
     const result = deriveAllowedExecutionTolerance({
       fundingUsdValue: "10.00",
@@ -267,7 +291,8 @@ describe("Protection Derivation (BR-017)", () => {
     });
 
     expect(result.isExecutable).toBe(true);
-    expect(result.minimumAcceptableOutputRaw).toBe(95238n);
+    expect(result.minimumAcceptableOutputRaw).toBe(95239n);
+    expect(result.minimumAcceptableOutputDisplay).toBe("0.095239");
 
     // Slippage = 1 - (0.095238 / 0.098) = 0.02818 -> 281 bps
     expect(result.slippageBps).toBe(281);
@@ -303,3 +328,4 @@ describe("Protection Derivation (BR-017)", () => {
     expect(result.slippageBps).toBe(500);
   });
 });
+

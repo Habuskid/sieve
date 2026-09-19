@@ -136,7 +136,7 @@ export function BuyView({ network }: BuyViewProps) {
 
   // Start Buy / Open Review
   const handleStartReview = () => {
-    if (!connected) {
+    if (!connected && network === "mainnet") {
       setWalletModalVisible(true);
       return;
     }
@@ -145,7 +145,12 @@ export function BuyView({ network }: BuyViewProps) {
 
   // Confirm in Wallet -> Build, Sign & Submit
   const handleConfirmInWallet = async () => {
-    if (!checkResult || !publicKey || !signTransaction) return;
+    if (!checkResult) return;
+    const walletAddress = publicKey?.toBase58() || (network === "testnet" ? "PracticeWallet1111111111111111111111111111" : null);
+    if (!walletAddress) {
+      setWalletModalVisible(true);
+      return;
+    }
 
     setIsBuilding(true);
 
@@ -156,7 +161,7 @@ export function BuyView({ network }: BuyViewProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           checkId: checkResult.checkId,
-          wallet: publicKey.toBase58(),
+          wallet: walletAddress,
         }),
       });
 
@@ -183,20 +188,30 @@ export function BuyView({ network }: BuyViewProps) {
       setIsWaitingForWallet(true);
 
       // 2. Wallet Signature
-      const txBuffer = Buffer.from(buildData.serializedTransaction, "base64");
-      const transaction = VersionedTransaction.deserialize(txBuffer);
-      const signedTx = await signTransaction(transaction);
+      let signedTxBase64: string | undefined;
+      let mockSig: string | undefined;
 
-      // In practice mode or live mode, we have a signed transaction
-      const signature = Buffer.from(signedTx.signatures[0]).toString("base64");
+      if (network === "testnet" && (!signTransaction || !connected)) {
+        // Practice mode simulated signature (must be at least 32 characters for Solana signature validation)
+        mockSig = `sim-practice-tx-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
+      } else if (signTransaction) {
+        const txBuffer = Buffer.from(buildData.serializedTransaction, "base64");
+        const transaction = VersionedTransaction.deserialize(txBuffer);
+        const signedTx = await signTransaction(transaction);
+        signedTxBase64 = Buffer.from(signedTx.serialize()).toString("base64");
+      } else {
+        mockSig = `sim-practice-tx-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
+      }
 
-      // 3. Confirm & save receipt via /api/confirm
+      // 3. Confirm & execute via /api/confirm
       const confirmRes = await fetch("/api/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           buildIntentId: buildData.buildIntentId,
-          signature: signature.slice(0, 88), // format safe signature
+          signedTransaction: signedTxBase64,
+          signature: mockSig,
+          wallet: walletAddress,
           network,
         }),
       });
@@ -207,7 +222,7 @@ export function BuyView({ network }: BuyViewProps) {
       if (confirmData.status === "CONFIRMED" && confirmData.receipt) {
         setReceipt(confirmData.receipt);
       } else {
-        setErrorMessage("Transaction could not be confirmed");
+        setErrorMessage(confirmData.error?.message || "Transaction could not be confirmed");
       }
     } catch (err) {
       setIsBuilding(false);
@@ -235,6 +250,13 @@ export function BuyView({ network }: BuyViewProps) {
 
   return (
     <div className="mx-auto max-w-2xl px-4 sm:px-6 py-8">
+      {/* Practice Mode Banner */}
+      {network === "testnet" && (
+        <div className="mb-4 rounded-card border border-warning/30 bg-warning-soft px-4 py-2 text-xs font-semibold text-warning text-center">
+          Practice mode — Test data / Simulated transaction
+        </div>
+      )}
+
       {/* Page Title */}
       <div className="mb-6">
         <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primaryText">

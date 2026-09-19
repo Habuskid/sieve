@@ -126,13 +126,39 @@ describe("Database & Persistence Layer (Phase 6)", () => {
     expect(retrieved?.asset.symbol).toBe("OPENAI");
   });
 
-  it("saves and retrieves build intents", async () => {
+  it("saves and retrieves build intents with complete summary preservation", async () => {
     await repo.saveBuildIntent(sampleBuildIntent);
     const retrieved = await repo.getBuildIntent(sampleBuildIntent.id);
 
     expect(retrieved).toBeDefined();
     expect(retrieved?.id).toBe(sampleBuildIntent.id);
     expect(retrieved?.minimumAcceptableOutputRaw).toBe(95_238n);
+    expect(retrieved?.summary.fundingAsset).toBe("USDC");
+    expect(retrieved?.summary.fundingAmount).toBe("10");
+    expect(retrieved?.summary.targetSymbol).toBe("OPENAI");
+    expect(retrieved?.summary.expectedTargetAmount).toBe("0.097087");
+    expect(retrieved?.summary.maxPremiumPct).toBe("5.00");
+  });
+
+  it("fails closed in production environment when DATABASE_URL is missing", async () => {
+    const { getRepository, setRepository } = await import("../../server/database/db");
+    const originalEnv = process.env.NODE_ENV;
+    const originalDbUrl = process.env.DATABASE_URL;
+
+    try {
+      (process.env as any).NODE_ENV = "production";
+      delete process.env.DATABASE_URL;
+      // Reset repository singleton
+      setRepository(null as any);
+
+      expect(() => getRepository()).toThrow("DATABASE_URL must be configured in production environment");
+    } finally {
+      (process.env as any).NODE_ENV = originalEnv;
+      if (originalDbUrl) {
+        process.env.DATABASE_URL = originalDbUrl;
+      }
+      setRepository(repo);
+    }
   });
 
   it("saves and retrieves trade receipts idempotently by signature", async () => {

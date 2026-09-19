@@ -65,7 +65,12 @@ export interface CheckResponseDto {
 }
 
 // In-memory cache for checks (backed by DB in persistence phase)
-export const activeChecksStore = new Map<string, PriceCheck>();
+const globalForChecks = globalThis as unknown as {
+  sieveActiveChecks?: Map<string, PriceCheck>;
+};
+export const activeChecksStore =
+  globalForChecks.sieveActiveChecks ??
+  (globalForChecks.sieveActiveChecks = new Map<string, PriceCheck>());
 
 export class PriceCheckService {
   constructor(
@@ -137,10 +142,21 @@ export class PriceCheckService {
         });
         quote = jupQuote.quote;
 
-        // Jupiter provides contemporaneous inUsdValue directly
-        const usdVal = jupQuote.inUsdValue != null
-          ? jupQuote.inUsdValue.toString()
-          : (parseFloat(input.amount) * 150).toFixed(2); // Fallback if provider omits
+        // Contemporaneous SOL USD valuation from Jupiter (never a hardcoded constant)
+        let usdVal: string;
+        if (jupQuote.inUsdValue != null && jupQuote.inUsdValue > 0) {
+          usdVal = jupQuote.inUsdValue.toString();
+        } else {
+          try {
+            const solPrice = await this.jupiterAdapter.getSolUsdPrice();
+            usdVal = toDecimal(input.amount).mul(solPrice).toFixed(2);
+          } catch (err) {
+            throw new SieveAppError(
+              "DATA_UNAVAILABLE",
+              `Unable to derive contemporaneous SOL/USD valuation: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        }
 
         fundingValuation = {
           fundingAsset: "SOL",

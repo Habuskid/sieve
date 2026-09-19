@@ -4,7 +4,7 @@ import {
   type JupiterOrderResponse,
   type JupiterExecuteResponse,
 } from "./schema";
-import { rawToDisplay } from "../../core/money/decimal";
+import { rawToDisplay, toDecimal, Decimal } from "../../core/money/decimal";
 import type { MarketQuote } from "../../core/domain/types";
 
 export interface JupiterAdapterConfig {
@@ -232,6 +232,24 @@ export class JupiterAdapter {
     }
 
     return parseResult.data;
+  }
+
+  /**
+   * Derives contemporaneous SOL/USD valuation by querying Jupiter for SOL -> USDC quote.
+   * Fails closed if route is unavailable or quote fails.
+   */
+  async getSolUsdPrice(): Promise<Decimal> {
+    const quote = await this.getQuote({
+      inputMint: "So11111111111111111111111111111111111111112",
+      outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      amount: 1_000_000_000n, // 1 SOL (9 decimals)
+      outputDecimals: 6, // USDC 6 decimals
+    });
+    const usdPrice = toDecimal(quote.quote.expectedTargetAmount);
+    if (usdPrice.lessThanOrEqualTo(0)) {
+      throw new Error("Invalid contemporaneous SOL USD price: non-positive");
+    }
+    return usdPrice;
   }
 
   private async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {

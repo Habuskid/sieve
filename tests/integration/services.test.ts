@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   PriceCheckService,
@@ -207,5 +208,106 @@ describe("Server Orchestration Services (Gate D - Server Authority)", () => {
       "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM"
     );
     expect(walletReceipts).toHaveLength(1);
+  });
+
+  it("context binding: rejects buildTransaction if wallet does not match price check", async () => {
+    const checkRes = await checkService.executeCheck({
+      network: "testnet",
+      targetMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+      fundingAsset: "USDC",
+      amount: "10",
+      maxPremiumPct: "5.00",
+      wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      clientIntentVersion: "v1",
+      scenarioId: "PASS_BASIC",
+    });
+
+    // Attempt to build with a different wallet
+    await expect(
+      buildService.buildTransaction({
+        checkId: checkRes.checkId,
+        wallet: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", // Mismatch!
+        scenarioId: "PASS_BASIC",
+      })
+    ).rejects.toThrow(/Wallet address does not match/);
+  });
+
+  it("context binding: rejects confirmTransaction if wallet or network does not match build intent", async () => {
+    const checkRes = await checkService.executeCheck({
+      network: "testnet",
+      targetMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+      fundingAsset: "USDC",
+      amount: "10",
+      maxPremiumPct: "5.00",
+      wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      clientIntentVersion: "v1",
+      scenarioId: "PASS_BASIC",
+    });
+
+    const buildResult = await buildService.buildTransaction({
+      checkId: checkRes.checkId,
+      wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      scenarioId: "PASS_BASIC",
+    });
+
+    if (buildResult.status !== "READY_FOR_WALLET") return;
+
+    // Reject wallet mismatch on confirm
+    await expect(
+      confirmService.confirmTransaction({
+        buildIntentId: buildResult.buildIntentId,
+        signature: "5K7V4aQ8t9yU2xW3zR1mockSignatureContextBindingMismatch123456789",
+        wallet: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU", // Mismatch!
+        network: "testnet",
+      })
+    ).rejects.toThrow(/Wallet address does not match/);
+
+    // Reject network mismatch on confirm
+    await expect(
+      confirmService.confirmTransaction({
+        buildIntentId: buildResult.buildIntentId,
+        signature: "5K7V4aQ8t9yU2xW3zR1mockSignatureNetworkMismatch123456789",
+        wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        network: "mainnet", // Mismatch!
+      })
+    ).rejects.toThrow(/Network mode does not match/);
+  });
+
+  it("build intent expiry: rejects confirmTransaction if build intent is expired", async () => {
+    const checkRes = await checkService.executeCheck({
+      network: "testnet",
+      targetMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+      fundingAsset: "USDC",
+      amount: "10",
+      maxPremiumPct: "5.00",
+      wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      clientIntentVersion: "v1",
+      scenarioId: "PASS_BASIC",
+    });
+
+    const buildResult = await buildService.buildTransaction({
+      checkId: checkRes.checkId,
+      wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      scenarioId: "PASS_BASIC",
+    });
+
+    if (buildResult.status !== "READY_FOR_WALLET") return;
+
+    // Expire the build intent in both store and repo
+    const { getRepository } = await import("../../server/database/db");
+    const repo = getRepository();
+    const storedIntent = ((await repo.getBuildIntent(buildResult.buildIntentId)) ?? activeBuildIntentsStore.get(buildResult.buildIntentId))!;
+    storedIntent.expiresAt = new Date(Date.now() - 5000).toISOString();
+    activeBuildIntentsStore.set(buildResult.buildIntentId, storedIntent);
+    await repo.saveBuildIntent(storedIntent);
+
+    await expect(
+      confirmService.confirmTransaction({
+        buildIntentId: buildResult.buildIntentId,
+        signature: "5K7V4aQ8t9yU2xW3zR1mockSignatureBuildIntentExpired123456789",
+        wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        network: "testnet",
+      })
+    ).rejects.toThrow(/expired/);
   });
 });

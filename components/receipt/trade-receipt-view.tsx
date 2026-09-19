@@ -41,8 +41,8 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
           {isConfirmed
             ? `Your buy of ${receipt.targetSymbol} was confirmed on Solana.`
             : receipt.failureCode
-            ? `Transaction failed (${receipt.failureCode}). No funds were spent.`
-            : "The transaction could not be completed."}
+            ? `Transaction failed (${receipt.failureCode}). The trade did not complete. A network fee may still have been charged.`
+            : "The trade did not complete. A network fee may still have been charged."}
         </p>
       </div>
 

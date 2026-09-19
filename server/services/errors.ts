@@ -8,10 +8,15 @@ export type ErrorCode =
   | "WALLET_NOT_CONNECTED"
   | "WALLET_REJECTED"
   | "WALLET_NETWORK_MISMATCH"
+  | "WALLET_MISMATCH"
+  | "NETWORK_MISMATCH"
+  | "DATA_UNAVAILABLE"
   | "INSUFFICIENT_FUNDS"
   | "TRANSACTION_BUILD_FAILED"
   | "TRANSACTION_EXPIRED"
   | "TRANSACTION_SUBMIT_FAILED"
+  | "TRANSACTION_FAILED"
+  | "VALIDATION_ERROR"
   | "CONFIRMATION_PENDING"
   | "CONFIRMATION_FAILED"
   | "RATE_LIMITED"
@@ -97,6 +102,46 @@ export const ERROR_REGISTRY: Record<ErrorCode, SieveErrorDetails> = {
     userTitle: "Your wallet and Sieve are using different networks.",
     userMessage: "Please switch your wallet cluster to match the active network in Sieve.",
     retryable: true,
+    fundsMoved: "no",
+    status: 400,
+  },
+  WALLET_MISMATCH: {
+    code: "WALLET_MISMATCH",
+    userTitle: "Wallet address does not match price check.",
+    userMessage: "Please use the same wallet address that initiated the price check.",
+    retryable: false,
+    fundsMoved: "no",
+    status: 400,
+  },
+  NETWORK_MISMATCH: {
+    code: "NETWORK_MISMATCH",
+    userTitle: "Network mode does not match.",
+    userMessage: "The transaction network does not match the active session network.",
+    retryable: false,
+    fundsMoved: "no",
+    status: 400,
+  },
+  DATA_UNAVAILABLE: {
+    code: "DATA_UNAVAILABLE",
+    userTitle: "Price data temporarily unavailable.",
+    userMessage: "Unable to retrieve contemporaneous market valuation. Please try again.",
+    retryable: true,
+    fundsMoved: "no",
+    status: 503,
+  },
+  TRANSACTION_FAILED: {
+    code: "TRANSACTION_FAILED",
+    userTitle: "Transaction failed to execute.",
+    userMessage: "The transaction could not be executed on-chain. Please try again.",
+    retryable: true,
+    fundsMoved: "no",
+    status: 500,
+  },
+  VALIDATION_ERROR: {
+    code: "VALIDATION_ERROR",
+    userTitle: "Invalid request parameters.",
+    userMessage: "The request payload failed validation.",
+    retryable: false,
     fundsMoved: "no",
     status: 400,
   },

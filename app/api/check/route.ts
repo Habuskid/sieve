@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { defaultPriceCheckService } from "@/server/services/check-service";
 import { SieveAppError } from "@/server/services/errors";
+import { checkRateLimit, getClientIdentifier } from "@/server/middleware/rate-limit";
 import { z } from "zod";
+
+export const dynamic = "force-dynamic";
 
 const CheckRequestSchema = z.object({
   network: z.enum(["mainnet", "testnet"]),
@@ -17,6 +20,27 @@ const CheckRequestSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
+
+    const clientId = getClientIdentifier(request, body.wallet);
+    const rl = checkRateLimit(clientId, { windowMs: 60_000, max: 60, keyPrefix: "check" });
+    if (!rl.allowed) {
+      return NextResponse.json(
+        {
+          error: {
+            code: "RATE_LIMIT_EXCEEDED",
+            message: "Too many check requests. Please wait a moment.",
+            retryable: true,
+          },
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": Math.ceil(rl.resetMs / 1000).toString(),
+          },
+        }
+      );
+    }
+
     const parseResult = CheckRequestSchema.safeParse(body);
 
     if (!parseResult.success) {

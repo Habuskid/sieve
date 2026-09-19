@@ -2,14 +2,19 @@ import { v4 as uuidv4 } from "uuid";
 import { activeBuildIntentsStore } from "./build-service";
 import { activeChecksStore } from "./check-service";
 import { defaultSolanaAdapter, SolanaAdapter } from "../solana/adapter";
+import { defaultJupiterAdapter, JupiterAdapter } from "../jupiter/adapter";
 import { getRepository } from "../database/db";
 import type { ISieveRepository } from "../database/repository";
 import { SieveAppError } from "./errors";
+import { isExpired } from "../../core";
+import { rawToDisplay } from "../../core/money/decimal";
 import type { TradeReceipt, NetworkMode } from "../../core/domain/types";
 
 export interface ConfirmRequestInput {
   buildIntentId: string;
-  signature: string;
+  signature?: string;
+  signedTransaction?: string;
+  wallet?: string;
   network?: NetworkMode;
 }
 
@@ -27,34 +32,50 @@ export const receiptsByWalletStore = new Map<string, TradeReceipt[]>();
 export class ConfirmationService {
   constructor(
     private solanaAdapter: SolanaAdapter = defaultSolanaAdapter,
+    private jupiterAdapter: JupiterAdapter = defaultJupiterAdapter,
     private repo: ISieveRepository = getRepository()
   ) {}
 
   async confirmTransaction(input: ConfirmRequestInput): Promise<ConfirmResponseDto> {
-    // 1. Idempotency check: if already confirmed in repo or memory, return existing receipt
-    const existingFromRepo = await this.repo.getTradeReceiptBySignature(input.signature);
-    if (existingFromRepo) {
-      return {
-        status: existingFromRepo.status,
-        receiptId: existingFromRepo.id,
-        signature: existingFromRepo.signature,
-        receipt: existingFromRepo,
-      };
-    }
-    if (receiptsBySignatureStore.has(input.signature)) {
-      const existing = receiptsBySignatureStore.get(input.signature)!;
-      return {
-        status: existing.status,
-        receiptId: existing.id,
-        signature: existing.signature,
-        receipt: existing,
-      };
-    }
-
-    // 2. Validate build intent exists
+    // 1. Validate build intent exists
     const buildIntent = (await this.repo.getBuildIntent(input.buildIntentId)) ?? activeBuildIntentsStore.get(input.buildIntentId);
     if (!buildIntent) {
       throw new SieveAppError("TRANSACTION_EXPIRED", "Build intent not found or expired");
+    }
+
+    // 2. Context binding validation (Audit Repair 5)
+    if (input.network && input.network !== buildIntent.network) {
+      throw new SieveAppError("NETWORK_MISMATCH", "Network mode does not match build intent");
+    }
+    if (input.wallet && input.wallet !== buildIntent.wallet) {
+      throw new SieveAppError("WALLET_MISMATCH", "Wallet address does not match build intent");
+    }
+
+    // 3. Validate expiry (Audit Repair 8)
+    if (isExpired(buildIntent.expiresAt, Date.now())) {
+      throw new SieveAppError("TRANSACTION_EXPIRED", "Transaction build intent expired before confirmation");
+    }
+
+    // 4. Idempotency check: if signature is provided and already confirmed, return existing receipt
+    if (input.signature) {
+      const existingFromRepo = await this.repo.getTradeReceiptBySignature(input.signature);
+      if (existingFromRepo) {
+        return {
+          status: existingFromRepo.status,
+          receiptId: existingFromRepo.id,
+          signature: existingFromRepo.signature,
+          receipt: existingFromRepo,
+        };
+      }
+      if (receiptsBySignatureStore.has(input.signature)) {
+        const existing = receiptsBySignatureStore.get(input.signature)!;
+        return {
+          status: existing.status,
+          receiptId: existing.id,
+          signature: existing.signature,
+          receipt: existing,
+        };
+      }
     }
 
     const check = (await this.repo.getPriceCheck(buildIntent.checkId)) ?? activeChecksStore.get(buildIntent.checkId);
@@ -64,19 +85,52 @@ export class ConfirmationService {
 
     const network = input.network ?? buildIntent.network;
 
-    // 3. Confirm on-chain status
+    // 5. Execute and confirm on-chain status (Audit Repairs 1, 6, 7)
     let isConfirmed = false;
     let failureCode: string | null = null;
+    let signature = input.signature ?? "";
+    let realizedTargetAmount: string | null = null;
 
     if (network === "mainnet") {
-      const result = await this.solanaAdapter.confirmSignature(input.signature, "mainnet");
-      isConfirmed = result.confirmed;
-      if (result.err) {
-        failureCode = JSON.stringify(result.err);
+      if (input.signedTransaction) {
+        if (!buildIntent.requestId) {
+          throw new SieveAppError("TRANSACTION_FAILED", "Missing Jupiter requestId for execution");
+        }
+        const execResult = await this.jupiterAdapter.executeTransaction({
+          signedTransaction: input.signedTransaction,
+          requestId: buildIntent.requestId,
+          lastValidBlockHeight: buildIntent.lastValidBlockHeight,
+        });
+
+        if (execResult.status === "Success" && execResult.signature) {
+          signature = execResult.signature;
+          isConfirmed = true;
+          if (execResult.totalOutputAmount) {
+            const targetDecimals = await this.solanaAdapter.resolveMintDecimals(check.asset.mint, "mainnet");
+            realizedTargetAmount = rawToDisplay(BigInt(execResult.totalOutputAmount), targetDecimals).toString();
+          } else {
+            realizedTargetAmount = buildIntent.summary.expectedTargetAmount;
+          }
+        } else {
+          isConfirmed = false;
+          failureCode = execResult.error || `Execution failed (code: ${execResult.code ?? "UNKNOWN"})`;
+          signature = execResult.signature || `failed-${buildIntent.id.slice(0, 8)}`;
+        }
+      } else if (signature) {
+        const result = await this.solanaAdapter.confirmSignature(signature, "mainnet");
+        isConfirmed = result.confirmed;
+        if (result.err) {
+          failureCode = JSON.stringify(result.err);
+        }
+        realizedTargetAmount = isConfirmed ? buildIntent.summary.expectedTargetAmount : null;
+      } else {
+        throw new SieveAppError("VALIDATION_ERROR", "Either signedTransaction or signature is required");
       }
     } else {
-      // Practice / Testnet mode: accept valid signature
+      // Practice / Testnet mode: accept simulated execution
       isConfirmed = true;
+      signature = signature || `sim-testnet-sig-${buildIntent.id.slice(0, 8)}`;
+      realizedTargetAmount = buildIntent.summary.expectedTargetAmount;
     }
 
     const receiptId = uuidv4();
@@ -88,14 +142,14 @@ export class ConfirmationService {
       buildIntentId: buildIntent.id,
       wallet: buildIntent.wallet,
       network,
-      signature: input.signature,
+      signature,
       status: isConfirmed ? "CONFIRMED" : "FAILED",
       fundingAsset: buildIntent.summary.fundingAsset,
       fundingAmount: buildIntent.summary.fundingAmount,
       targetSymbol: buildIntent.summary.targetSymbol,
       targetMint: check.asset.mint,
       expectedTargetAmount: buildIntent.summary.expectedTargetAmount,
-      realizedTargetAmount: isConfirmed ? buildIntent.summary.expectedTargetAmount : null,
+      realizedTargetAmount: isConfirmed ? (realizedTargetAmount || buildIntent.summary.expectedTargetAmount) : null,
       referencePriceUsd: buildIntent.summary.referencePriceUsd,
       checkedBuyPriceUsd: buildIntent.summary.currentBuyPriceUsd,
       maxPremiumBps: check.maxPremiumBps,
@@ -107,7 +161,7 @@ export class ConfirmationService {
 
     // Store receipt idempotently
     const savedReceipt = await this.repo.saveTradeReceipt(receipt);
-    receiptsBySignatureStore.set(input.signature, savedReceipt);
+    receiptsBySignatureStore.set(signature, savedReceipt);
 
     const walletReceipts = receiptsByWalletStore.get(buildIntent.wallet) ?? [];
     walletReceipts.unshift(savedReceipt);
@@ -139,3 +193,4 @@ export class ConfirmationService {
 }
 
 export const defaultConfirmationService = new ConfirmationService();
+
