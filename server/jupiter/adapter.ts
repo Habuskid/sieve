@@ -235,8 +235,9 @@ export class JupiterAdapter {
   }
 
   /**
-   * Derives contemporaneous SOL/USD valuation by querying Jupiter for SOL -> USDC quote.
-   * Fails closed if route is unavailable or quote fails.
+   * Derives contemporaneous SOL/USD valuation by querying Jupiter for SOL -> USDC quote
+   * and using the authoritative input USD valuation (inUsdValue).
+   * Fails closed if inUsdValue is unavailable to prevent fees/slippage from understating funding value.
    */
   async getSolUsdPrice(): Promise<Decimal> {
     const quote = await this.getQuote({
@@ -245,11 +246,14 @@ export class JupiterAdapter {
       amount: 1_000_000_000n, // 1 SOL (9 decimals)
       outputDecimals: 6, // USDC 6 decimals
     });
-    const usdPrice = toDecimal(quote.quote.expectedTargetAmount);
-    if (usdPrice.lessThanOrEqualTo(0)) {
-      throw new Error("Invalid contemporaneous SOL USD price: non-positive");
+
+    if (quote.inUsdValue != null && quote.inUsdValue > 0) {
+      return toDecimal(quote.inUsdValue);
     }
-    return usdPrice;
+
+    throw new Error(
+      "Contemporaneous SOL input USD valuation (inUsdValue) is unavailable from Jupiter; failing closed to prevent understating funding value"
+    );
   }
 
   private async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {

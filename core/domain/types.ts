@@ -117,10 +117,13 @@ export type TradeReceipt = {
   buildIntentId: string;
   wallet: string;
   network: NetworkMode;
-  signature: string;
+  signature: string | null;
+  internalExecutionId?: string | null;
   status: "CONFIRMED" | "FAILED";
   fundingAsset: FundingAsset;
   fundingAmount: string;
+  requestedFundingAmount: string;
+  actualFundingAmount: string | null;
   targetSymbol: string;
   targetMint: string;
   expectedTargetAmount: string;

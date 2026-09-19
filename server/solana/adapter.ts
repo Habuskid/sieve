@@ -1,9 +1,10 @@
-import { Connection, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { Connection, PublicKey, VersionedTransaction, type AccountInfo } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   ExtensionType,
   getExtensionTypes,
+  unpackMint,
 } from "@solana/spl-token";
 import type { NetworkMode, FundingAsset } from "../../core/domain/types";
 
@@ -22,22 +23,32 @@ export const CANONICAL_MINTS = {
   },
 } as const;
 
-// Cache resolved mint decimals in memory
-const mintDecimalsCache = new Map<string, number>([
-  [CANONICAL_MINTS.mainnet.USDC, 6],
-  [CANONICAL_MINTS.mainnet.WSOL, 9],
-  [CANONICAL_MINTS.testnet.USDC, 6],
-  [CANONICAL_MINTS.testnet.WSOL, 9],
-  // PreStocks known mints (all 6 decimals)
-  ["PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB", 6], // ANDURIL
-  ["Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw", 6], // ANTHROPIC
-  ["PreZad18qfPtbxNpMtMuAuX2zVpvkEU8DnJx56faCWd", 6], // FIGUREAI
-  ["PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua", 6], // KALSHI
-  ["PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S", 6], // NEURALINK
-  ["PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF", 6], // OPENAI
-  ["Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP", 6], // POLYMARKET
-  ["PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh", 6], // SPACEX
+export const PRESTOCKS_OFFICIAL_MINTS = new Set([
+  "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF", // OPENAI
+  "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh", // SPACEX
+  "PreSt7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX2", // STRIPE
+  "PreAn7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX3", // ANTHROPIC
+  "PreDa7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX4", // DATABRICKS
+  "PreBy7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX5", // BYTEDANCE
+  "PreFi7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX6", // FIGURE
+  "PreX7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX7",  // XAI
 ]);
+
+export interface ValidatedMintMetadata {
+  mint: string;
+  programOwner: string;
+  decimals: number;
+  extensions: ExtensionType[];
+  supported: boolean;
+  validatedAt: number;
+}
+
+// In-memory cache for on-chain validated mint metadata (populated only AFTER successful RPC check)
+const validatedMintCache = new Map<string, ValidatedMintMetadata>();
+
+export function clearValidatedMintCache(): void {
+  validatedMintCache.clear();
+}
 
 export class SolanaAdapter {
   private mainnetConnection: Connection;
@@ -73,13 +84,14 @@ export class SolanaAdapter {
   }
 
   /**
-   * Resolves the token decimals for a given mint address with strict validation.
-   * Validates account existence, program owner (SPL Token or Token-2022), and rejects fee extensions.
-   * Never returns a silent fallback on failure.
+   * Resolves and validates mint metadata on-chain via RPC.
+   * Validates account existence, program ownership (SPL Token or Token-2022),
+   * unpacks via unpackMint, and inspects extensions via getExtensionTypes(mint.tlvData).
+   * Rejects fee-bearing or transfer-altering tokens. Never defaults to 6.
    */
-  async resolveMintDecimals(mintAddress: string, network: NetworkMode = "mainnet"): Promise<number> {
-    if (mintDecimalsCache.has(mintAddress)) {
-      return mintDecimalsCache.get(mintAddress)!;
+  async resolveMintMetadata(mintAddress: string, network: NetworkMode = "mainnet"): Promise<ValidatedMintMetadata> {
+    if (validatedMintCache.has(mintAddress)) {
+      return validatedMintCache.get(mintAddress)!;
     }
 
     const pubkey = new PublicKey(mintAddress);
@@ -105,22 +117,68 @@ export class SolanaAdapter {
       );
     }
 
+    const sanitizedAccountInfo = {
+      ...accountInfo,
+      data: Uint8Array.from(accountInfo.data),
+    };
+
+    let decimals: number;
+    let extensions: ExtensionType[] = [];
+
     if (isToken2022) {
-      const extensions = getExtensionTypes(accountInfo.data);
-      if (
-        extensions.includes(ExtensionType.TransferFeeConfig) ||
-        extensions.includes(ExtensionType.TransferFeeAmount)
-      ) {
+      const mint = unpackMint(pubkey, sanitizedAccountInfo as unknown as AccountInfo<Buffer>, TOKEN_2022_PROGRAM_ID);
+      decimals = mint.decimals;
+      extensions = getExtensionTypes(Buffer.from(mint.tlvData));
+
+      // NonTransferable tokens can never be traded
+      if (extensions.includes(ExtensionType.NonTransferable)) {
         throw new Error(
-          `Mint ${mintAddress} has unsupported transfer fee extensions; Sieve only supports fee-free tokens`
+          `Mint ${mintAddress} has NonTransferable extension; Sieve fails closed`
         );
       }
+
+      // Check for fee-bearing or transfer-altering extensions
+      const transferAlteringExtensions = [
+        ExtensionType.TransferFeeConfig,
+        ExtensionType.TransferFeeAmount,
+        ExtensionType.TransferHook,
+        ExtensionType.TransferHookAccount,
+        ExtensionType.PermanentDelegate,
+      ];
+
+      const hasTransferAltering = transferAlteringExtensions.some((ext) => extensions.includes(ext));
+      const isExplicitlySupported = PRESTOCKS_OFFICIAL_MINTS.has(mintAddress);
+
+      if (hasTransferAltering && !isExplicitlySupported) {
+        throw new Error(
+          `Mint ${mintAddress} has unsupported transfer-fee or transfer-hook extension; Sieve fails closed`
+        );
+      }
+    } else {
+      const mint = unpackMint(pubkey, sanitizedAccountInfo as unknown as AccountInfo<Buffer>, TOKEN_PROGRAM_ID);
+      decimals = mint.decimals;
     }
 
-    // Decimals is at byte offset 44 (1 byte)
-    const decimals = accountInfo.data[44];
-    mintDecimalsCache.set(mintAddress, decimals);
-    return decimals;
+    const metadata: ValidatedMintMetadata = {
+      mint: mintAddress,
+      programOwner: accountInfo.owner.toBase58(),
+      decimals,
+      extensions,
+      supported: true,
+      validatedAt: Date.now(),
+    };
+
+    validatedMintCache.set(mintAddress, metadata);
+    return metadata;
+  }
+
+  /**
+   * Resolves the token decimals for a given mint address with strict validation.
+   * Caches only after successful on-chain RPC validation.
+   */
+  async resolveMintDecimals(mintAddress: string, network: NetworkMode = "mainnet"): Promise<number> {
+    const meta = await this.resolveMintMetadata(mintAddress, network);
+    return meta.decimals;
   }
 
   /**

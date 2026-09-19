@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
@@ -46,6 +46,26 @@ export function BuyView({ network }: BuyViewProps) {
   const [isWaitingForWallet, setIsWaitingForWallet] = useState(false);
   const [receipt, setReceipt] = useState<TradeReceipt | null>(null);
 
+  // Intent Versioning to discard stale async responses
+  const intentVersionRef = useRef<number>(0);
+
+  // Load preferences from localStorage on mount
+  useEffect(() => {
+    try {
+      const storedLimit = localStorage.getItem("sieve_default_limit");
+      const storedAsset = localStorage.getItem("sieve_default_asset");
+      if (storedLimit) {
+        const parsed = parseFloat(storedLimit);
+        if (!isNaN(parsed)) setUserLimitPct(parsed);
+      }
+      if (storedAsset === "SOL" || storedAsset === "USDC") {
+        setFundingAsset(storedAsset);
+      }
+    } catch {
+      // localStorage may not be available
+    }
+  }, []);
+
   // Load markets
   useEffect(() => {
     async function load() {
@@ -65,8 +85,9 @@ export function BuyView({ network }: BuyViewProps) {
     load();
   }, [network]);
 
-  // Reset check when inputs change
+  // Reset check when inputs change and bump intent version
   useEffect(() => {
+    intentVersionRef.current += 1;
     setCheckResult(null);
     setBannerState("IDLE");
     setErrorMessage(null);
@@ -87,6 +108,7 @@ export function BuyView({ network }: BuyViewProps) {
       return;
     }
 
+    const currentVersion = `v${++intentVersionRef.current}`;
     setChecking(true);
     setBannerState("CHECKING");
     setErrorMessage(null);
@@ -102,10 +124,16 @@ export function BuyView({ network }: BuyViewProps) {
           amount,
           maxPremiumPct: userLimitPct.toString(),
           wallet: publicKey?.toBase58() || null,
+          clientIntentVersion: currentVersion,
         }),
       });
 
       const data = await res.json();
+
+      // Discard stale responses if user changed inputs while in flight
+      if (currentVersion !== `v${intentVersionRef.current}`) {
+        return;
+      }
 
       if (!res.ok) {
         setBannerState("ERROR");
@@ -127,10 +155,13 @@ export function BuyView({ network }: BuyViewProps) {
         setBannerState("ERROR");
       }
     } catch (err) {
+      if (currentVersion !== `v${intentVersionRef.current}`) return;
       setBannerState("ERROR");
       setErrorMessage(err instanceof Error ? err.message : "Price check failed");
     } finally {
-      setChecking(false);
+      if (currentVersion === `v${intentVersionRef.current}`) {
+        setChecking(false);
+      }
     }
   };
 

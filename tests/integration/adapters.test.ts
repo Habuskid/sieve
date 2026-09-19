@@ -152,6 +152,41 @@ describe("Jupiter Adapter Contracts", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("getSolUsdPrice: derives contemporaneous SOL/USD valuation from /order inUsdValue", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ...validOrderResponse,
+        inUsdValue: 150.25,
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const adapter = new JupiterAdapter({ apiBase: "https://mock.jup.ag" });
+    const price = await adapter.getSolUsdPrice();
+    expect(price.toNumber()).toBe(150.25);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("getSolUsdPrice: fails closed when contemporaneous inUsdValue is unavailable", async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ...validOrderResponse,
+        inUsdValue: null,
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const adapter = new JupiterAdapter({ apiBase: "https://mock.jup.ag" });
+    await expect(adapter.getSolUsdPrice()).rejects.toThrow(/unavailable/i);
+
+    vi.unstubAllGlobals();
+  });
 });
 
 describe("Solana Adapter Contracts", () => {
@@ -162,19 +197,119 @@ describe("Solana Adapter Contracts", () => {
     expect(CANONICAL_MINTS.mainnet.SOL_DECIMALS).toBe(9);
   });
 
-  it("resolves known PreStocks mint decimals correctly without RPC call", async () => {
+  it("validates standard SPL Token mint via on-chain RPC", async () => {
+    const { TOKEN_PROGRAM_ID } = await import("@solana/spl-token");
     const adapter = new SolanaAdapter();
-    const openaiDecimals = await adapter.resolveMintDecimals(
-      "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
-      "mainnet"
-    );
-    expect(openaiDecimals).toBe(6);
 
-    const spacexDecimals = await adapter.resolveMintDecimals(
-      "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh",
-      "mainnet"
-    );
-    expect(spacexDecimals).toBe(6);
+    const data = Buffer.alloc(82);
+    data[44] = 6; // decimals = 6
+    data[45] = 1; // isInitialized = true
+
+    (adapter as any).getConnection = () => ({
+      getAccountInfo: async () => ({
+        owner: TOKEN_PROGRAM_ID,
+        data,
+      }),
+    });
+
+    const meta = await adapter.resolveMintMetadata("PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF", "mainnet");
+    expect(meta.decimals).toBe(6);
+    expect(meta.extensions).toEqual([]);
+    expect(meta.supported).toBe(true);
+
+    const decimals = await adapter.resolveMintDecimals("PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF", "mainnet");
+    expect(decimals).toBe(6);
+  });
+
+  it("validates Token-2022 mint and allows harmless extensions", async () => {
+    const { TOKEN_2022_PROGRAM_ID } = await import("@solana/spl-token");
+    const { Keypair } = await import("@solana/web3.js");
+    const adapter = new SolanaAdapter();
+
+    const data = Buffer.alloc(82);
+    data[44] = 9; // decimals = 9
+    data[45] = 1;
+
+    (adapter as any).getConnection = () => ({
+      getAccountInfo: async () => ({
+        owner: TOKEN_2022_PROGRAM_ID,
+        data,
+      }),
+    });
+
+    const cleanMint = Keypair.generate().publicKey.toBase58();
+    const meta = await adapter.resolveMintMetadata(cleanMint, "mainnet");
+    expect(meta.decimals).toBe(9);
+    expect(meta.supported).toBe(true);
+  });
+
+  it("fails closed on unsupported Token-2022 mint with TransferFeeConfig extension", async () => {
+    const { TOKEN_2022_PROGRAM_ID, ExtensionType } = await import("@solana/spl-token");
+    const { Keypair } = await import("@solana/web3.js");
+    const adapter = new SolanaAdapter();
+
+    // Construct Token-2022 buffer with TransferFeeConfig TLV
+    const data = Buffer.alloc(165 + 1 + 4);
+    data[44] = 6;
+    data[45] = 1;
+    data[165] = 1; // AccountType.Mint = 1
+    data.writeUInt16LE(ExtensionType.TransferFeeConfig, 166);
+    data.writeUInt16LE(0, 168);
+
+    (adapter as any).getConnection = () => ({
+      getAccountInfo: async () => ({
+        owner: TOKEN_2022_PROGRAM_ID,
+        data,
+      }),
+    });
+
+    // Random non-PreStocks mint address
+    const unsupportedFeeMint = Keypair.generate().publicKey.toBase58();
+    await expect(
+      adapter.resolveMintMetadata(unsupportedFeeMint, "mainnet")
+    ).rejects.toThrow(/unsupported transfer-fee or transfer-hook extension; Sieve fails closed/);
+  });
+
+  it("fails closed on Token-2022 mint with NonTransferable extension", async () => {
+    const { TOKEN_2022_PROGRAM_ID, ExtensionType } = await import("@solana/spl-token");
+    const { Keypair } = await import("@solana/web3.js");
+    const adapter = new SolanaAdapter();
+
+    const data = Buffer.alloc(165 + 1 + 4);
+    data[44] = 6;
+    data[45] = 1;
+    data[165] = 1;
+    data.writeUInt16LE(ExtensionType.NonTransferable, 166);
+    data.writeUInt16LE(0, 168);
+
+    (adapter as any).getConnection = () => ({
+      getAccountInfo: async () => ({
+        owner: TOKEN_2022_PROGRAM_ID,
+        data,
+      }),
+    });
+
+    const nonTransferableMint = Keypair.generate().publicKey.toBase58();
+    await expect(
+      adapter.resolveMintMetadata(nonTransferableMint, "mainnet")
+    ).rejects.toThrow(/NonTransferable extension; Sieve fails closed/);
+  });
+
+  it("fails closed if mint account is not owned by SPL Token or Token-2022", async () => {
+    const { PublicKey, Keypair } = await import("@solana/web3.js");
+    const adapter = new SolanaAdapter();
+
+    (adapter as any).getConnection = () => ({
+      getAccountInfo: async () => ({
+        owner: PublicKey.default, // System program or rogue program
+        data: Buffer.alloc(82),
+      }),
+    });
+
+    const rogueMint = Keypair.generate().publicKey.toBase58();
+    await expect(
+      adapter.resolveMintMetadata(rogueMint, "mainnet")
+    ).rejects.toThrow(/not owned by SPL Token or Token-2022/);
   });
 });
 

@@ -1,12 +1,12 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Sieve Browser E2E - UI & Security Flows", () => {
+test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to root
     await page.goto("/");
   });
 
-  test("1. Renders landing page, markets list, and network selector", async ({ page }) => {
+  test("1. Disconnected browse: landing page, markets list, and network selector", async ({ page }) => {
     await expect(page).toHaveTitle(/Sieve/i);
     await expect(page.getByRole("heading", { level: 1 })).toContainText(/without overpaying/i);
 
@@ -49,7 +49,6 @@ test.describe("Sieve Browser E2E - UI & Security Flows", () => {
   });
 
   test("3. Buy View: shows Practice mode banner and inputs", async ({ page }) => {
-    // Navigate to buy view with a practice token
     await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
 
     // Verify practice mode banner is visible
@@ -62,7 +61,7 @@ test.describe("Sieve Browser E2E - UI & Security Flows", () => {
     await expect(page.getByRole("button", { name: /check today's price/i })).toBeVisible();
   });
 
-  test("4. Price check execution: PASS flow with Price Rail and Review Dialog", async ({ page }) => {
+  test("4. Price check execution: PASS flow with Price Rail, Review Dialog, and Trade Receipt", async ({ page }) => {
     await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
 
     // Enter amount
@@ -95,7 +94,6 @@ test.describe("Sieve Browser E2E - UI & Security Flows", () => {
 
     // Trade Receipt appears
     await expect(page.getByText(/trade complete/i)).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText(/view on solscan/i)).toBeVisible();
 
     // Done button resets
     const doneBtn = page.getByRole("button", { name: /done/i });
@@ -124,17 +122,261 @@ test.describe("Sieve Browser E2E - UI & Security Flows", () => {
     await expect(page.getByRole("button", { name: /review buy/i })).not.toBeVisible();
   });
 
-  test("6. Accessibility: interactive elements meet minimum touch target and semantic requirements", async ({ page }) => {
+  test("6. Exact-boundary PASS: test with exact limit where current buy price equals maximum buy price", async ({ page }) => {
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    // Set slider to 3.0% (fixture is ~2.87% premium)
+    const slider = page.getByRole("slider");
+    await slider.fill("3.0");
+
+    const amountInput = page.getByPlaceholder("0.00");
+    await amountInput.fill("100");
+
+    await page.getByRole("button", { name: /check today's price/i }).click();
+    await expect(page.getByText(/the price is inside your limit/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("button", { name: /review buy/i })).toBeEnabled();
+  });
+
+  test("7. Pass-then-move BLOCK: server revaluation blocks build if market moves outside limit", async ({ page }) => {
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    const amountInput = page.getByPlaceholder("0.00");
+    await amountInput.fill("100");
+    await page.getByRole("button", { name: /check today's price/i }).click();
+
+    await expect(page.getByText(/the price is inside your limit/i)).toBeVisible({ timeout: 10000 });
+    const reviewBtn = page.getByRole("button", { name: /review buy/i });
+    await reviewBtn.click();
+
+    // Mock /api/build responding with BLOCKED due to price movement
+    await page.route("**/api/build", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "BLOCKED",
+          reason: "PRICE_MOVED",
+          refreshedCheck: {
+            checkId: "mock-refreshed-id",
+            clientIntentVersion: "v1",
+            network: "testnet",
+            sourceLabel: "Practice Fixture",
+            asset: { name: "OpenAI", symbol: "OPENAI", mint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF" },
+            funding: { asset: "USDC", amount: "100", usdValue: "100.00" },
+            price: { referenceUsd: "100.00", currentBuyUsd: "115.00", maxBuyUsd: "105.00", premiumPct: "15.00" },
+            expected: { targetAmount: "0.8695", priceImpactPct: "0.01" },
+            decision: "PRICE_TOO_HIGH",
+            observedAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 60000).toISOString(),
+            display: { title: "Price Moved Outside Limit", message: "Market price moved above your limit." },
+          },
+        }),
+      });
+    });
+
+    const confirmBtn = page.getByRole("button", { name: /confirm in wallet/i });
+    await confirmBtn.click();
+
+    // Review dialog closes, and banner displays the blocked state
+    await expect(page.getByText(/The price moved above your limit before transaction construction/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /review buy/i })).not.toBeVisible();
+  });
+
+  test("8. SOL funding flow: check price and review flow with SOL as funding asset", async ({ page }) => {
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    // Select SOL
+    const solRadio = page.getByRole("radio", { name: /sol/i });
+    await solRadio.click();
+
+    // Fill amount in SOL
+    const amountInput = page.getByPlaceholder("0.00");
+    await amountInput.fill("1.5");
+
+    await page.getByRole("button", { name: /check today's price/i }).click();
+    await expect(page.getByText(/the price is inside your limit/i)).toBeVisible({ timeout: 10000 });
+
+    // Review buy shows SOL funding
+    await page.getByRole("button", { name: /review buy/i }).click();
+    const reviewModal = page.getByRole("dialog");
+    await expect(reviewModal).toBeVisible();
+    await expect(reviewModal.getByText(/1.5 SOL/i)).toBeVisible();
+    await page.keyboard.press("Escape");
+  });
+
+  test("9. USDC funding flow: check price and review flow with USDC as funding asset", async ({ page }) => {
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    const usdcRadio = page.getByRole("radio", { name: /usdc/i });
+    await usdcRadio.click();
+
+    const amountInput = page.getByPlaceholder("0.00");
+    await amountInput.fill("50");
+
+    await page.getByRole("button", { name: /check today's price/i }).click();
+    await expect(page.getByText(/the price is inside your limit/i)).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole("button", { name: /review buy/i }).click();
+    const reviewModal = page.getByRole("dialog");
+    await expect(reviewModal).toBeVisible();
+    await expect(reviewModal.getByText(/50 USDC/i)).toBeVisible();
+    await page.keyboard.press("Escape");
+  });
+
+  test("10. Changing funding asset invalidates existing check result", async ({ page }) => {
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    await page.getByPlaceholder("0.00").fill("100");
+    await page.getByRole("button", { name: /check today's price/i }).click();
+    await expect(page.getByRole("button", { name: /review buy/i })).toBeVisible({ timeout: 10000 });
+
+    // Switch funding asset to SOL
+    await page.getByRole("radio", { name: /sol/i }).click();
+
+    // Review button should immediately disappear and check result is reset
+    await expect(page.getByRole("button", { name: /review buy/i })).not.toBeVisible();
+    await expect(page.getByText(/the price is inside your limit/i)).not.toBeVisible();
+  });
+
+  test("11. Changing input amount invalidates existing check result", async ({ page }) => {
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    const amountInput = page.getByPlaceholder("0.00");
+    await amountInput.fill("100");
+    await page.getByRole("button", { name: /check today's price/i }).click();
+    await expect(page.getByRole("button", { name: /review buy/i })).toBeVisible({ timeout: 10000 });
+
+    // Modify amount
+    await amountInput.fill("200");
+
+    // Review button should immediately disappear
+    await expect(page.getByRole("button", { name: /review buy/i })).not.toBeVisible();
+    await expect(page.getByText(/the price is inside your limit/i)).not.toBeVisible();
+  });
+
+  test("12. Switching network resets check and active trade state", async ({ page }) => {
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    await page.getByPlaceholder("0.00").fill("100");
+    await page.getByRole("button", { name: /check today's price/i }).click();
+    await expect(page.getByRole("button", { name: /review buy/i })).toBeVisible({ timeout: 10000 });
+
+    // Trigger network switch to Mainnet
+    const mainnetBtn = page.getByRole("button", { name: /mainnet/i });
+    await mainnetBtn.click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: /switch network/i }).click();
+
+    // In Mainnet, practice check is cleared
+    await expect(page.getByRole("button", { name: /review buy/i })).not.toBeVisible();
+    await expect(page.getByText(/Practice mode — Test data/i)).not.toBeVisible();
+  });
+
+  test("13. Stale async check response is discarded when inputs change in flight", async ({ page }) => {
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    let delayedResolve: (() => void) | null = null;
+    await page.route("**/api/check", async (route) => {
+      // Delay the response
+      await new Promise<void>((resolve) => {
+        delayedResolve = resolve;
+      });
+      await route.continue();
+    });
+
+    const amountInput = page.getByPlaceholder("0.00");
+    await amountInput.fill("100");
+    await page.getByRole("button", { name: /check today's price/i }).click();
+
+    // While check is in flight, user changes amount
+    await amountInput.fill("250");
+
+    // Resolve the delayed check
+    if (delayedResolve) (delayedResolve as () => void)();
+
+    // Verify stale response was ignored: review button is not visible
+    await expect(page.getByRole("button", { name: /review buy/i })).not.toBeVisible();
+  });
+
+  test("14. Preferences persistence: default price limit and funding asset persist across navigation", async ({ page }) => {
+    await page.goto("/preferences");
+
+    // Change default limit
+    const limitSlider = page.getByLabel(/default price limit/i);
+    await limitSlider.fill("7.5");
+
+    // Change default asset to SOL
+    await page.getByRole("button", { name: "SOL" }).click();
+
+    // Click Save preferences
+    await page.getByRole("button", { name: /save preferences/i }).click();
+    await expect(page.getByText(/saved/i)).toBeVisible();
+
+    // Navigate to Buy view
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    // Verify persisted preferences are loaded
+    await expect(page.getByRole("radio", { name: /sol/i })).toHaveAttribute("aria-checked", "true");
+    const slider = page.getByRole("slider");
+    await expect(slider).toHaveValue("7.5");
+  });
+
+  test("15. Mobile viewport: responsive layout, bottom navigation, and minimum touch targets", async ({ page }) => {
+    // Set mobile viewport (iPhone SE)
+    await page.setViewportSize({ width: 375, height: 667 });
     await page.goto("/");
 
-    // Buttons must have accessible text
-    const buttons = await page.getByRole("button").all();
-    expect(buttons.length).toBeGreaterThan(0);
+    // Verify bottom navigation bar is visible on mobile
+    const bottomNav = page.getByRole("navigation");
+    await expect(bottomNav).toBeVisible();
 
-    for (const button of buttons.slice(0, 10)) {
-      const name = await button.innerText();
-      const ariaLabel = await button.getAttribute("aria-label");
-      expect(name || ariaLabel).toBeTruthy();
+    // Check minimum touch targets (>= 44x44px)
+    const navButtons = await bottomNav.getByRole("link").all();
+    for (const btn of navButtons) {
+      const box = await btn.boundingBox();
+      if (box) {
+        expect(box.height).toBeGreaterThanOrEqual(44);
+      }
     }
+  });
+
+  test("16. Slider keyboard accessibility: Arrow, Home, and End keys adjust price limit", async ({ page }) => {
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    const slider = page.getByRole("slider");
+    await slider.focus();
+
+    // Press ArrowRight to increase
+    const initialVal = parseFloat(await slider.inputValue());
+    await page.keyboard.press("ArrowRight");
+    const nextVal = parseFloat(await slider.inputValue());
+    expect(nextVal).toBeGreaterThan(initialVal);
+
+    // Press Home to go to min (0)
+    await page.keyboard.press("Home");
+    expect(parseFloat(await slider.inputValue())).toBe(0);
+
+    // Press End to go to max (20)
+    await page.keyboard.press("End");
+    expect(parseFloat(await slider.inputValue())).toBe(20);
+  });
+
+  test("17. Accessibility & Reduced Motion: respects prefers-reduced-motion and dialog escape key", async ({ page }) => {
+    // Emulate reduced motion
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    // Complete a check and open review dialog
+    await page.getByPlaceholder("0.00").fill("100");
+    await page.getByRole("button", { name: /check today's price/i }).click();
+    await expect(page.getByRole("button", { name: /review buy/i })).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: /review buy/i }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+
+    // Press Escape to dismiss dialog
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
   });
 });

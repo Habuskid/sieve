@@ -9,16 +9,21 @@ import type {
   BuildIntent,
   TradeReceipt,
 } from "../../core/domain/types";
+import { toDecimal } from "../../core/money/decimal";
 
 export class PostgresSieveRepository implements ISieveRepository {
   private sql: postgres.Sql;
 
-  constructor(connectionString: string) {
-    this.sql = postgres(connectionString, {
-      max: 10,
-      idle_timeout: 20,
-      connect_timeout: 10,
-    });
+  constructor(connectionStringOrSql: string | postgres.Sql) {
+    if (typeof connectionStringOrSql === "string") {
+      this.sql = postgres(connectionStringOrSql, {
+        max: 10,
+        idle_timeout: 20,
+        connect_timeout: 10,
+      });
+    } else {
+      this.sql = connectionStringOrSql;
+    }
   }
 
   async savePriceCheck(check: PriceCheck): Promise<void> {
@@ -94,6 +99,7 @@ export class PostgresSieveRepository implements ISieveRepository {
   }
 
   async saveBuildIntent(intent: BuildIntent): Promise<void> {
+    const premiumBps = toDecimal(intent.summary.premiumPct).times(100).round().toNumber();
     await this.sql`
       INSERT INTO build_intents (
         id, check_id, wallet, network,
@@ -104,7 +110,7 @@ export class PostgresSieveRepository implements ISieveRepository {
         expires_at, status, created_at
       ) VALUES (
         ${intent.id}, ${intent.checkId}, ${intent.wallet}, ${intent.network},
-        ${intent.summary.referencePriceUsd}, ${intent.summary.currentBuyPriceUsd}, ${parseInt(intent.summary.premiumPct) * 100 || 0},
+        ${intent.summary.referencePriceUsd}, ${intent.summary.currentBuyPriceUsd}, ${premiumBps},
         ${intent.minimumAcceptableOutputRaw.toString()}, ${intent.protectionMethod}, null,
         ${intent.requestId ?? null}, null, ${intent.lastValidBlockHeight ?? null},
         ${intent.summary.fundingAsset}, ${intent.summary.fundingAmount}, ${intent.summary.targetSymbol}, ${intent.summary.expectedTargetAmount}, ${intent.summary.maxPremiumPct},
@@ -120,6 +126,20 @@ export class PostgresSieveRepository implements ISieveRepository {
     `;
     if (rows.length === 0) return null;
     const r = rows[0];
+
+    // Fail closed if any required persisted lifecycle field is missing (Defect 9)
+    if (
+      !r.funding_asset ||
+      r.funding_amount_display == null ||
+      !r.target_symbol ||
+      r.expected_target_amount == null ||
+      r.max_premium_pct == null
+    ) {
+      throw new Error(
+        `Persisted build intent ${id} is missing required lifecycle fields; database integrity check failed`
+      );
+    }
+
     return {
       id: r.id,
       checkId: r.check_id,
@@ -132,14 +152,14 @@ export class PostgresSieveRepository implements ISieveRepository {
       requestId: r.provider_request_id,
       expiresAt: r.expires_at instanceof Date ? r.expires_at.toISOString() : new Date(r.expires_at).toISOString(),
       summary: {
-        fundingAsset: (r.funding_asset ?? "USDC") as any,
-        fundingAmount: r.funding_amount_display != null ? r.funding_amount_display.toString() : "0",
-        targetSymbol: r.target_symbol ?? "",
-        expectedTargetAmount: r.expected_target_amount != null ? r.expected_target_amount.toString() : "0",
+        fundingAsset: r.funding_asset as any,
+        fundingAmount: r.funding_amount_display.toString(),
+        targetSymbol: r.target_symbol,
+        expectedTargetAmount: r.expected_target_amount.toString(),
         referencePriceUsd: r.revalidation_reference_price_usd.toString(),
         currentBuyPriceUsd: r.revalidation_buy_price_usd.toString(),
         premiumPct: (r.revalidation_premium_bps / 100).toFixed(2),
-        maxPremiumPct: r.max_premium_pct != null ? r.max_premium_pct.toString() : "0",
+        maxPremiumPct: r.max_premium_pct.toString(),
       },
     };
   }
@@ -147,15 +167,16 @@ export class PostgresSieveRepository implements ISieveRepository {
   async saveTradeReceipt(receipt: TradeReceipt): Promise<TradeReceipt> {
     const rows = await this.sql`
       INSERT INTO trade_receipts (
-        id, check_id, build_intent_id, wallet, network, signature, status,
-        funding_asset, funding_amount_display, target_symbol, target_mint,
-        expected_target_amount, realized_target_amount,
+        id, check_id, build_intent_id, wallet, network, signature, internal_execution_id, status,
+        funding_asset, funding_amount_display, requested_funding_amount, actual_funding_amount,
+        target_symbol, target_mint, expected_target_amount, realized_target_amount,
         reference_price_usd, checked_buy_price_usd, max_premium_bps, premium_bps,
         submitted_at, confirmed_at, failure_code, created_at
       ) VALUES (
-        ${receipt.id}, ${receipt.checkId}, ${receipt.buildIntentId}, ${receipt.wallet}, ${receipt.network}, ${receipt.signature}, ${receipt.status},
-        ${receipt.fundingAsset}, ${receipt.fundingAmount}, ${receipt.targetSymbol}, ${receipt.targetMint},
-        ${receipt.expectedTargetAmount}, ${receipt.realizedTargetAmount},
+        ${receipt.id}, ${receipt.checkId}, ${receipt.buildIntentId}, ${receipt.wallet}, ${receipt.network},
+        ${receipt.signature ?? null}, ${receipt.internalExecutionId ?? null}, ${receipt.status},
+        ${receipt.fundingAsset}, ${receipt.fundingAmount}, ${receipt.requestedFundingAmount}, ${receipt.actualFundingAmount ?? null},
+        ${receipt.targetSymbol}, ${receipt.targetMint}, ${receipt.expectedTargetAmount}, ${receipt.realizedTargetAmount},
         ${receipt.referencePriceUsd}, ${receipt.checkedBuyPriceUsd}, ${receipt.maxPremiumBps}, ${receipt.premiumBps},
         ${receipt.submittedAt}, ${receipt.confirmedAt}, ${receipt.failureCode ?? null}, NOW()
       )
@@ -276,16 +297,21 @@ export class PostgresSieveRepository implements ISieveRepository {
   }
 
   private mapReceiptRow(r: Record<string, any>): TradeReceipt {
+    const actualFunding = r.actual_funding_amount != null ? r.actual_funding_amount.toString() : null;
+    const requestedFunding = r.requested_funding_amount != null ? r.requested_funding_amount.toString() : r.funding_amount_display.toString();
     return {
       id: r.id,
       checkId: r.check_id,
       buildIntentId: r.build_intent_id,
       wallet: r.wallet,
       network: r.network,
-      signature: r.signature,
+      signature: r.signature ?? null,
+      internalExecutionId: r.internal_execution_id ?? null,
       status: r.status,
       fundingAsset: r.funding_asset,
-      fundingAmount: r.funding_amount_display.toString(),
+      fundingAmount: actualFunding ?? requestedFunding,
+      requestedFundingAmount: requestedFunding,
+      actualFundingAmount: actualFunding,
       targetSymbol: r.target_symbol,
       targetMint: r.target_mint,
       expectedTargetAmount: r.expected_target_amount.toString(),

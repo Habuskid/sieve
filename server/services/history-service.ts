@@ -71,7 +71,7 @@ export class HistoryService {
           limitPct: (r.maxPremiumBps / 100).toFixed(2),
         },
         network: r.network,
-        signature: r.signature,
+        signature: r.signature ?? undefined,
         statusLabel: r.status === "CONFIRMED" ? "Bought" : "Failed",
       });
     }

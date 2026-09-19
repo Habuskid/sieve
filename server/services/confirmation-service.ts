@@ -21,7 +21,7 @@ export interface ConfirmRequestInput {
 export interface ConfirmResponseDto {
   status: "CONFIRMED" | "FAILED" | "PENDING";
   receiptId?: string;
-  signature: string;
+  signature: string | null;
   receipt?: TradeReceipt;
 }
 
@@ -56,19 +56,29 @@ export class ConfirmationService {
       throw new SieveAppError("TRANSACTION_EXPIRED", "Transaction build intent expired before confirmation");
     }
 
-    // 4. Idempotency check: if signature is provided and already confirmed, return existing receipt
+    const network = input.network ?? buildIntent.network;
+
+    // 4. Mainnet signature-only rejection (Audit Defect 1)
+    if (network === "mainnet" && !input.signedTransaction) {
+      throw new SieveAppError("VALIDATION_ERROR", "Mainnet confirmation requires signedTransaction");
+    }
+
+    // 5. Cross-build idempotency check on provided signature (Audit Defect 2)
     if (input.signature) {
       const existingFromRepo = await this.repo.getTradeReceiptBySignature(input.signature);
-      if (existingFromRepo) {
-        return {
-          status: existingFromRepo.status,
-          receiptId: existingFromRepo.id,
-          signature: existingFromRepo.signature,
-          receipt: existingFromRepo,
-        };
-      }
-      if (receiptsBySignatureStore.has(input.signature)) {
-        const existing = receiptsBySignatureStore.get(input.signature)!;
+      const existing = existingFromRepo ?? receiptsBySignatureStore.get(input.signature);
+      if (existing) {
+        if (
+          existing.buildIntentId !== buildIntent.id ||
+          existing.checkId !== buildIntent.checkId ||
+          existing.wallet !== buildIntent.wallet ||
+          existing.network !== buildIntent.network
+        ) {
+          throw new SieveAppError(
+            "IDEMPOTENCY_VIOLATION",
+            "Signature belongs to a different trade receipt or build intent"
+          );
+        }
         return {
           status: existing.status,
           receiptId: existing.id,
@@ -83,54 +93,77 @@ export class ConfirmationService {
       throw new SieveAppError("QUOTE_EXPIRED", "Associated price check not found");
     }
 
-    const network = input.network ?? buildIntent.network;
-
-    // 5. Execute and confirm on-chain status (Audit Repairs 1, 6, 7)
+    // 6. Execute and confirm status (Audit Defects 1, 2, 3, 4, 11)
     let isConfirmed = false;
     let failureCode: string | null = null;
-    let signature = input.signature ?? "";
+    let signature: string | null = input.signature ?? null;
     let realizedTargetAmount: string | null = null;
+    let actualFundingAmount: string | null = null;
+    const internalExecutionId = uuidv4();
 
     if (network === "mainnet") {
-      if (input.signedTransaction) {
-        if (!buildIntent.requestId) {
-          throw new SieveAppError("TRANSACTION_FAILED", "Missing Jupiter requestId for execution");
-        }
-        const execResult = await this.jupiterAdapter.executeTransaction({
-          signedTransaction: input.signedTransaction,
-          requestId: buildIntent.requestId,
-          lastValidBlockHeight: buildIntent.lastValidBlockHeight,
-        });
+      if (!buildIntent.requestId) {
+        throw new SieveAppError("TRANSACTION_FAILED", "Missing Jupiter requestId for execution");
+      }
+      const execResult = await this.jupiterAdapter.executeTransaction({
+        signedTransaction: input.signedTransaction!,
+        requestId: buildIntent.requestId,
+        lastValidBlockHeight: buildIntent.lastValidBlockHeight,
+      });
 
-        if (execResult.status === "Success" && execResult.signature) {
-          signature = execResult.signature;
-          isConfirmed = true;
-          if (execResult.totalOutputAmount) {
-            const targetDecimals = await this.solanaAdapter.resolveMintDecimals(check.asset.mint, "mainnet");
-            realizedTargetAmount = rawToDisplay(BigInt(execResult.totalOutputAmount), targetDecimals).toString();
-          } else {
-            realizedTargetAmount = buildIntent.summary.expectedTargetAmount;
+      if (execResult.status === "Success" && execResult.signature) {
+        signature = execResult.signature;
+        isConfirmed = true;
+
+        // Idempotency check: if returned signature already has a receipt, verify cross-build parameters
+        const existing = (await this.repo.getTradeReceiptBySignature(signature)) ?? receiptsBySignatureStore.get(signature);
+        if (existing) {
+          if (
+            existing.buildIntentId !== buildIntent.id ||
+            existing.checkId !== buildIntent.checkId ||
+            existing.wallet !== buildIntent.wallet ||
+            existing.network !== buildIntent.network
+          ) {
+            throw new SieveAppError(
+              "IDEMPOTENCY_VIOLATION",
+              "Signature belongs to a different trade receipt or build intent"
+            );
           }
+          return {
+            status: existing.status,
+            receiptId: existing.id,
+            signature: existing.signature,
+            receipt: existing,
+          };
+        }
+
+        // Realized target amount: NEVER fall back to expected on Mainnet (Audit Defect 3)
+        if (execResult.totalOutputAmount) {
+          const targetDecimals = await this.solanaAdapter.resolveMintDecimals(check.asset.mint, "mainnet");
+          realizedTargetAmount = rawToDisplay(BigInt(execResult.totalOutputAmount), targetDecimals).toString();
         } else {
-          isConfirmed = false;
-          failureCode = execResult.error || `Execution failed (code: ${execResult.code ?? "UNKNOWN"})`;
-          signature = execResult.signature || `failed-${buildIntent.id.slice(0, 8)}`;
+          realizedTargetAmount = null;
         }
-      } else if (signature) {
-        const result = await this.solanaAdapter.confirmSignature(signature, "mainnet");
-        isConfirmed = result.confirmed;
-        if (result.err) {
-          failureCode = JSON.stringify(result.err);
+
+        // Actual funding amount (Audit Defect 4)
+        if (execResult.totalInputAmount) {
+          const fundingDecimals = buildIntent.summary.fundingAsset === "USDC" ? 6 : 9;
+          actualFundingAmount = rawToDisplay(BigInt(execResult.totalInputAmount), fundingDecimals).toString();
+        } else {
+          actualFundingAmount = null;
         }
-        realizedTargetAmount = isConfirmed ? buildIntent.summary.expectedTargetAmount : null;
       } else {
-        throw new SieveAppError("VALIDATION_ERROR", "Either signedTransaction or signature is required");
+        isConfirmed = false;
+        failureCode = execResult.error || `Execution failed (code: ${execResult.code ?? "UNKNOWN"})`;
+        // Do not fabricate failed-xxxxxxxx signatures (Audit Defect 11)
+        signature = execResult.signature || null;
       }
     } else {
       // Practice / Testnet mode: accept simulated execution
       isConfirmed = true;
       signature = signature || `sim-testnet-sig-${buildIntent.id.slice(0, 8)}`;
       realizedTargetAmount = buildIntent.summary.expectedTargetAmount;
+      actualFundingAmount = buildIntent.summary.fundingAmount;
     }
 
     const receiptId = uuidv4();
@@ -146,10 +179,12 @@ export class ConfirmationService {
       status: isConfirmed ? "CONFIRMED" : "FAILED",
       fundingAsset: buildIntent.summary.fundingAsset,
       fundingAmount: buildIntent.summary.fundingAmount,
+      requestedFundingAmount: buildIntent.summary.fundingAmount,
+      actualFundingAmount,
       targetSymbol: buildIntent.summary.targetSymbol,
       targetMint: check.asset.mint,
       expectedTargetAmount: buildIntent.summary.expectedTargetAmount,
-      realizedTargetAmount: isConfirmed ? (realizedTargetAmount || buildIntent.summary.expectedTargetAmount) : null,
+      realizedTargetAmount,
       referencePriceUsd: buildIntent.summary.referencePriceUsd,
       checkedBuyPriceUsd: buildIntent.summary.currentBuyPriceUsd,
       maxPremiumBps: check.maxPremiumBps,
@@ -157,11 +192,14 @@ export class ConfirmationService {
       submittedAt: new Date().toISOString(),
       confirmedAt,
       failureCode,
+      internalExecutionId,
     };
 
     // Store receipt idempotently
     const savedReceipt = await this.repo.saveTradeReceipt(receipt);
-    receiptsBySignatureStore.set(signature, savedReceipt);
+    if (savedReceipt.signature) {
+      receiptsBySignatureStore.set(savedReceipt.signature, savedReceipt);
+    }
 
     const walletReceipts = receiptsByWalletStore.get(buildIntent.wallet) ?? [];
     walletReceipts.unshift(savedReceipt);

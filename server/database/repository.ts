@@ -66,11 +66,13 @@ export class InMemorySieveRepository implements ISieveRepository {
 
   async saveTradeReceipt(receipt: TradeReceipt): Promise<TradeReceipt> {
     // Idempotency: if signature already exists, return existing receipt
-    if (this.receipts.has(receipt.signature)) {
+    if (receipt.signature && this.receipts.has(receipt.signature)) {
       return { ...this.receipts.get(receipt.signature)! };
     }
     const cloned = { ...receipt };
-    this.receipts.set(receipt.signature, cloned);
+    if (receipt.signature) {
+      this.receipts.set(receipt.signature, cloned);
+    }
     this.receiptsById.set(receipt.id, cloned);
     return cloned;
   }
@@ -81,7 +83,7 @@ export class InMemorySieveRepository implements ISieveRepository {
   }
 
   async listTradeReceipts(params: ListFilterParams = {}): Promise<TradeReceipt[]> {
-    let list = Array.from(this.receipts.values());
+    let list = Array.from(this.receiptsById.values());
     if (params.network) {
       list = list.filter((r) => r.network === params.network);
     }

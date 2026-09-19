@@ -14,7 +14,7 @@
     "test:e2e": "playwright test",
     "test:all": "vitest run tests/unit tests/integration tests/e2e/practice-flow.test.ts",
     "test:live:readonly": "vitest run tests/integration/live-readonly.test.ts",
-    "spec:lint": "node scripts/spec-lint.mjs"
+    "db:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.13",
@@ -53,9 +53,11 @@
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   },
-  "overrides": {
-    "uuid": "^9.0.1",
-    "stream-json": "^3.5.0",
-    "postcss": "^8.5.3"
+  "pnpm": {
+    "overrides": {
+      "uuid": "^9.0.1",
+      "stream-json": "^3.5.0",
+      "postcss": "^8.5.23"
+    }
   }
 }

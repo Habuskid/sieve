@@ -16,6 +16,14 @@ const ConfirmRequestSchema = z
   })
   .refine((data) => data.signature || data.signedTransaction, {
     message: "Either signature or signedTransaction must be provided",
+  })
+  .refine((data) => {
+    if (data.network === "mainnet" && !data.signedTransaction) {
+      return false;
+    }
+    return true;
+  }, {
+    message: "Mainnet confirmation requires signedTransaction",
   });
 
 export async function POST(request: NextRequest) {

@@ -104,6 +104,8 @@ describe("Database & Persistence Layer (Phase 6)", () => {
     status: "CONFIRMED",
     fundingAsset: "USDC",
     fundingAmount: "10",
+    requestedFundingAmount: "10",
+    actualFundingAmount: "10",
     targetSymbol: "OPENAI",
     targetMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
     expectedTargetAmount: "0.097087",
@@ -226,5 +228,50 @@ describe("Database & Persistence Layer (Phase 6)", () => {
     expect(blockedItem).toBeDefined();
     expect(blockedItem?.type).toBe("CHECK_BLOCKED");
     expect(blockedItem?.signature).toBeUndefined(); // Never gets a fake signature!
+  });
+
+  it("exact BPS serialization: correctly converts premium percentages to exact basis points", async () => {
+    const { toDecimal } = await import("../../core/money/decimal");
+    const testCases = [
+      { pct: "0.01", expectedBps: 1 },
+      { pct: "2.87", expectedBps: 287 },
+      { pct: "5.00", expectedBps: 500 },
+      { pct: "12.34", expectedBps: 1234 },
+    ];
+
+    for (const { pct, expectedBps } of testCases) {
+      const bps = toDecimal(pct).times(100).round().toNumber();
+      expect(bps).toBe(expectedBps);
+    }
+  });
+
+  it("rehydration integrity: PostgresSieveRepository fails closed if required build intent fields are missing", async () => {
+    const { PostgresSieveRepository } = await import("../../server/database/db");
+    
+    // Mock sql tagged template function returning an incomplete row
+    const mockSqlIncomplete = (async () => [
+      {
+        id: "incomplete-build-1",
+        check_id: "check-1",
+        network: "testnet",
+        wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        minimum_output_raw: "95238",
+        protection_method: "JUPITER_SLIPPAGE_BPS_190",
+        funding_asset: null, // MISSING!
+        funding_amount_display: null, // MISSING!
+        target_symbol: "OPENAI",
+        expected_target_amount: "0.097087",
+        max_premium_pct: "5.00",
+        revalidation_reference_price_usd: "100.00",
+        revalidation_buy_price_usd: "103.00",
+        revalidation_premium_bps: 300,
+        expires_at: new Date().toISOString(),
+      },
+    ]) as any;
+
+    const pgRepo = new PostgresSieveRepository(mockSqlIncomplete);
+    await expect(pgRepo.getBuildIntent("incomplete-build-1")).rejects.toThrow(
+      /missing required lifecycle fields; database integrity check failed/
+    );
   });
 });

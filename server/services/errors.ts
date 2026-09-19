@@ -17,6 +17,7 @@ export type ErrorCode =
   | "TRANSACTION_SUBMIT_FAILED"
   | "TRANSACTION_FAILED"
   | "VALIDATION_ERROR"
+  | "IDEMPOTENCY_VIOLATION"
   | "CONFIRMATION_PENDING"
   | "CONFIRMATION_FAILED"
   | "RATE_LIMITED"
@@ -144,6 +145,14 @@ export const ERROR_REGISTRY: Record<ErrorCode, SieveErrorDetails> = {
     retryable: false,
     fundsMoved: "no",
     status: 400,
+  },
+  IDEMPOTENCY_VIOLATION: {
+    code: "IDEMPOTENCY_VIOLATION",
+    userTitle: "Transaction already processed under different parameters.",
+    userMessage: "This signature belongs to a different trade receipt or build intent.",
+    retryable: false,
+    fundsMoved: "unknown",
+    status: 409,
   },
   INSUFFICIENT_FUNDS: {
     code: "INSUFFICIENT_FUNDS",

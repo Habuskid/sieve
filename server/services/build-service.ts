@@ -245,14 +245,18 @@ export class TransactionBuildService {
       });
 
       // Boundary enforcement: ensure assembled transaction slippage threshold strictly satisfies Sieve policy
-      if (buildResult.otherAmountThreshold) {
-        const jupMinRaw = BigInt(buildResult.otherAmountThreshold);
-        if (jupMinRaw < protection.minimumAcceptableOutputRaw) {
-          throw new SieveAppError(
-            "PRICE_MOVED_OUTSIDE_LIMIT",
-            `Assembled transaction minimum output (${jupMinRaw}) is looser than Sieve price limit (${protection.minimumAcceptableOutputRaw})`
-          );
-        }
+      if (!buildResult.otherAmountThreshold) {
+        throw new SieveAppError(
+          "ROUTE_RISK",
+          "Final assembled Jupiter order does not expose a verifiable minimum-output protection threshold"
+        );
+      }
+      const jupMinRaw = BigInt(buildResult.otherAmountThreshold);
+      if (jupMinRaw < protection.minimumAcceptableOutputRaw) {
+        throw new SieveAppError(
+          "PRICE_MOVED_OUTSIDE_LIMIT",
+          `Assembled transaction minimum output (${jupMinRaw}) is looser than Sieve price limit (${protection.minimumAcceptableOutputRaw})`
+        );
       }
 
       serializedTx = buildResult.transactionBase64;
