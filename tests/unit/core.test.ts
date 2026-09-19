@@ -1,0 +1,305 @@
+import { describe, it, expect } from "vitest";
+import {
+  toDecimal,
+  rawToDisplay,
+  displayToRaw,
+  pctToBps,
+  bpsToPct,
+  deriveMaximumBuyPrice,
+  deriveCurrentBuyPrice,
+  derivePremiumPct,
+  deriveDifferenceUsd,
+  isFresh,
+  isExpired,
+  evaluatePriceBoundary,
+  deriveAllowedExecutionTolerance,
+  Decimal,
+} from "../../core";
+
+describe("Core Money and Decimal Layer", () => {
+  it("converts raw bigint to display decimal correctly for various token decimals", () => {
+    // USDC: 6 decimals (10 USDC)
+    expect(rawToDisplay(10_000_000n, 6).toString()).toBe("10");
+
+    // SOL: 9 decimals (1.5 SOL)
+    expect(rawToDisplay(1_500_000_000n, 9).toString()).toBe("1.5");
+
+    // Custom 8 decimals (0.00012345)
+    expect(rawToDisplay(12345n, 8).toString()).toBe("0.00012345");
+  });
+
+  it("converts display decimal to raw bigint with floor rounding for safety", () => {
+    expect(displayToRaw("10", 6)).toBe(10_000_000n);
+    expect(displayToRaw("1.5", 9)).toBe(1_500_000_000n);
+    expect(displayToRaw("0.00012345", 8)).toBe(12345n);
+
+    // Floor rounding handles fractional sub-units without over-promising
+    expect(displayToRaw("1.0000009", 6)).toBe(1_000_000n);
+  });
+
+  it("handles very large and very small numbers without precision loss", () => {
+    const large = "1000000000000000.123456";
+    const small = "0.000000000000001";
+    expect(toDecimal(large).toString()).toBe(large);
+    expect(toDecimal(small).toString()).toBe(small);
+  });
+
+  it("converts percentage to basis points and vice versa", () => {
+    expect(pctToBps("5")).toBe(500);
+    expect(pctToBps("5.25")).toBe(525);
+    expect(pctToBps("0.01")).toBe(1);
+    expect(pctToBps("0")).toBe(0);
+
+    expect(bpsToPct(500)).toBe("5.00");
+    expect(bpsToPct(525)).toBe("5.25");
+    expect(bpsToPct(1)).toBe("0.01");
+  });
+
+  it("throws for invalid decimal inputs", () => {
+    expect(() => toDecimal("invalid")).toThrow();
+    expect(() => toDecimal(NaN)).toThrow();
+    expect(() => toDecimal(Infinity)).toThrow();
+  });
+});
+
+describe("Core Pricing Calculator (BR-002, BR-003, BR-004)", () => {
+  it("derives maximum buy price: M = R * (1 + P)", () => {
+    // R = 100, P = 5% -> M = 105
+    const maxPrice = deriveMaximumBuyPrice("100.00", "5.00");
+    expect(maxPrice.toString()).toBe("105");
+
+    // R = 987.88, P = 10% -> M = 1086.668
+    const maxPrice2 = deriveMaximumBuyPrice("987.88", "10.00");
+    expect(maxPrice2.toString()).toBe("1086.668");
+  });
+
+  it("derives current buy price: C = U / T", () => {
+    // $10 funding, 0.01 tokens -> $1000/token
+    const currentPrice = deriveCurrentBuyPrice("10.00", "0.01");
+    expect(currentPrice.toString()).toBe("1000");
+
+    // $10 funding, 0.005798185 tokens
+    const currentPrice2 = deriveCurrentBuyPrice("10.00", "0.005798185");
+    expect(currentPrice2.toFixed(4)).toBe("1724.6776");
+  });
+
+  it("derives premium percentage: premium = ((C - R) / R) * 100", () => {
+    // C = 105, R = 100 -> +5%
+    expect(derivePremiumPct("105", "100").toString()).toBe("5");
+
+    // C = 95, R = 100 -> -5% (discount)
+    expect(derivePremiumPct("95", "100").toString()).toBe("-5");
+  });
+
+  it("derives difference in USD: diff = C - R", () => {
+    expect(deriveDifferenceUsd("105", "100").toString()).toBe("5");
+    expect(deriveDifferenceUsd("95", "100").toString()).toBe("-5");
+  });
+});
+
+describe("Core Freshness and Expiration", () => {
+  const now = 1700000000000;
+
+  it("recognizes fresh timestamps within maxAge", () => {
+    // Observed 10 seconds ago, maxAge 30s -> fresh
+    expect(isFresh(now - 10_000, now, 30_000)).toBe(true);
+
+    // Exactly at maxAge -> fresh
+    expect(isFresh(now - 30_000, now, 30_000)).toBe(true);
+  });
+
+  it("identifies stale timestamps exceeding maxAge", () => {
+    // Observed 31 seconds ago, maxAge 30s -> stale
+    expect(isFresh(now - 31_000, now, 30_000)).toBe(false);
+  });
+
+  it("detects expired quote timestamps", () => {
+    expect(isExpired(now - 1000, now)).toBe(true);
+    expect(isExpired(now + 5000, now)).toBe(false);
+    expect(isExpired(null, now)).toBe(false);
+  });
+});
+
+describe("Policy Evaluator (BR-005, BR-006, BR-007, BR-008)", () => {
+  const now = 1700000000000;
+
+  it("PASS_BASIC: Reference 100, Current 103, Limit 5% -> GOOD_TO_GO", () => {
+    const decision = evaluatePriceBoundary({
+      referencePriceUsd: "100.00",
+      referenceObservedAt: now - 5000,
+      fundingUsdValue: "103.00",
+      expectedTargetTokens: "1.00", // Current price = 103.00
+      maxPremiumPct: "5.00",
+      quoteObservedAt: now - 2000,
+      now,
+    });
+
+    expect(decision.status).toBe("GOOD_TO_GO");
+    expect(decision.isExecutable).toBe(true);
+    expect(decision.premiumPct).toBe("3.00");
+    expect(decision.currentBuyPriceUsd).toBe("103.0000");
+    expect(decision.maximumBuyPriceUsd).toBe("105.0000");
+  });
+
+  it("PASS_EXACT_BOUNDARY: Reference 100, Current 105, Limit 5% -> GOOD_TO_GO", () => {
+    const decision = evaluatePriceBoundary({
+      referencePriceUsd: "100.00",
+      referenceObservedAt: now - 5000,
+      fundingUsdValue: "105.00",
+      expectedTargetTokens: "1.00", // Current price = 105.00
+      maxPremiumPct: "5.00",
+      quoteObservedAt: now - 2000,
+      now,
+    });
+
+    expect(decision.status).toBe("GOOD_TO_GO");
+    expect(decision.isExecutable).toBe(true);
+    expect(decision.premiumPct).toBe("5.00");
+  });
+
+  it("BLOCK_ONE_BP_OVER: Reference 100, Current 105.01, Limit 5% -> PRICE_TOO_HIGH", () => {
+    const decision = evaluatePriceBoundary({
+      referencePriceUsd: "100.00",
+      referenceObservedAt: now - 5000,
+      fundingUsdValue: "105.01",
+      expectedTargetTokens: "1.00", // Current price = 105.01
+      maxPremiumPct: "5.00",
+      quoteObservedAt: now - 2000,
+      now,
+    });
+
+    expect(decision.status).toBe("PRICE_TOO_HIGH");
+    expect(decision.isExecutable).toBe(false);
+    expect(decision.premiumPct).toBe("5.01");
+  });
+
+  it("DISCOUNT: Reference 100, Current 92, Limit 5% -> GOOD_TO_GO", () => {
+    const decision = evaluatePriceBoundary({
+      referencePriceUsd: "100.00",
+      referenceObservedAt: now - 5000,
+      fundingUsdValue: "92.00",
+      expectedTargetTokens: "1.00",
+      maxPremiumPct: "5.00",
+      quoteObservedAt: now - 2000,
+      now,
+    });
+
+    expect(decision.status).toBe("GOOD_TO_GO");
+    expect(decision.isExecutable).toBe(true);
+    expect(decision.premiumPct).toBe("-8.00");
+  });
+
+  it("STALE_REFERENCE: Expired reference fails closed", () => {
+    const decision = evaluatePriceBoundary({
+      referencePriceUsd: "100.00",
+      referenceObservedAt: now - 65_000, // 65s old (> 60s)
+      fundingUsdValue: "100.00",
+      expectedTargetTokens: "1.00",
+      maxPremiumPct: "5.00",
+      quoteObservedAt: now - 2000,
+      now,
+    });
+
+    expect(decision.status).toBe("STALE_REFERENCE");
+    expect(decision.isExecutable).toBe(false);
+  });
+
+  it("STALE_QUOTE: Expired quote fails closed", () => {
+    const decision = evaluatePriceBoundary({
+      referencePriceUsd: "100.00",
+      referenceObservedAt: now - 5000,
+      fundingUsdValue: "100.00",
+      expectedTargetTokens: "1.00",
+      maxPremiumPct: "5.00",
+      quoteObservedAt: now - 35_000, // 35s old (> 30s)
+      now,
+    });
+
+    expect(decision.status).toBe("STALE_QUOTE");
+    expect(decision.isExecutable).toBe(false);
+  });
+
+  it("NO_ROUTE: Zero target output fails closed", () => {
+    const decision = evaluatePriceBoundary({
+      referencePriceUsd: "100.00",
+      referenceObservedAt: now - 5000,
+      fundingUsdValue: "100.00",
+      expectedTargetTokens: "0",
+      maxPremiumPct: "5.00",
+      quoteObservedAt: now - 2000,
+      now,
+    });
+
+    expect(decision.status).toBe("NO_ROUTE");
+    expect(decision.isExecutable).toBe(false);
+  });
+
+  it("ROUTE_RISK: Excessive price impact fails closed", () => {
+    const decision = evaluatePriceBoundary({
+      referencePriceUsd: "100.00",
+      referenceObservedAt: now - 5000,
+      fundingUsdValue: "100.00",
+      expectedTargetTokens: "1.00",
+      maxPremiumPct: "5.00",
+      priceImpactPct: "15.5", // 15.5% > 10% max
+      quoteObservedAt: now - 2000,
+      now,
+    });
+
+    expect(decision.status).toBe("ROUTE_RISK");
+    expect(decision.isExecutable).toBe(false);
+  });
+});
+
+describe("Protection Derivation (BR-017)", () => {
+  it("derives conservative slippage and minimum raw target output within policy limit", () => {
+    // Reference = 100, Limit = 5% -> Max Price M = 105
+    // Funding = $10.00, Target Decimals = 6
+    // Minimum required tokens = 10 / 105 = 0.095238095... tokens
+    // Minimum raw target = 95,238 units
+    // Quoted target = 0.098 tokens (current price = $102.04, inside limit)
+    const result = deriveAllowedExecutionTolerance({
+      fundingUsdValue: "10.00",
+      referencePriceUsd: "100.00",
+      maxPremiumPct: "5.00",
+      expectedTargetTokens: "0.098",
+      targetDecimals: 6,
+    });
+
+    expect(result.isExecutable).toBe(true);
+    expect(result.minimumAcceptableOutputRaw).toBe(95238n);
+
+    // Slippage = 1 - (0.095238 / 0.098) = 0.02818 -> 281 bps
+    expect(result.slippageBps).toBe(281);
+  });
+
+  it("returns not executable when quoted output is already below required minimum", () => {
+    // Quoted target = 0.090 tokens -> Buy price is $111.11, above $105 limit
+    const result = deriveAllowedExecutionTolerance({
+      fundingUsdValue: "10.00",
+      referencePriceUsd: "100.00",
+      maxPremiumPct: "5.00",
+      expectedTargetTokens: "0.090",
+      targetDecimals: 6,
+    });
+
+    expect(result.isExecutable).toBe(false);
+    expect(result.slippageBps).toBe(0);
+  });
+
+  it("clamps slippage to maximum allowed cap", () => {
+    // Huge room: Quoted = 1.0 token, Min required = 0.095 tokens
+    // Raw policy slippage would be ~90%, but cap is 500 bps (5%)
+    const result = deriveAllowedExecutionTolerance({
+      fundingUsdValue: "10.00",
+      referencePriceUsd: "100.00",
+      maxPremiumPct: "5.00",
+      expectedTargetTokens: "1.00",
+      targetDecimals: 6,
+      maxAllowedSlippageBps: 500,
+    });
+
+    expect(result.isExecutable).toBe(true);
+    expect(result.slippageBps).toBe(500);
+  });
+});

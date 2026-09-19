@@ -1,0 +1,50 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+/test-results
+/playwright-report
+
+# Next.js
+/.next/
+/out/
+
+# Production
+/build
+/dist
+
+# Misc
+.DS_Store
+*.pem
+*.zip
+
+# Local env files
+.env
+.env*.local
+!.env.example
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Internal planning / hackathon specs
+*.md
+!README.md
+
+# Antigravity workspace configuration
+.agents/
+
+# Local evidence / planning docs
+/docs/evidence/
+
+# Optional local tooling files
+.npmrc
+
+# Internal spec validation
+/scripts/spec-lint.mjs

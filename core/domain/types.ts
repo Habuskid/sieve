@@ -1,0 +1,135 @@
+export type NetworkMode = "mainnet" | "testnet";
+
+export type FundingAsset = "SOL" | "USDC";
+
+export type DecisionStatus =
+  | "GOOD_TO_GO"
+  | "PRICE_TOO_HIGH"
+  | "STALE_REFERENCE"
+  | "STALE_QUOTE"
+  | "NO_ROUTE"
+  | "DATA_UNAVAILABLE"
+  | "ROUTE_RISK";
+
+export type MarketAsset = {
+  name: string;
+  symbol: string;
+  mint: string;
+  imageUrl: string | null;
+  productUrl: string | null;
+  referencePriceUsd: string;
+  tokenPriceUsd: string | null;
+  referenceValuationUsd: string | null;
+  impliedValuationUsd: string | null;
+  supply: string | null;
+  source: "PRESTOCKS" | "PRACTICE_FIXTURE";
+  observedAt: string;
+  network: NetworkMode;
+};
+
+export type FundingValuation = {
+  fundingAsset: FundingAsset;
+  inputRaw: bigint;
+  inputDisplay: string;
+  inputUsdValue: string;
+  method: "USDC_PAR" | "CURRENT_MARKET_ROUTE" | "PRACTICE_FIXTURE";
+  observedAt: string;
+};
+
+export type MarketQuote = {
+  provider: "JUPITER" | "PRACTICE_FIXTURE";
+  inputMint: string;
+  outputMint: string;
+  inputRaw: bigint;
+  outputRaw: bigint;
+  outputDecimals: number;
+  expectedTargetAmount: string;
+  priceImpactPct: string | null;
+  observedAt: string;
+  expiresAt: string | null;
+  routeFingerprint: string;
+  providerPayloadRef?: string;
+};
+
+export type PriceDecision = {
+  status: DecisionStatus;
+  isExecutable: boolean;
+  referencePriceUsd: string;
+  currentBuyPriceUsd: string | null;
+  maximumBuyPriceUsd: string;
+  premiumPct: string | null;
+  maxPremiumPct: string;
+  premiumBps: number | null;
+  maxPremiumBps: number;
+  differenceUsd: string | null;
+  displayTitle: string;
+  displayMessage: string;
+};
+
+export type ProtectionResult = {
+  minimumAcceptableOutputRaw: bigint;
+  minimumAcceptableOutputDisplay: string;
+  slippageBps: number;
+  isExecutable: boolean;
+};
+
+export type PriceCheck = {
+  id: string;
+  network: NetworkMode;
+  wallet: string | null;
+  clientIntentVersion: string;
+  asset: MarketAsset;
+  funding: FundingValuation;
+  quote: MarketQuote | null;
+  maxPremiumPct: string;
+  maxPremiumBps: number;
+  decision: PriceDecision;
+  createdAt: string;
+  expiresAt: string;
+};
+
+export type BuildIntent = {
+  id: string;
+  checkId: string;
+  network: NetworkMode;
+  wallet: string;
+  minimumAcceptableOutputRaw: bigint;
+  protectionMethod: string;
+  transactionBase64: string;
+  lastValidBlockHeight?: string;
+  requestId?: string;
+  expiresAt: string;
+  summary: {
+    fundingAsset: FundingAsset;
+    fundingAmount: string;
+    targetSymbol: string;
+    expectedTargetAmount: string;
+    referencePriceUsd: string;
+    currentBuyPriceUsd: string;
+    premiumPct: string;
+    maxPremiumPct: string;
+  };
+};
+
+export type TradeReceipt = {
+  id: string;
+  checkId: string;
+  buildIntentId: string;
+  wallet: string;
+  network: NetworkMode;
+  signature: string;
+  status: "CONFIRMED" | "FAILED";
+  fundingAsset: FundingAsset;
+  fundingAmount: string;
+  targetSymbol: string;
+  targetMint: string;
+  expectedTargetAmount: string;
+  realizedTargetAmount: string | null;
+  referencePriceUsd: string;
+  checkedBuyPriceUsd: string;
+  maxPremiumBps: number;
+  premiumBps: number;
+  submittedAt: string;
+  confirmedAt: string | null;
+  failureCode?: string | null;
+};

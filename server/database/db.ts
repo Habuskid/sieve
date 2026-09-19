@@ -1,0 +1,318 @@
+import postgres from "postgres";
+import {
+  type ISieveRepository,
+  type ListFilterParams,
+  InMemorySieveRepository,
+} from "./repository";
+import type {
+  PriceCheck,
+  BuildIntent,
+  TradeReceipt,
+} from "../../core/domain/types";
+
+export class PostgresSieveRepository implements ISieveRepository {
+  private sql: postgres.Sql;
+
+  constructor(connectionString: string) {
+    this.sql = postgres(connectionString, {
+      max: 10,
+      idle_timeout: 20,
+      connect_timeout: 10,
+    });
+  }
+
+  async savePriceCheck(check: PriceCheck): Promise<void> {
+    await this.sql`
+      INSERT INTO price_checks (
+        id, network, wallet,
+        target_name, target_symbol, target_mint,
+        funding_asset, funding_mint, funding_amount_raw, funding_amount_display, funding_usd_value,
+        reference_price_usd, reference_observed_at, reference_source,
+        quote_output_raw, quote_output_display, quote_observed_at, quote_expires_at,
+        route_fingerprint, price_impact_pct,
+        current_buy_price_usd, maximum_buy_price_usd, premium_bps, max_premium_bps,
+        decision, reason_code, client_intent_version,
+        created_at, expires_at
+      ) VALUES (
+        ${check.id}, ${check.network}, ${check.wallet},
+        ${check.asset.name}, ${check.asset.symbol}, ${check.asset.mint},
+        ${check.funding.fundingAsset}, ${check.quote?.inputMint ?? ""}, ${check.funding.inputRaw.toString()}, ${check.funding.inputDisplay}, ${check.funding.inputUsdValue},
+        ${check.decision.referencePriceUsd}, ${check.asset.observedAt}, ${check.asset.source},
+        ${check.quote?.outputRaw.toString() ?? null}, ${check.quote?.expectedTargetAmount ?? null}, ${check.quote?.observedAt ?? null}, ${check.quote?.expiresAt ?? null},
+        ${check.quote?.routeFingerprint ?? null}, ${check.quote?.priceImpactPct ?? null},
+        ${check.decision.currentBuyPriceUsd}, ${check.decision.maximumBuyPriceUsd}, ${check.decision.premiumBps}, ${check.maxPremiumBps},
+        ${check.decision.status}, ${check.decision.status !== "GOOD_TO_GO" ? check.decision.status : null}, ${check.clientIntentVersion},
+        ${check.createdAt}, ${check.expiresAt}
+      )
+      ON CONFLICT (id) DO NOTHING
+    `;
+  }
+
+  async getPriceCheck(id: string): Promise<PriceCheck | null> {
+    const rows = await this.sql`
+      SELECT * FROM price_checks WHERE id = ${id} LIMIT 1
+    `;
+    if (rows.length === 0) return null;
+    return this.mapPriceCheckRow(rows[0]);
+  }
+
+  async listPriceChecks(params: ListFilterParams = {}): Promise<PriceCheck[]> {
+    const limit = params.limit ?? 50;
+    const offset = params.offset ?? 0;
+
+    let rows;
+    if (params.wallet && params.network) {
+      rows = await this.sql`
+        SELECT * FROM price_checks
+        WHERE wallet = ${params.wallet} AND network = ${params.network}
+        ORDER BY created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+    } else if (params.wallet) {
+      rows = await this.sql`
+        SELECT * FROM price_checks
+        WHERE wallet = ${params.wallet}
+        ORDER BY created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+    } else if (params.network) {
+      rows = await this.sql`
+        SELECT * FROM price_checks
+        WHERE network = ${params.network}
+        ORDER BY created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+    } else {
+      rows = await this.sql`
+        SELECT * FROM price_checks
+        ORDER BY created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+    }
+
+    return rows.map((r) => this.mapPriceCheckRow(r));
+  }
+
+  async saveBuildIntent(intent: BuildIntent): Promise<void> {
+    await this.sql`
+      INSERT INTO build_intents (
+        id, check_id, wallet, network,
+        revalidation_reference_price_usd, revalidation_buy_price_usd, revalidation_premium_bps,
+        minimum_output_raw, protection_method, protection_value,
+        provider_request_id, transaction_hash, last_valid_block_height,
+        expires_at, status, created_at
+      ) VALUES (
+        ${intent.id}, ${intent.checkId}, ${intent.wallet}, ${intent.network},
+        ${intent.summary.referencePriceUsd}, ${intent.summary.currentBuyPriceUsd}, ${parseInt(intent.summary.premiumPct) * 100 || 0},
+        ${intent.minimumAcceptableOutputRaw.toString()}, ${intent.protectionMethod}, null,
+        ${intent.requestId ?? null}, null, ${intent.lastValidBlockHeight ?? null},
+        ${intent.expiresAt}, 'READY_FOR_WALLET', NOW()
+      )
+      ON CONFLICT (id) DO NOTHING
+    `;
+  }
+
+  async getBuildIntent(id: string): Promise<BuildIntent | null> {
+    const rows = await this.sql`
+      SELECT * FROM build_intents WHERE id = ${id} LIMIT 1
+    `;
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      checkId: r.check_id,
+      network: r.network,
+      wallet: r.wallet,
+      minimumAcceptableOutputRaw: BigInt(r.minimum_output_raw),
+      protectionMethod: r.protection_method,
+      transactionBase64: "", // Not persisted in DB for size/security
+      lastValidBlockHeight: r.last_valid_block_height?.toString(),
+      requestId: r.provider_request_id,
+      expiresAt: r.expires_at.toISOString(),
+      summary: {
+        fundingAsset: "USDC", // Default fallback
+        fundingAmount: "0",
+        targetSymbol: "",
+        expectedTargetAmount: "0",
+        referencePriceUsd: r.revalidation_reference_price_usd.toString(),
+        currentBuyPriceUsd: r.revalidation_buy_price_usd.toString(),
+        premiumPct: (r.revalidation_premium_bps / 100).toFixed(2),
+        maxPremiumPct: "0",
+      },
+    };
+  }
+
+  async saveTradeReceipt(receipt: TradeReceipt): Promise<TradeReceipt> {
+    const rows = await this.sql`
+      INSERT INTO trade_receipts (
+        id, check_id, build_intent_id, wallet, network, signature, status,
+        funding_asset, funding_amount_display, target_symbol, target_mint,
+        expected_target_amount, realized_target_amount,
+        reference_price_usd, checked_buy_price_usd, max_premium_bps, premium_bps,
+        submitted_at, confirmed_at, failure_code, created_at
+      ) VALUES (
+        ${receipt.id}, ${receipt.checkId}, ${receipt.buildIntentId}, ${receipt.wallet}, ${receipt.network}, ${receipt.signature}, ${receipt.status},
+        ${receipt.fundingAsset}, ${receipt.fundingAmount}, ${receipt.targetSymbol}, ${receipt.targetMint},
+        ${receipt.expectedTargetAmount}, ${receipt.realizedTargetAmount},
+        ${receipt.referencePriceUsd}, ${receipt.checkedBuyPriceUsd}, ${receipt.maxPremiumBps}, ${receipt.premiumBps},
+        ${receipt.submittedAt}, ${receipt.confirmedAt}, ${receipt.failureCode ?? null}, NOW()
+      )
+      ON CONFLICT (signature) DO UPDATE SET confirmed_at = EXCLUDED.confirmed_at
+      RETURNING *
+    `;
+    return this.mapReceiptRow(rows[0]);
+  }
+
+  async getTradeReceiptBySignature(signature: string): Promise<TradeReceipt | null> {
+    const rows = await this.sql`
+      SELECT * FROM trade_receipts WHERE signature = ${signature} LIMIT 1
+    `;
+    if (rows.length === 0) return null;
+    return this.mapReceiptRow(rows[0]);
+  }
+
+  async listTradeReceipts(params: ListFilterParams = {}): Promise<TradeReceipt[]> {
+    const limit = params.limit ?? 50;
+    const offset = params.offset ?? 0;
+
+    let rows;
+    if (params.wallet && params.network) {
+      rows = await this.sql`
+        SELECT * FROM trade_receipts
+        WHERE wallet = ${params.wallet} AND network = ${params.network}
+        ORDER BY submitted_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+    } else if (params.wallet) {
+      rows = await this.sql`
+        SELECT * FROM trade_receipts
+        WHERE wallet = ${params.wallet}
+        ORDER BY submitted_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+    } else if (params.network) {
+      rows = await this.sql`
+        SELECT * FROM trade_receipts
+        WHERE network = ${params.network}
+        ORDER BY submitted_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+    } else {
+      rows = await this.sql`
+        SELECT * FROM trade_receipts
+        ORDER BY submitted_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+    }
+
+    return rows.map((r) => this.mapReceiptRow(r));
+  }
+
+  private mapPriceCheckRow(r: Record<string, any>): PriceCheck {
+    return {
+      id: r.id,
+      network: r.network,
+      wallet: r.wallet,
+      clientIntentVersion: r.client_intent_version,
+      asset: {
+        name: r.target_name,
+        symbol: r.target_symbol,
+        mint: r.target_mint,
+        imageUrl: null,
+        productUrl: null,
+        referencePriceUsd: r.reference_price_usd.toString(),
+        tokenPriceUsd: null,
+        referenceValuationUsd: null,
+        impliedValuationUsd: null,
+        supply: null,
+        source: r.reference_source,
+        observedAt: r.reference_observed_at.toISOString(),
+        network: r.network,
+      },
+      funding: {
+        fundingAsset: r.funding_asset,
+        inputRaw: BigInt(r.funding_amount_raw),
+        inputDisplay: r.funding_amount_display.toString(),
+        inputUsdValue: r.funding_usd_value.toString(),
+        method: "USDC_PAR",
+        observedAt: r.created_at.toISOString(),
+      },
+      quote: r.quote_output_raw
+        ? {
+            provider: "JUPITER",
+            inputMint: r.funding_mint,
+            outputMint: r.target_mint,
+            inputRaw: BigInt(r.funding_amount_raw),
+            outputRaw: BigInt(r.quote_output_raw),
+            outputDecimals: 6,
+            expectedTargetAmount: r.quote_output_display.toString(),
+            priceImpactPct: r.price_impact_pct?.toString() ?? null,
+            observedAt: r.quote_observed_at?.toISOString() ?? r.created_at.toISOString(),
+            expiresAt: r.quote_expires_at?.toISOString() ?? null,
+            routeFingerprint: r.route_fingerprint ?? "",
+          }
+        : null,
+      maxPremiumPct: (r.max_premium_bps / 100).toFixed(2),
+      maxPremiumBps: r.max_premium_bps,
+      decision: {
+        status: r.decision,
+        isExecutable: r.decision === "GOOD_TO_GO",
+        referencePriceUsd: r.reference_price_usd.toString(),
+        currentBuyPriceUsd: r.current_buy_price_usd?.toString() ?? null,
+        maximumBuyPriceUsd: r.maximum_buy_price_usd.toString(),
+        premiumPct: r.premium_bps != null ? (r.premium_bps / 100).toFixed(2) : null,
+        maxPremiumPct: (r.max_premium_bps / 100).toFixed(2),
+        premiumBps: r.premium_bps,
+        maxPremiumBps: r.max_premium_bps,
+        differenceUsd: null,
+        displayTitle: r.decision === "GOOD_TO_GO" ? "The price is inside your limit." : "This buy is outside your limit.",
+        displayMessage: "",
+      },
+      createdAt: r.created_at.toISOString(),
+      expiresAt: r.expires_at?.toISOString() ?? r.created_at.toISOString(),
+    };
+  }
+
+  private mapReceiptRow(r: Record<string, any>): TradeReceipt {
+    return {
+      id: r.id,
+      checkId: r.check_id,
+      buildIntentId: r.build_intent_id,
+      wallet: r.wallet,
+      network: r.network,
+      signature: r.signature,
+      status: r.status,
+      fundingAsset: r.funding_asset,
+      fundingAmount: r.funding_amount_display.toString(),
+      targetSymbol: r.target_symbol,
+      targetMint: r.target_mint,
+      expectedTargetAmount: r.expected_target_amount.toString(),
+      realizedTargetAmount: r.realized_target_amount?.toString() ?? null,
+      referencePriceUsd: r.reference_price_usd.toString(),
+      checkedBuyPriceUsd: r.checked_buy_price_usd.toString(),
+      maxPremiumBps: r.max_premium_bps,
+      premiumBps: r.premium_bps,
+      submittedAt: r.submitted_at.toISOString(),
+      confirmedAt: r.confirmed_at?.toISOString() ?? null,
+      failureCode: r.failure_code,
+    };
+  }
+}
+
+// Global repository singleton: uses Postgres if DATABASE_URL is set, otherwise InMemory
+let repoInstance: ISieveRepository | null = null;
+
+export function getRepository(): ISieveRepository {
+  if (!repoInstance) {
+    if (process.env.DATABASE_URL) {
+      repoInstance = new PostgresSieveRepository(process.env.DATABASE_URL);
+    } else {
+      repoInstance = new InMemorySieveRepository();
+    }
+  }
+  return repoInstance;
+}
+
+export function setRepository(repo: ISieveRepository): void {
+  repoInstance = repo;
+}

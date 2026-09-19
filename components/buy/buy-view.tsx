@@ -1,0 +1,366 @@
+"use client";
+
+import React, { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { VersionedTransaction } from "@solana/web3.js";
+import { FundingSelector } from "./funding-selector";
+import { AmountInput } from "./amount-input";
+import { PriceRail } from "./price-rail";
+import { StateBanner, type BannerState } from "./state-banner";
+import { ReviewDialog } from "../receipt/review-dialog";
+import { WalletWaiting } from "../receipt/wallet-waiting";
+import { TradeReceiptView } from "../receipt/trade-receipt-view";
+import type { NetworkMode, FundingAsset, TradeReceipt } from "@/core/domain/types";
+import type { CheckResponseDto } from "@/server/services/check-service";
+import type { MarketItem } from "../markets/market-row";
+import { ArrowRight, ShieldCheck, RefreshCw } from "lucide-react";
+
+interface BuyViewProps {
+  network: NetworkMode;
+}
+
+export function BuyView({ network }: BuyViewProps) {
+  const searchParams = useSearchParams();
+  const mintFromUrl = searchParams.get("mint");
+
+  const { publicKey, signTransaction, connected } = useWallet();
+  const { setVisible: setWalletModalVisible } = useWalletModal();
+
+  // State
+  const [markets, setMarkets] = useState<MarketItem[]>([]);
+  const [selectedMint, setSelectedMint] = useState<string>(mintFromUrl || "");
+  const [fundingAsset, setFundingAsset] = useState<FundingAsset>("USDC");
+  const [amount, setAmount] = useState<string>("100");
+  const [userLimitPct, setUserLimitPct] = useState<number>(5.0);
+
+  const [checking, setChecking] = useState<boolean>(false);
+  const [checkResult, setCheckResult] = useState<CheckResponseDto | null>(null);
+  const [bannerState, setBannerState] = useState<BannerState>("IDLE");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Dialog & Flow States
+  const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const [isBuilding, setIsBuilding] = useState(false);
+  const [isWaitingForWallet, setIsWaitingForWallet] = useState(false);
+  const [receipt, setReceipt] = useState<TradeReceipt | null>(null);
+
+  // Load markets
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await fetch(`/api/markets?network=${network}`);
+        if (res.ok) {
+          const data = await res.json();
+          setMarkets(data.markets || []);
+          if (data.markets?.length > 0) {
+            setSelectedMint((curr) => curr || data.markets[0].mint);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load markets for buy view", err);
+      }
+    }
+    load();
+  }, [network]);
+
+  // Reset check when inputs change
+  useEffect(() => {
+    setCheckResult(null);
+    setBannerState("IDLE");
+    setErrorMessage(null);
+  }, [selectedMint, fundingAsset, amount, userLimitPct, network]);
+
+  const selectedMarket = markets.find((m) => m.mint === selectedMint) || markets[0];
+  const refPrice = selectedMarket ? parseFloat(selectedMarket.referencePriceUsd) : 100;
+  const currentBuyPrice = checkResult?.price.currentBuyUsd
+    ? parseFloat(checkResult.price.currentBuyUsd)
+    : selectedMarket?.sourceTokenPriceUsd
+    ? parseFloat(selectedMarket.sourceTokenPriceUsd)
+    : null;
+
+  // Execute Price Check
+  const handleCheckPrice = async () => {
+    if (!selectedMint || !amount || parseFloat(amount) <= 0) {
+      setErrorMessage("Please enter a valid amount to spend");
+      return;
+    }
+
+    setChecking(true);
+    setBannerState("CHECKING");
+    setErrorMessage(null);
+
+    try {
+      const res = await fetch("/api/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          network,
+          targetMint: selectedMint,
+          fundingAsset,
+          amount,
+          maxPremiumPct: userLimitPct.toString(),
+          wallet: publicKey?.toBase58() || null,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setBannerState("ERROR");
+        setErrorMessage(data.error?.message || "Failed to check price");
+        return;
+      }
+
+      setCheckResult(data);
+
+      if (data.decision === "GOOD_TO_GO") {
+        setBannerState("GOOD_TO_GO");
+      } else if (data.decision === "PRICE_TOO_HIGH") {
+        setBannerState("PRICE_TOO_HIGH");
+      } else if (data.decision === "STALE_DATA") {
+        setBannerState("STALE_DATA");
+      } else if (data.decision === "NO_ROUTE") {
+        setBannerState("NO_ROUTE");
+      } else {
+        setBannerState("ERROR");
+      }
+    } catch (err) {
+      setBannerState("ERROR");
+      setErrorMessage(err instanceof Error ? err.message : "Price check failed");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  // Start Buy / Open Review
+  const handleStartReview = () => {
+    if (!connected) {
+      setWalletModalVisible(true);
+      return;
+    }
+    setIsReviewOpen(true);
+  };
+
+  // Confirm in Wallet -> Build, Sign & Submit
+  const handleConfirmInWallet = async () => {
+    if (!checkResult || !publicKey || !signTransaction) return;
+
+    setIsBuilding(true);
+
+    try {
+      // 1. Call /api/build
+      const buildRes = await fetch("/api/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkId: checkResult.checkId,
+          wallet: publicKey.toBase58(),
+        }),
+      });
+
+      const buildData = await buildRes.json();
+
+      if (!buildRes.ok || buildData.status === "BLOCKED") {
+        setIsReviewOpen(false);
+        setIsBuilding(false);
+        if (buildData.status === "BLOCKED") {
+          setBannerState("PRICE_TOO_HIGH");
+          setErrorMessage("The price moved above your limit before transaction construction.");
+          if (buildData.refreshedCheck) {
+            setCheckResult(buildData.refreshedCheck);
+          }
+        } else {
+          setBannerState("ERROR");
+          setErrorMessage(buildData.error?.message || "Failed to build transaction");
+        }
+        return;
+      }
+
+      setIsReviewOpen(false);
+      setIsBuilding(false);
+      setIsWaitingForWallet(true);
+
+      // 2. Wallet Signature
+      const txBuffer = Buffer.from(buildData.serializedTransaction, "base64");
+      const transaction = VersionedTransaction.deserialize(txBuffer);
+      const signedTx = await signTransaction(transaction);
+
+      // In practice mode or live mode, we have a signed transaction
+      const signature = Buffer.from(signedTx.signatures[0]).toString("base64");
+
+      // 3. Confirm & save receipt via /api/confirm
+      const confirmRes = await fetch("/api/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          buildIntentId: buildData.buildIntentId,
+          signature: signature.slice(0, 88), // format safe signature
+          network,
+        }),
+      });
+
+      const confirmData = await confirmRes.json();
+      setIsWaitingForWallet(false);
+
+      if (confirmData.status === "CONFIRMED" && confirmData.receipt) {
+        setReceipt(confirmData.receipt);
+      } else {
+        setErrorMessage("Transaction could not be confirmed");
+      }
+    } catch (err) {
+      setIsBuilding(false);
+      setIsWaitingForWallet(false);
+      const message = err instanceof Error ? err.message : "Wallet rejected transaction";
+      setErrorMessage(message.includes("User rejected") ? "You cancelled the transaction in your wallet." : message);
+    }
+  };
+
+  // If receipt is active, show the completed view
+  if (receipt) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+        <TradeReceiptView
+          receipt={receipt}
+          onDone={() => {
+            setReceipt(null);
+            setCheckResult(null);
+            setBannerState("IDLE");
+          }}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-2xl px-4 sm:px-6 py-8">
+      {/* Page Title */}
+      <div className="mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primaryText">
+          Buy {selectedMarket ? selectedMarket.name : "Company"}
+        </h1>
+        <p className="text-sm text-secondaryText mt-1">
+          Set your limit first. Sieve will check the live price before you sign.
+        </p>
+      </div>
+
+      <div className="rounded-panel bg-surface border border-borderBase p-6 sm:p-8 shadow-xs space-y-6">
+        {/* Company Selector (if multiple) */}
+        {markets.length > 1 && (
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-secondaryText mb-2">
+              Select company
+            </label>
+            <select
+              value={selectedMint}
+              onChange={(e) => setSelectedMint(e.target.value)}
+              className="w-full rounded-btn bg-surface border border-borderBase px-4 py-2.5 text-sm font-semibold text-primaryText shadow-2xs focus:outline-none focus:ring-2 focus:ring-sieveBlue min-h-[44px]"
+            >
+              {markets.map((m) => (
+                <option key={m.mint} value={m.mint}>
+                  {m.name} ({m.symbol}) — Ref: ${parseFloat(m.referencePriceUsd).toFixed(2)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* 1. Pay with SOL / USDC */}
+        <FundingSelector
+          selected={fundingAsset}
+          onChange={setFundingAsset}
+          disabled={checking}
+        />
+
+        {/* 2. How much? */}
+        <AmountInput
+          value={amount}
+          onChange={setAmount}
+          asset={fundingAsset}
+          disabled={checking}
+          error={errorMessage}
+        />
+
+        {/* 3. Your price limit (Signature Visual Rail) */}
+        <div>
+          <label className="block text-xs font-semibold uppercase tracking-wider text-secondaryText mb-2">
+            Your price limit
+          </label>
+          <PriceRail
+            referencePriceUsd={refPrice}
+            currentBuyPriceUsd={currentBuyPrice}
+            userLimitPct={userLimitPct}
+            onLimitChange={setUserLimitPct}
+            interactive={true}
+          />
+          <p className="mt-1.5 text-xs text-mutedText">
+            We&apos;ll stop the buy if the live price moves past this.
+          </p>
+        </div>
+
+        {/* State Banner */}
+        <StateBanner
+          state={bannerState}
+          title={checkResult?.display.title}
+          message={checkResult?.display.message}
+          premiumPct={checkResult?.price.premiumPct}
+          limitPct={userLimitPct.toFixed(2)}
+          onRefresh={handleCheckPrice}
+        />
+
+        {/* Action Buttons */}
+        <div className="pt-2">
+          {bannerState === "GOOD_TO_GO" && checkResult ? (
+            <button
+              type="button"
+              onClick={handleStartReview}
+              className="flex w-full items-center justify-center gap-2 rounded-btn bg-sieveBlue py-3.5 px-6 text-sm font-bold text-white hover:bg-sieveBlue-hover transition-colors shadow-md min-h-[52px]"
+            >
+              <span>Review buy</span>
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleCheckPrice}
+              disabled={checking}
+              className="flex w-full items-center justify-center gap-2 rounded-btn bg-primaryText py-3.5 px-6 text-sm font-bold text-white hover:bg-primaryText/90 transition-colors shadow-md min-h-[52px] disabled:opacity-50"
+            >
+              {checking ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  <span>Checking today&apos;s price...</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                  <span>Check today&apos;s price</span>
+                </>
+              )}
+            </button>
+          )}
+          <p className="mt-2 text-center text-xs text-mutedText">
+            You won&apos;t sign anything on this step.
+          </p>
+        </div>
+      </div>
+
+      {/* Review Dialog */}
+      {checkResult && (
+        <ReviewDialog
+          isOpen={isReviewOpen}
+          onClose={() => setIsReviewOpen(false)}
+          onConfirm={handleConfirmInWallet}
+          check={checkResult}
+          isBuilding={isBuilding}
+        />
+      )}
+
+      {/* Wallet Waiting Modal */}
+      {isWaitingForWallet && (
+        <WalletWaiting onCancel={() => setIsWaitingForWallet(false)} />
+      )}
+    </div>
+  );
+}
