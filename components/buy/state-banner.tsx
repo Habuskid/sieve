@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
+import { RefreshMark } from "@/components/ui/refresh-mark";
 
 export type BannerState =
   | "IDLE"
@@ -37,7 +38,7 @@ export function StateBanner({
   if (state === "CHECKING") {
     return (
       <div className="flex items-center gap-2.5 text-sm text-sieveBlue" role="status" aria-live="polite">
-        <RefreshCw className="size-4 shrink-0 animate-spin" aria-hidden="true" />
+        <RefreshMark loading />
         <span className="font-medium">Checking the current route…</span>
       </div>
     );
@@ -89,9 +90,10 @@ export function StateBanner({
           <button
             type="button"
             onClick={onRefresh}
-            className="min-h-11 shrink-0 px-3 py-2 text-sm font-medium text-primaryText transition-colors duration-150 hover:text-sieveBlue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
+            className="group inline-flex min-h-11 shrink-0 items-center gap-2 px-3 py-2 text-sm font-medium text-primaryText transition-colors duration-150 hover:text-sieveBlue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
           >
-            Check again
+            <RefreshMark />
+            <span>Check again</span>
           </button>
         )}
       </div>
