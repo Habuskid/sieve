@@ -5,7 +5,8 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import type { NetworkMode } from "@/core/domain/types";
 import type { HistoryItem } from "@/server/services/history-service";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink } from "lucide-react";
+import { RefreshMark } from "@/components/ui/refresh-mark";
 
 interface HistoryViewProps {
   network: NetworkMode;
@@ -89,9 +90,9 @@ export function HistoryView({ network }: HistoryViewProps) {
           type="button"
           onClick={fetchHistory}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-[4px] border border-borderBase bg-surface px-3 py-1.5 text-xs font-semibold text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors shadow-2xs self-start sm:self-auto min-h-[34px]"
+          className="group inline-flex min-h-8 items-center gap-2 self-start border-b border-borderStrong px-0.5 py-1 text-xs font-medium text-mutedText transition-colors duration-150 hover:border-sieveBlue hover:text-primaryText disabled:cursor-wait disabled:opacity-60 sm:self-auto"
         >
-          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
+          <RefreshMark loading={loading} />
           <span>Refresh</span>
         </button>
       </div>
