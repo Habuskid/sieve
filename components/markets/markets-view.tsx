@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { SearchFilter, type MarketFilter } from "./search-filter";
 import { MarketRow, type MarketItem } from "./market-row";
 import type { NetworkMode } from "@/core/domain/types";
-import { RefreshCw, AlertCircle } from "lucide-react";
+import { ScanLine, AlertCircle } from "lucide-react";
 
 interface MarketsViewProps {
   network: NetworkMode;
@@ -77,10 +77,10 @@ export function MarketsView({ network }: MarketsViewProps) {
           type="button"
           onClick={fetchMarkets}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-[4px] border border-borderBase bg-surface px-3 py-1.5 text-xs font-semibold text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors shadow-2xs self-start sm:self-auto min-h-[34px]"
+          className="group inline-flex min-h-8 items-center gap-2 self-start border-b border-borderStrong px-0.5 py-1 text-xs font-medium text-mutedText transition-colors duration-150 hover:border-sieveBlue hover:text-primaryText disabled:cursor-wait disabled:opacity-60 sm:self-auto"
         >
-          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
-          <span>Refresh</span>
+          <ScanLine className={`h-3.5 w-3.5 text-sieveBlue transition-opacity duration-150 ${loading ? "animate-pulse" : "opacity-80 group-hover:opacity-100"}`} aria-hidden="true" />
+          <span>{loading ? "Updating prices…" : "Update prices"}</span>
         </button>
       </div>
 
