@@ -101,7 +101,7 @@ export function BuyView({ network }: BuyViewProps) {
     setErrorMessage(null);
   }, [selectedMint, fundingAsset, amount, userLimitPct, network]);
 
-  const selectedMarket = markets.find((m) => m.mint === selectedMint) || markets[0];
+  const selectedMarket = markets.find((m) => m.mint === selectedMint) || markets[0];\n  const selectedMarketDisplayName = selectedMarket\n    ? selectedMarket.name.replace(/\\s*\\(Practice\\)\\s*$/i, "")\n    : "Choose an asset";
   const parsedReference = selectedMarket
     ? Number.parseFloat(selectedMarket.referencePriceUsd)
     : Number.NaN;
@@ -372,7 +372,7 @@ export function BuyView({ network }: BuyViewProps) {
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-mutedText">Buy PreStocks</p>
           <h1 className="mt-2 text-balance text-4xl font-semibold leading-tight text-primaryText sm:text-5xl">
-            {selectedMarket ? selectedMarket.name : "Choose an asset"}
+            {selectedMarketDisplayName}
           </h1>
           <p className="mt-3 max-w-2xl text-pretty text-sm leading-6 text-secondaryText sm:text-base">
             Set your amount and limit. Sieve checks the executable route before any transaction is prepared.
@@ -382,7 +382,7 @@ export function BuyView({ network }: BuyViewProps) {
         {network === "testnet" && (
           <p className="flex shrink-0 items-center gap-2 text-xs text-mutedText sm:text-sm">
             <span className="size-1.5 rounded-full bg-sieveAmber" aria-hidden="true" />
-            Practice mode. Simulated data. No wallet signature or funds used.
+            Testnet. Simulated data. No wallet signature or funds used.
           </p>
         )}
       </div>
@@ -406,7 +406,7 @@ export function BuyView({ network }: BuyViewProps) {
             >
               {markets.map((market) => (
                 <option key={market.mint} value={market.mint} className="bg-surface text-primaryText">
-                  {market.name} ({market.symbol})
+                  {market.name.replace(/\\s*\\(Practice\\)\\s*$/i, "")} ({market.symbol})
                 </option>
               ))}
             </select>
@@ -459,7 +459,7 @@ export function BuyView({ network }: BuyViewProps) {
               type="button"
               onClick={handleCheckPrice}
               disabled={checking}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-btn bg-primaryText px-6 py-3 text-sm font-semibold text-background transition-colors duration-150 hover:bg-white disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
+              className="sieve-control-primary min-h-11 px-6 py-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
             >
               {checking && <RefreshCw className="size-4 animate-spin" aria-hidden="true" />}
               {checking ? "Checking today's price…" : "Check today's price"}
