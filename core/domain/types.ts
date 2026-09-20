@@ -66,6 +66,30 @@ export type PriceDecision = {
   displayMessage: string;
 };
 
+export type SellDecisionStatus =
+  | "GOOD_TO_GO"
+  | "PRICE_TOO_LOW"
+  | "STALE_REFERENCE"
+  | "STALE_QUOTE"
+  | "NO_ROUTE"
+  | "DATA_UNAVAILABLE"
+  | "ROUTE_RISK";
+
+export type SellPriceDecision = {
+  status: SellDecisionStatus;
+  isExecutable: boolean;
+  referencePriceUsd: string;
+  currentSellPriceUsd: string | null;
+  minimumSellPriceUsd: string;
+  discountPct: string | null;
+  maxDiscountPct: string;
+  discountBps: number | null;
+  maxDiscountBps: number;
+  differenceUsd: string | null;
+  displayTitle: string;
+  displayMessage: string;
+};
+
 export type ProtectionResult = {
   minimumAcceptableOutputRaw: bigint;
   minimumAcceptableOutputDisplay: string;
