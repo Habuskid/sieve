@@ -381,13 +381,6 @@ export function BuyView({ network }: BuyViewProps) {
             Set your amount and limit. Sieve checks the executable route before any transaction is prepared.
           </p>
         </div>
-
-        {network === "testnet" && (
-          <p className="flex shrink-0 items-center gap-2 text-xs text-mutedText sm:text-sm">
-            <span className="size-1.5 rounded-full bg-sieveAmber" aria-hidden="true" />
-            Testnet. Simulated data. No wallet signature or funds used.
-          </p>
-        )}
       </div>
 
       <section className="py-8 sm:py-10" aria-labelledby="order-heading">
