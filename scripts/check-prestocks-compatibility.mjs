@@ -25,7 +25,7 @@ try {
     // Re-execute with tsx if executed directly under plain Node without TS loader
     const { spawnSync } = await import("node:child_process");
     const currentScript = fileURLToPath(import.meta.url);
-    const result = spawnSync("npx", ["tsx", currentScript, ...process.argv.slice(2)], {
+    const result = spawnSync("pnpm", ["exec", "tsx", currentScript, ...process.argv.slice(2)], {
       stdio: "inherit",
       shell: true,
     });
