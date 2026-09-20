@@ -78,8 +78,8 @@ export interface ValidatedMintMetadata {
   extensions: ExtensionType[];
   supported: boolean;
   validatedAt: number;
-  chainTimestamp: number;
-  epoch: bigint;
+  chainTimestamp?: number | null;
+  epoch?: bigint | null;
   transferFee: ActiveTransferFee | null;
   olderTransferFee: ActiveTransferFee | null;
   newerTransferFee: ActiveTransferFee | null;
@@ -195,23 +195,21 @@ export class SolanaAdapter {
       // Fallback: try getEpochInfo + getBlockTime if direct Sysvar Clock account fetch fails
       try {
         const epochInfo = await conn.getEpochInfo();
-        let unixTimestamp = Math.floor(Date.now() / 1000);
-        try {
-          if (typeof conn.getBlockTime === "function") {
-            const blockTime = await conn.getBlockTime(epochInfo.absoluteSlot ?? 0);
-            if (blockTime != null) unixTimestamp = blockTime;
-          }
-        } catch {
-          // Keep unixTimestamp from Date.now()
+        if (typeof conn.getBlockTime !== "function") {
+          throw new Error("Solana connection does not support getBlockTime");
+        }
+        const blockTime = await conn.getBlockTime(epochInfo.absoluteSlot ?? 0);
+        if (blockTime == null) {
+          throw new Error(`getBlockTime returned null for slot ${epochInfo.absoluteSlot}`);
         }
         return {
           slot: BigInt(epochInfo.absoluteSlot ?? 0),
           epoch: BigInt(epochInfo.epoch),
-          unixTimestamp,
+          unixTimestamp: blockTime,
         };
       } catch (fallbackErr) {
         throw new Error(
-          `Failed to retrieve current Solana epoch for TransferFeeConfig verification: ${err instanceof Error ? err.message : String(err)}; ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`
+          `Failed to retrieve current Solana epoch for TransferFeeConfig verification / authoritative chain clock: ${err instanceof Error ? err.message : String(err)}; fallback failed: ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`
         );
       }
     }
@@ -336,8 +334,8 @@ export class SolanaAdapter {
     let scaledUiAmount: ActiveScaledUiAmount | null = null;
     let transferHook: { programId: string; authority: string } | null = null;
     let chainClock: SolanaChainClock | null = null;
-    let resolvedChainTimestamp: number = Math.floor(Date.now() / 1000);
-    let resolvedEpoch: bigint = 0n;
+    let resolvedChainTimestamp: number | null = null;
+    let resolvedEpoch: bigint | null = null;
     const getOrFetchChainClock = async (): Promise<SolanaChainClock> => {
       if (!chainClock) {
         chainClock = await this.getChainClock(network);

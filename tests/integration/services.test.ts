@@ -15,6 +15,8 @@ import {
 } from "../../server/services/confirmation-service";
 import { PracticeAdapter } from "../../server/practice/adapter";
 import { MarketService } from "../../server/services/market-service";
+import { InMemorySieveRepository } from "../../server/database/repository";
+import type { PriceCheck } from "../../core/domain/types";
 
 describe("Server Orchestration Services (Gate D - Server Authority)", () => {
   let checkService: PriceCheckService;
@@ -669,5 +671,146 @@ describe("Server Orchestration Services (Gate D - Server Authority)", () => {
     });
 
     expect(capturedOptions).toEqual({ bypassCache: true });
+  });
+
+  it("ScaledUi transition safety: blocks transaction preparation with ROUTE_RISK if transition occurs within 120s of Solana chain time", async () => {
+    const chainTs = 1711000000;
+    // Transition in 60s (within 120s)
+    const transitionTs = chainTs + 60;
+
+    const mockMarketService = {
+      getMarketByMint: async () => ({
+        mint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+        name: "OpenAI",
+        symbol: "OPENAI",
+        referencePriceUsd: "100.00",
+        source: "PRESTOCKS_API",
+        observedAt: new Date().toISOString(),
+        network: "mainnet",
+      }),
+    } as any;
+
+    const mockSolana = {
+      resolveMintMetadata: async () => ({
+        mint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+        programOwner: "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        decimals: 9,
+        supported: true,
+        validatedAt: Date.now(),
+        chainTimestamp: chainTs,
+        epoch: 600n,
+        transferFee: null,
+        scaledUiAmount: {
+          multiplier: "1.0",
+          newMultiplier: "2.0",
+          newMultiplierEffectiveTimestamp: transitionTs,
+          activeMultiplier: "1.0",
+        },
+        issuerControls: { permanentDelegate: false, pausable: false, isPaused: false, defaultAccountState: "Initialized" },
+        transferHook: null,
+        blockers: [],
+        warnings: [],
+      }),
+      checkBalance: async () => ({ hasSufficient: true }),
+      checkDestinationAccount: async () => ({ exists: true, isFrozen: false, address: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM" }),
+    } as any;
+
+    const mockJupiter = {
+      getQuote: async () => ({
+        quote: {
+          inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          outputMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+          outputRaw: 100_000_000n,
+          expectedTargetAmount: "0.1",
+          priceImpactPct: "-0.1",
+        },
+      }),
+      buildTransaction: async () => ({
+        transactionBase64: "dGVzdA==",
+        lastValidBlockHeight: "426500000",
+        requestId: "req-1",
+        otherAmountThreshold: "99000000",
+      }),
+    } as any;
+
+    const testRepo = new InMemorySieveRepository();
+    const testCheck: PriceCheck = {
+      id: "check-scaled-transition",
+      network: "mainnet",
+      wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      clientIntentVersion: "v1",
+      asset: {
+        name: "OpenAI",
+        symbol: "OPENAI",
+        mint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+        imageUrl: null,
+        productUrl: null,
+        referencePriceUsd: "100.00",
+        tokenPriceUsd: "103.00",
+        referenceValuationUsd: null,
+        impliedValuationUsd: null,
+        supply: null,
+        source: "PRESTOCKS",
+        observedAt: new Date().toISOString(),
+        network: "mainnet",
+      },
+      funding: {
+        fundingAsset: "USDC",
+        inputRaw: 10_000_000n,
+        inputDisplay: "10",
+        inputUsdValue: "10.00",
+        method: "USDC_PAR",
+        observedAt: new Date().toISOString(),
+      },
+      quote: {
+        provider: "JUPITER",
+        inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        outputMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+        inputRaw: 10_000_000n,
+        outputRaw: 100_000_000n,
+        outputDecimals: 9,
+        expectedTargetAmount: "0.1",
+        priceImpactPct: "-0.1",
+        observedAt: new Date().toISOString(),
+        expiresAt: null,
+        routeFingerprint: "fp",
+      },
+      maxPremiumPct: "5.00",
+      maxPremiumBps: 500,
+      decision: {
+        status: "GOOD_TO_GO",
+        isExecutable: true,
+        referencePriceUsd: "100.00",
+        currentBuyPriceUsd: "100.00",
+        maximumBuyPriceUsd: "105.00",
+        premiumPct: "0.00",
+        maxPremiumPct: "5.00",
+        premiumBps: 0,
+        maxPremiumBps: 500,
+        differenceUsd: "0.00",
+        displayTitle: "The price is inside your limit.",
+        displayMessage: "",
+      },
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    };
+    await testRepo.savePriceCheck(testCheck);
+
+    const testBuildService = new TransactionBuildService(
+      mockMarketService,
+      mockJupiter,
+      practiceAdapter,
+      mockSolana,
+      testRepo
+    );
+
+    await expect(
+      testBuildService.buildTransaction({
+        checkId: "check-scaled-transition",
+        wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      })
+    ).rejects.toThrow(
+      /Target token multiplier transition scheduled in 60s \(within 120s of chain time\); transaction cannot be safely prepared\. Please retry after transition\./
+    );
   });
 });

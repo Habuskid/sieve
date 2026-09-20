@@ -97,6 +97,9 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
     const usdcAmount = "10"; // 10 USDC
     const usdcRaw = displayToRaw(usdcAmount, CANONICAL_MINTS.mainnet.USDC_DECIMALS);
 
+    let outcome: "PASS" | "BLOCKED_EXTERNAL" | "FAIL" = "FAIL";
+    let outcomeReason = "";
+
     try {
       const quoteResult = await defaultJupiterAdapter.getQuote({
         inputMint: CANONICAL_MINTS.mainnet.USDC,
@@ -124,12 +127,56 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
       const effectiveBuyPrice = toDecimal(usdcAmount).div(netEconomicTokens);
       expect(effectiveBuyPrice.toNumber()).toBeGreaterThan(0);
 
+      // 7. Assemble unsigned transaction via Jupiter V2 order API
+      const unsignedOrder = await defaultJupiterAdapter.buildTransaction({
+        inputMint: CANONICAL_MINTS.mainnet.USDC,
+        outputMint: targetAsset.mint,
+        amount: usdcRaw,
+        taker: readOnlyTakerWallet,
+        outputDecimals: metadata.decimals,
+        slippageBps: 500,
+      });
+
+      expect(unsignedOrder.transactionBase64).toBeDefined();
+      expect(unsignedOrder.otherAmountThreshold).toBeDefined();
+      const grossThreshold = BigInt(unsignedOrder.otherAmountThreshold!);
+      const netThreshold = calculateNetOutput(grossThreshold, metadata.transferFee);
+      expect(netThreshold).toBeLessThanOrEqual(grossThreshold);
+
+      outcome = "PASS";
+      outcomeReason = `Live quote and unsigned order assembled successfully (threshold: ${unsignedOrder.otherAmountThreshold})`;
       // Verify no signatures, no broadcasts, no fund movement
-    } catch (err) {
-      // If liquidity pool is not currently live on Jupiter for this exact asset,
-      // verify that error is a clean route error and not a crash
-      expect(err).toBeDefined();
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      const isExternal =
+        msg.includes("ROUTE") ||
+        msg.includes("route") ||
+        msg.includes("401") ||
+        msg.includes("403") ||
+        msg.includes("404") ||
+        msg.includes("429") ||
+        msg.includes("502") ||
+        msg.includes("503") ||
+        msg.includes("504") ||
+        msg.includes("ENOTFOUND") ||
+        msg.includes("ETIMEDOUT") ||
+        msg.includes("fetch") ||
+        msg.includes("network") ||
+        msg.includes("rate limit") ||
+        msg.includes("DATA_UNAVAILABLE");
+
+      if (isExternal) {
+        outcome = "BLOCKED_EXTERNAL";
+        outcomeReason = msg;
+      } else {
+        outcome = "FAIL";
+        outcomeReason = msg;
+        throw err; // Re-throw unexpected schema / math / coding failure
+      }
     }
+
+    console.log(`[PreStocks Route Test] Outcome: ${outcome} - ${outcomeReason}`);
+    expect(["PASS", "BLOCKED_EXTERNAL"]).toContain(outcome);
   }, 20000);
 });
 

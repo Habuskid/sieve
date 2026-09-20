@@ -349,6 +349,7 @@ describe("Solana Adapter Contracts", () => {
         data: currentAccountData,
       }),
       getEpochInfo: async () => ({ epoch: 50 }),
+      getBlockTime: async () => 1711000000,
     });
 
     // 1. Initial resolution (populates cache with 100 bps)
@@ -410,6 +411,7 @@ describe("Solana Adapter Contracts", () => {
       (adapter as any).getConnection = () => ({
         getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: scheduleData }),
         getEpochInfo: async () => ({ epoch: 150 }),
+        getBlockTime: async () => 1711000000,
       });
 
       const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
@@ -425,6 +427,7 @@ describe("Solana Adapter Contracts", () => {
       (adapter as any).getConnection = () => ({
         getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: scheduleData }),
         getEpochInfo: async () => ({ epoch: 250 }),
+        getBlockTime: async () => 1711000000,
       });
 
       const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
@@ -440,6 +443,7 @@ describe("Solana Adapter Contracts", () => {
       (adapter as any).getConnection = () => ({
         getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: scheduleData }),
         getEpochInfo: async () => ({ epoch: 200 }),
+        getBlockTime: async () => 1711000000,
       });
 
       const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
@@ -472,6 +476,7 @@ describe("Solana Adapter Contracts", () => {
       (adapter as any).getConnection = () => ({
         getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: scheduleData }),
         getEpochInfo: async () => ({ epoch: 100 }),
+        getBlockTime: async () => 1711000000,
       });
 
       const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
@@ -487,6 +492,7 @@ describe("Solana Adapter Contracts", () => {
       (adapter as any).getConnection = () => ({
         getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: scheduleData }),
         getEpochInfo: async () => ({ epoch: 201 }),
+        getBlockTime: async () => 1711000000,
       });
 
       const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });

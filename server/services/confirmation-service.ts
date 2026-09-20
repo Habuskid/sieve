@@ -143,8 +143,25 @@ export class ConfirmationService {
         // Convert using authoritative scaled UI conversion for ScaledUiAmount mints (Audit Requirement 5)
         if (execResult.totalOutputAmount) {
           rawWalletOutput = execResult.totalOutputAmount;
-          const targetDecimals = buildIntent.summary.targetDecimals ?? (await this.solanaAdapter.resolveMintDecimals(check.asset.mint, "mainnet"));
-          const activeMultiplier = buildIntent.summary.activeMultiplier ?? "1";
+          if (buildIntent.summary.targetDecimals == null) {
+            throw new SieveAppError(
+              "DATABASE_INTEGRITY_ERROR",
+              "Persisted build intent missing required targetDecimals; failing closed"
+            );
+          }
+          const targetDecimals = buildIntent.summary.targetDecimals;
+          const targetMetadata = await this.solanaAdapter.resolveMintMetadata(check.asset.mint, "mainnet");
+          let activeMultiplier: string | undefined = buildIntent.summary.activeMultiplier;
+          if (targetMetadata.scaledUiAmount) {
+            if (!activeMultiplier) {
+              throw new SieveAppError(
+                "DATABASE_INTEGRITY_ERROR",
+                "Persisted build intent missing activeMultiplier for ScaledUi token on Mainnet; failing closed instead of defaulting to 1"
+              );
+            }
+          } else {
+            activeMultiplier = activeMultiplier ?? "1";
+          }
           realizedTargetAmount = rawToEconomicDisplay(
             BigInt(execResult.totalOutputAmount),
             targetDecimals,

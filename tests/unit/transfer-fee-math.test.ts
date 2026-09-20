@@ -204,5 +204,47 @@ describe("Token-2022 Transfer Fee Math (calculateNetOutput & calculateGrossRequi
     const openaiEconomic = rawToEconomicDisplay(1_000_000_000n, 9, "1.4861347");
     expect(openaiEconomic.toString()).toBe("1.4861347");
   });
+
+  it("getChainClock: fails closed when Sysvar Clock fails, getEpochInfo succeeds, and getBlockTime fails or returns null", async () => {
+    const { SolanaAdapter } = await import("../../server/solana/adapter");
+    const mockConn = {
+      getAccountInfo: async () => {
+        throw new Error("Sysvar Clock account fetch failed");
+      },
+      getEpochInfo: async () => ({
+        epoch: 600,
+        slotIndex: 100,
+        slotsInEpoch: 432000,
+        absoluteSlot: 250000000,
+      }),
+      getBlockTime: async () => null, // getBlockTime returns null!
+    } as any;
+
+    const adapter = new SolanaAdapter();
+    adapter.getConnection = () => mockConn;
+    await expect(adapter.getChainClock("mainnet")).rejects.toThrow(
+      /authoritative chain clock.*getBlockTime returned null/
+    );
+
+    // Also test when getBlockTime throws
+    const mockConnThrows = {
+      getAccountInfo: async () => null, // null account info
+      getEpochInfo: async () => ({
+        epoch: 600,
+        slotIndex: 100,
+        slotsInEpoch: 432000,
+        absoluteSlot: 250000000,
+      }),
+      getBlockTime: async () => {
+        throw new Error("RPC block time unavailable");
+      },
+    } as any;
+
+    const adapterThrows = new SolanaAdapter();
+    adapterThrows.getConnection = () => mockConnThrows;
+    await expect(adapterThrows.getChainClock("mainnet")).rejects.toThrow(
+      /authoritative chain clock.*RPC block time unavailable/
+    );
+  });
 });
 

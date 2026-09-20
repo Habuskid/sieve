@@ -278,6 +278,14 @@ export class TransactionBuildService {
       });
 
       // Boundary enforcement: ensure assembled transaction slippage threshold strictly satisfies Sieve policy
+      // Note on Token-2022 Transfer Fee Semantics with Jupiter:
+      // Upstream Jupiter API documentation does not explicitly guarantee whether `outAmount` and `otherAmountThreshold`
+      // reflect gross transfer amounts (prior to Token-2022 transfer fee withholding) or net amounts deposited into the ATA.
+      // To strictly guarantee that the user never receives less than Sieve's maximum buy-price boundary regardless of upstream
+      // interpretation, Sieve conservatively assumes `otherAmountThreshold` is gross and applies `calculateNetOutput(grossMinRaw, feeConfig)`.
+      // If Jupiter's threshold is already net, our check is strictly conservative (protects the user even more).
+      // If Jupiter's threshold is gross, our check ensures the actual tokens hitting the wallet satisfy the boundary.
+      // Sieve guarantees the maximum buy-price boundary against the authoritative reference price and Token-2022 economic conversion state captured during final transaction preparation.
       if (!buildResult.otherAmountThreshold) {
         throw new SieveAppError(
           "ROUTE_RISK",
@@ -353,24 +361,29 @@ export class TransactionBuildService {
       requestId = `practice-req-${check.id}`;
     }
 
-    const buildIntentId = uuidv4();
-    const defaultExpiresAtMs = now + 60_000;
-    let expiresAtMs = defaultExpiresAtMs;
-
-    if (targetMetadata?.scaledUiAmount?.newMultiplierEffectiveTimestamp) {
-      const transitionTimestampMs = targetMetadata.scaledUiAmount.newMultiplierEffectiveTimestamp * 1000;
-      const refTimeMs = targetMetadata.chainTimestamp ? targetMetadata.chainTimestamp * 1000 : now;
-      if (transitionTimestampMs > refTimeMs && transitionTimestampMs < expiresAtMs) {
-        if (transitionTimestampMs - refTimeMs < 5_000) {
-          throw new SieveAppError(
-            "DATA_UNAVAILABLE",
-            "Target token multiplier scheduled to transition immediately; transaction cannot be safely prepared"
-          );
-        }
-        expiresAtMs = transitionTimestampMs;
+    // Scaled-UI transition safety: evaluate using authoritative Solana chain time.
+    // Never mix host time with chain transition timestamps.
+    // If a future ScaledUi multiplier transition can occur within the next 120 seconds of authoritative Solana chain time:
+    // BLOCK transaction preparation with ROUTE_RISK and prompt user to retry after transition.
+    if (check.network === "mainnet" && targetMetadata?.scaledUiAmount?.newMultiplierEffectiveTimestamp != null) {
+      const effTs = targetMetadata.scaledUiAmount.newMultiplierEffectiveTimestamp;
+      const chainTs = targetMetadata.chainTimestamp;
+      if (chainTs == null) {
+        throw new SieveAppError(
+          "ROUTE_RISK",
+          "Authoritative Solana chain time required to evaluate ScaledUi multiplier transition safety"
+        );
+      }
+      if (effTs > chainTs && effTs <= chainTs + 120) {
+        throw new SieveAppError(
+          "ROUTE_RISK",
+          `Target token multiplier transition scheduled in ${effTs - chainTs}s (within 120s of chain time); transaction cannot be safely prepared. Please retry after transition.`
+        );
       }
     }
-    const expiresAt = new Date(expiresAtMs).toISOString();
+
+    const buildIntentId = uuidv4();
+    const expiresAt = new Date(now + 60_000).toISOString();
 
     const buildIntent: BuildIntent = {
       id: buildIntentId,
@@ -401,7 +414,7 @@ export class TransactionBuildService {
         ).toString(),
         premiumBps: revalDecision.premiumBps!,
         activeMultiplier: targetMetadata?.scaledUiAmount?.activeMultiplier,
-        chainTimestamp: targetMetadata?.chainTimestamp,
+        chainTimestamp: targetMetadata?.chainTimestamp ?? undefined,
         epoch: targetMetadata?.epoch?.toString(),
         issuerControls: targetMetadata?.issuerControls,
         feeInfo: buildResultFeeInfo,

@@ -441,4 +441,170 @@ describe("Database & Persistence Layer (Phase 6)", () => {
       /missing required quote_output_decimals/
     );
   });
+
+  it("PostgreSQL round-trip: preserves build intent and receipt economic conversion context (OpenAI-like multiplier 1.4861347, decimals 9)", async () => {
+    const { PostgresSieveRepository } = await import("../../server/database/db");
+
+    let savedBuildIntentRow: any = null;
+    let savedReceiptRow: any = null;
+
+    const mockSql = ((strings: TemplateStringsArray, ...values: any[]) => {
+      const query = strings.join(" ");
+      if (query.includes("INSERT INTO build_intents")) {
+        savedBuildIntentRow = {
+          id: values[0],
+          check_id: values[1],
+          wallet: values[2],
+          network: values[3],
+          revalidation_reference_price_usd: values[4],
+          revalidation_buy_price_usd: values[5],
+          revalidation_premium_bps: values[6],
+          minimum_output_raw: values[7],
+          protection_method: values[8],
+          protection_value: null,
+          provider_request_id: values[9],
+          transaction_hash: null,
+          last_valid_block_height: values[10],
+          funding_asset: values[11],
+          funding_amount_display: values[12],
+          target_symbol: values[13],
+          expected_target_amount: values[14],
+          max_premium_pct: values[15],
+          expires_at: values[16] ? new Date(values[16]) : new Date(),
+          status: "READY_FOR_WALLET",
+          created_at: new Date(),
+          target_decimals: values[17],
+          active_multiplier: values[18],
+          chain_timestamp: values[19],
+          epoch: values[20],
+        };
+        return Promise.resolve([]);
+      }
+      if (query.includes("SELECT * FROM build_intents WHERE id =")) {
+        return Promise.resolve(savedBuildIntentRow ? [savedBuildIntentRow] : []);
+      }
+      if (query.includes("INSERT INTO trade_receipts")) {
+        savedReceiptRow = {
+          id: values[0],
+          check_id: values[1],
+          build_intent_id: values[2],
+          wallet: values[3],
+          network: values[4],
+          signature: values[5],
+          internal_execution_id: values[6],
+          status: values[7],
+          funding_asset: values[8],
+          funding_amount_display: values[9],
+          requested_funding_amount: values[10],
+          actual_funding_amount: values[11],
+          target_symbol: values[12],
+          target_mint: values[13],
+          expected_target_amount: values[14],
+          realized_target_amount: values[15],
+          reference_price_usd: values[16],
+          checked_buy_price_usd: values[17],
+          max_premium_bps: values[18],
+          premium_bps: values[19],
+          submitted_at: values[20] ? new Date(values[20]) : new Date(),
+          confirmed_at: values[21] ? new Date(values[21]) : null,
+          failure_code: values[22],
+          created_at: new Date(),
+          raw_wallet_output: values[23],
+          target_decimals: values[24],
+          active_multiplier: values[25],
+          chain_timestamp: values[26],
+          epoch: values[27],
+        };
+        return Promise.resolve([savedReceiptRow]);
+      }
+      if (query.includes("SELECT * FROM trade_receipts WHERE signature =")) {
+        return Promise.resolve(savedReceiptRow ? [savedReceiptRow] : []);
+      }
+      return Promise.resolve([]);
+    }) as any;
+
+    const pgRepo = new PostgresSieveRepository(mockSql);
+
+    // Build intent with OpenAI-like scaled UI parameters
+    const openAiBuildIntent: BuildIntent = {
+      ...sampleBuildIntent,
+      id: "build-intent-openai",
+      summary: {
+        ...sampleBuildIntent.summary,
+        targetSymbol: "OPENAI",
+        targetDecimals: 9,
+        activeMultiplier: "1.4861347",
+        chainTimestamp: 1711000000,
+        epoch: "600",
+      },
+    };
+
+    await pgRepo.saveBuildIntent(openAiBuildIntent);
+    const rehydratedIntent = await pgRepo.getBuildIntent("build-intent-openai");
+
+    expect(rehydratedIntent).toBeDefined();
+    expect(rehydratedIntent?.summary.targetDecimals).toBe(9);
+    expect(rehydratedIntent?.summary.activeMultiplier).toBe("1.4861347");
+    expect(rehydratedIntent?.summary.chainTimestamp).toBe(1711000000);
+    expect(rehydratedIntent?.summary.epoch).toBe("600");
+
+    // Trade receipt with OpenAI-like parameters
+    const openAiReceipt: TradeReceipt = {
+      ...sampleReceipt,
+      id: "receipt-openai",
+      signature: "5xyzOpenAiSignatureMainnet111111111111111111111",
+      targetDecimals: 9,
+      activeMultiplier: "1.4861347",
+      chainTimestamp: 1711000000,
+      epoch: "600",
+      rawWalletOutput: "1486134700",
+    };
+
+    const savedReceipt = await pgRepo.saveTradeReceipt(openAiReceipt);
+    expect(savedReceipt.targetDecimals).toBe(9);
+    expect(savedReceipt.activeMultiplier).toBe("1.4861347");
+    expect(savedReceipt.chainTimestamp).toBe(1711000000);
+    expect(savedReceipt.epoch).toBe("600");
+    expect(savedReceipt.rawWalletOutput).toBe("1486134700");
+
+    const rehydratedReceipt = await pgRepo.getTradeReceiptBySignature(openAiReceipt.signature!);
+    expect(rehydratedReceipt).toBeDefined();
+    expect(rehydratedReceipt?.targetDecimals).toBe(9);
+    expect(rehydratedReceipt?.activeMultiplier).toBe("1.4861347");
+    expect(rehydratedReceipt?.chainTimestamp).toBe(1711000000);
+    expect(rehydratedReceipt?.epoch).toBe("600");
+    expect(rehydratedReceipt?.rawWalletOutput).toBe("1486134700");
+  });
+
+  it("rehydration integrity: fails closed if persisted build intent is missing target_decimals", async () => {
+    const { PostgresSieveRepository } = await import("../../server/database/db");
+
+    const mockSqlMissingTargetDecimals = (async () => [
+      {
+        id: "intent-missing-target-decimals",
+        check_id: "check-uuid-1",
+        wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        network: "mainnet",
+        funding_asset: "USDC",
+        funding_amount_display: "10",
+        target_symbol: "OPENAI",
+        expected_target_amount: "0.097087",
+        max_premium_pct: "5.00",
+        revalidation_reference_price_usd: "100.00",
+        revalidation_buy_price_usd: "103.00",
+        revalidation_premium_bps: 300,
+        minimum_output_raw: "95238",
+        protection_method: "JUPITER_SLIPPAGE_BPS_190",
+        provider_request_id: "req-1",
+        expires_at: new Date(),
+        target_decimals: null, // MISSING!
+        active_multiplier: "1.4861347",
+      },
+    ]) as any;
+
+    const pgRepo = new PostgresSieveRepository(mockSqlMissingTargetDecimals);
+    await expect(pgRepo.getBuildIntent("intent-missing-target-decimals")).rejects.toThrow(
+      /Persisted build intent .* is missing required target_decimals/
+    );
+  });
 });

@@ -110,14 +110,16 @@ export class PostgresSieveRepository implements ISieveRepository {
         minimum_output_raw, protection_method, protection_value,
         provider_request_id, transaction_hash, last_valid_block_height,
         funding_asset, funding_amount_display, target_symbol, expected_target_amount, max_premium_pct,
-        expires_at, status, created_at
+        expires_at, status, created_at,
+        target_decimals, active_multiplier, chain_timestamp, epoch
       ) VALUES (
         ${intent.id}, ${intent.checkId}, ${intent.wallet}, ${intent.network},
         ${intent.summary.referencePriceUsd}, ${intent.summary.currentBuyPriceUsd}, ${premiumBps},
         ${intent.minimumAcceptableOutputRaw.toString()}, ${intent.protectionMethod}, null,
         ${intent.requestId ?? null}, null, ${intent.lastValidBlockHeight ?? null},
         ${intent.summary.fundingAsset}, ${intent.summary.fundingAmount}, ${intent.summary.targetSymbol}, ${intent.summary.expectedTargetAmount}, ${intent.summary.maxPremiumPct},
-        ${intent.expiresAt}, 'READY_FOR_WALLET', NOW()
+        ${intent.expiresAt}, 'READY_FOR_WALLET', NOW(),
+        ${intent.summary.targetDecimals ?? null}, ${intent.summary.activeMultiplier ?? null}, ${intent.summary.chainTimestamp ?? null}, ${intent.summary.epoch ?? null}
       )
       ON CONFLICT (id) DO NOTHING
     `;
@@ -138,8 +140,17 @@ export class PostgresSieveRepository implements ISieveRepository {
       r.expected_target_amount == null ||
       r.max_premium_pct == null
     ) {
-      throw new Error(
+      throw new SieveAppError(
+        "DATABASE_INTEGRITY_ERROR",
         `Persisted build intent ${id} is missing required lifecycle fields; database integrity check failed`
+      );
+    }
+
+    // Fail closed if target_decimals is missing (Requirement 3)
+    if (r.target_decimals == null) {
+      throw new SieveAppError(
+        "DATABASE_INTEGRITY_ERROR",
+        `Persisted build intent ${id} is missing required target_decimals; database integrity check failed`
       );
     }
 
@@ -158,11 +169,15 @@ export class PostgresSieveRepository implements ISieveRepository {
         fundingAsset: r.funding_asset as any,
         fundingAmount: r.funding_amount_display.toString(),
         targetSymbol: r.target_symbol,
+        targetDecimals: Number(r.target_decimals),
         expectedTargetAmount: r.expected_target_amount.toString(),
         referencePriceUsd: r.revalidation_reference_price_usd.toString(),
         currentBuyPriceUsd: r.revalidation_buy_price_usd.toString(),
         premiumPct: (r.revalidation_premium_bps / 100).toFixed(2),
         maxPremiumPct: r.max_premium_pct.toString(),
+        activeMultiplier: r.active_multiplier != null ? r.active_multiplier.toString() : undefined,
+        chainTimestamp: r.chain_timestamp != null ? Number(r.chain_timestamp) : undefined,
+        epoch: r.epoch != null ? r.epoch.toString() : undefined,
       },
     };
   }
@@ -174,14 +189,16 @@ export class PostgresSieveRepository implements ISieveRepository {
         funding_asset, funding_amount_display, requested_funding_amount, actual_funding_amount,
         target_symbol, target_mint, expected_target_amount, realized_target_amount,
         reference_price_usd, checked_buy_price_usd, max_premium_bps, premium_bps,
-        submitted_at, confirmed_at, failure_code, created_at
+        submitted_at, confirmed_at, failure_code, created_at,
+        raw_wallet_output, target_decimals, active_multiplier, chain_timestamp, epoch
       ) VALUES (
         ${receipt.id}, ${receipt.checkId}, ${receipt.buildIntentId}, ${receipt.wallet}, ${receipt.network},
         ${receipt.signature ?? null}, ${receipt.internalExecutionId ?? null}, ${receipt.status},
         ${receipt.fundingAsset}, ${receipt.fundingAmount}, ${receipt.requestedFundingAmount}, ${receipt.actualFundingAmount ?? null},
         ${receipt.targetSymbol}, ${receipt.targetMint}, ${receipt.expectedTargetAmount}, ${receipt.realizedTargetAmount},
         ${receipt.referencePriceUsd}, ${receipt.checkedBuyPriceUsd}, ${receipt.maxPremiumBps}, ${receipt.premiumBps},
-        ${receipt.submittedAt}, ${receipt.confirmedAt}, ${receipt.failureCode ?? null}, NOW()
+        ${receipt.submittedAt}, ${receipt.confirmedAt}, ${receipt.failureCode ?? null}, NOW(),
+        ${receipt.rawWalletOutput ?? null}, ${receipt.targetDecimals ?? null}, ${receipt.activeMultiplier ?? null}, ${receipt.chainTimestamp ?? null}, ${receipt.epoch ?? null}
       )
       ON CONFLICT (signature) DO NOTHING
       RETURNING *
@@ -345,8 +362,13 @@ export class PostgresSieveRepository implements ISieveRepository {
       actualFundingAmount: actualFunding,
       targetSymbol: r.target_symbol,
       targetMint: r.target_mint,
+      targetDecimals: r.target_decimals != null ? Number(r.target_decimals) : null,
       expectedTargetAmount: r.expected_target_amount.toString(),
       realizedTargetAmount: r.realized_target_amount?.toString() ?? null,
+      rawWalletOutput: r.raw_wallet_output != null ? r.raw_wallet_output.toString() : null,
+      activeMultiplier: r.active_multiplier != null ? r.active_multiplier.toString() : null,
+      chainTimestamp: r.chain_timestamp != null ? Number(r.chain_timestamp) : null,
+      epoch: r.epoch != null ? r.epoch.toString() : null,
       referencePriceUsd: r.reference_price_usd.toString(),
       checkedBuyPriceUsd: r.checked_buy_price_usd.toString(),
       maxPremiumBps: r.max_premium_bps,
