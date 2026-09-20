@@ -17,7 +17,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     const networkGroup = page.getByRole("group", { name: /network selection/i });
     await expect(networkGroup).toBeVisible();
     await expect(networkGroup.getByRole("button", { name: /mainnet/i })).toBeVisible();
-    await expect(networkGroup.getByRole("button", { name: /practice mode/i })).toBeVisible();
+    await expect(networkGroup.getByRole("button", { name: /testnet/i })).toBeVisible();
 
     // Verify disconnected navigation reaches the actual markets screen. API market
     // payload coverage remains in the deterministic Practice flow tests.
@@ -29,7 +29,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
 
   test("2. Network switch to Practice Mode shows confirmation dialog and labeled test data", async ({ page }) => {
     // Sieve starts in Practice mode by default
-    const practiceBtn = page.getByRole("button", { name: /practice mode/i });
+    const practiceBtn = page.getByRole("button", { name: /testnet/i });
     const mainnetBtn = page.getByRole("button", { name: /mainnet/i });
     await expect(practiceBtn).toHaveAttribute("aria-pressed", "true");
 
@@ -47,7 +47,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     // Switch back to Practice mode
     await practiceBtn.click();
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole("heading")).toContainText(/Switch to Practice mode/i);
+    await expect(dialog.getByRole("heading")).toContainText(/Switch to Testnet/i);
 
     // Confirm switch back to Practice mode
     await dialog.getByRole("button", { name: /switch network/i }).click();
@@ -96,12 +96,12 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     await expect(reviewModal.getByRole("heading", { name: /review buy/i })).toBeVisible();
 
     // Click Confirm practice trade or confirm in wallet
-    const confirmBtn = reviewModal.getByRole("button", { name: /confirm (practice trade|in wallet)/i });
+    const confirmBtn = reviewModal.getByRole("button", { name: /confirm (testnet simulation|in wallet)/i });
     await confirmBtn.click();
 
     // Trade Receipt appears
     await expect(page.getByText(/trade complete/i)).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("PRACTICE EXECUTION")).toBeVisible();
+    await expect(page.getByText("TESTNET SIMULATION")).toBeVisible();
     await expect(page.getByText("Simulation ID")).toBeVisible();
     await expect(page.getByText("Simulated transaction. No wallet signature or funds were used.")).toBeVisible();
     await expect(page.getByRole("link", { name: /view on solscan/i })).not.toBeVisible();
@@ -192,7 +192,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
       });
     });
 
-    const confirmBtn = page.getByRole("button", { name: /confirm (practice trade|in wallet)/i });
+    const confirmBtn = page.getByRole("button", { name: /confirm (testnet simulation|in wallet)/i });
     await confirmBtn.click();
 
     // Review dialog closes, and banner displays the blocked state
@@ -449,7 +449,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
 
     // Verify practice mode banner is visible
-    await expect(page.getByText(/practice mode/i).first()).toBeVisible();
+    await expect(page.getByText(/testnet/i).first()).toBeVisible();
 
     // Check price
     await page.getByPlaceholder("0.00").fill("100");
@@ -460,10 +460,10 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     // Review dialog opens with "Confirm practice trade"
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole("button", { name: /confirm practice trade/i })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /confirm testnet simulation/i })).toBeVisible();
 
     // Confirm practice trade
-    await dialog.getByRole("button", { name: /confirm practice trade/i }).click();
+    await dialog.getByRole("button", { name: /confirm testnet simulation/i }).click();
 
     // Trade completes
     await expect(page.getByText(/trade complete/i)).toBeVisible({ timeout: 10000 });
@@ -515,7 +515,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
 
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await dialog.getByRole("button", { name: /confirm (practice trade|in wallet)/i }).click();
+    await dialog.getByRole("button", { name: /confirm (testnet simulation|in wallet)/i }).click();
 
     // Verify Mainnet receipt with real signature
     await expect(page.getByText("MAINNET EXECUTION")).toBeVisible({ timeout: 10000 });
@@ -564,7 +564,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
 
     const dialog2 = page.getByRole("dialog");
     await expect(dialog2).toBeVisible();
-    await dialog2.getByRole("button", { name: /confirm (practice trade|in wallet)/i }).click();
+    await dialog2.getByRole("button", { name: /confirm (testnet simulation|in wallet)/i }).click();
 
     // Verify Mainnet receipt with unreconciled signature
     await expect(page.getByText("MAINNET EXECUTION")).toBeVisible({ timeout: 10000 });
