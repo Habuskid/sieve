@@ -150,7 +150,7 @@ export function PreferencesView() {
           <button
             type="button"
             onClick={handleSave}
-            className="inline-flex items-center gap-2 rounded-btn bg-primaryText px-5 py-2 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[38px]"
+            className="sieve-control-primary"
           >
             {saved ? (
               <>

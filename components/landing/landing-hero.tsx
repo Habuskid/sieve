@@ -4,7 +4,8 @@ import React from "react";
 import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
-import { SieveLogo } from "@/components/brand/sieve-logo";
+
+const CANDLES = Array.from({ length: 12 });
 
 export function LandingHero() {
   const reduceMotion = useReducedMotion();
@@ -48,28 +49,22 @@ export function LandingHero() {
           className="lg:col-span-5"
         >
           <div
-            className="sieve-marketing-stage"
+            className="sieve-chart-stage"
             role="img"
-            aria-label="Abstract Sieve animation showing incoming signals passing through a boundary."
+            aria-label="Decorative candlestick execution animation showing a route checked against the execution boundary."
           >
-            <div className="sieve-marketing-grid" aria-hidden="true" />
-            <div className="sieve-marketing-ring sieve-marketing-ring-a" aria-hidden="true" />
-            <div className="sieve-marketing-ring sieve-marketing-ring-b" aria-hidden="true" />
-            <div className="sieve-marketing-boundary" aria-hidden="true" />
-
-            <div className="sieve-marketing-stream sieve-marketing-stream-1" aria-hidden="true" />
-            <div className="sieve-marketing-stream sieve-marketing-stream-2" aria-hidden="true" />
-            <div className="sieve-marketing-stream sieve-marketing-stream-3" aria-hidden="true" />
-            <div className="sieve-marketing-stream sieve-marketing-stream-4" aria-hidden="true" />
-            <div className="sieve-marketing-stream sieve-marketing-stream-5" aria-hidden="true" />
-
-            <div className="sieve-marketing-core" aria-hidden="true">
-              <SieveLogo size={28} color="currentColor" />
+            <div className="sieve-chart-grid" aria-hidden="true" />
+            <div className="sieve-chart-limit" aria-hidden="true" />
+            <div className="sieve-candles" aria-hidden="true">
+              {CANDLES.map((_, index) => (
+                <span key={index} className="sieve-candle" />
+              ))}
             </div>
-
-            <p className="sieve-marketing-caption">
-              Route enters.
-              <strong>Boundary decides.</strong>
+            <div className="sieve-execution-scan" aria-hidden="true" />
+            <div className="sieve-execution-marker" aria-hidden="true" />
+            <p className="sieve-chart-caption">
+              Route execution
+              <strong>Checked before signing</strong>
             </p>
           </div>
         </motion.div>

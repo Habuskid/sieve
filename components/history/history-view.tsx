@@ -63,7 +63,7 @@ export function HistoryView({ network }: HistoryViewProps) {
           <button
             type="button"
             onClick={() => setWalletModalVisible(true)}
-            className="inline-flex items-center gap-2 rounded-btn bg-primaryText px-5 py-2.5 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[40px]"
+            className="sieve-control-primary"
           >
             Connect wallet
           </button>

@@ -66,7 +66,7 @@ export function MarketsView({ network }: MarketsViewProps) {
       {network === "testnet" && (
         <p className="mb-5 flex items-center gap-2 text-sm text-secondaryText">
           <span className="size-1.5 rounded-full bg-sieveAmber" aria-hidden="true" />
-          Practice mode. Simulated data.
+          Testnet. Simulated data.
         </p>
       )}
 
@@ -117,7 +117,7 @@ export function MarketsView({ network }: MarketsViewProps) {
           <button
             type="button"
             onClick={fetchMarkets}
-            className="rounded-[4px] bg-primaryText px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors"
+            className="sieve-control-primary sieve-control-primary-compact"
           >
             Try again
           </button>

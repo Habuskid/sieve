@@ -188,8 +188,8 @@ export function ReviewDialog({
         {/* Practice Mode Environment Strip */}
         {!isMainnet && (
           <div className="mt-3 py-1.5 px-3 rounded-[4px] bg-sieveBlue-soft border border-blue-200 text-xs text-sieveBlue font-mono flex items-center justify-between">
-            <span className="font-semibold">PRACTICE MODE</span>
-            <span>Simulated execution. Zero funds/signatures used.</span>
+            <span className="font-semibold">TESTNET SIMULATION</span>
+            <span>Simulated execution. No funds or wallet signatures used.</span>
           </div>
         )}
 
@@ -326,7 +326,7 @@ export function ReviewDialog({
           <div className="py-2.5 flex items-center justify-between">
             <span className="text-secondaryText">Environment / Wallet</span>
             <span className="font-mono text-primaryText tabular-nums">
-              {isMainnet ? "MAINNET" : "PRACTICE"} • {walletDisplay}
+              {isMainnet ? "MAINNET" : "TESTNET"} • {walletDisplay}
             </span>
           </div>
         </div>
@@ -348,13 +348,13 @@ export function ReviewDialog({
               type="button"
               onClick={onConfirmPractice}
               disabled={isBuilding}
-              className="inline-flex items-center gap-2 rounded-btn bg-primaryText px-5 py-2 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[40px] disabled:opacity-50"
+              className="sieve-control-primary disabled:opacity-50"
             >
               {isBuilding ? (
-                <span>Executing practice trade...</span>
+                <span>Running testnet simulation...</span>
               ) : (
                 <>
-                  <span>Confirm practice trade</span>
+                  <span>Confirm testnet simulation</span>
                   <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                 </>
               )}
@@ -365,7 +365,7 @@ export function ReviewDialog({
               type="button"
               onClick={onPrepareTransaction}
               disabled={isBuilding}
-              className="inline-flex items-center gap-2 rounded-btn bg-primaryText px-5 py-2 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[40px] disabled:opacity-50"
+              className="sieve-control-primary disabled:opacity-50"
             >
               {isBuilding ? (
                 <span>Preparing transaction...</span>
@@ -382,7 +382,7 @@ export function ReviewDialog({
               type="button"
               onClick={onPrepareTransaction}
               disabled={isBuilding}
-              className="inline-flex items-center gap-2 rounded-btn bg-primaryText px-5 py-2 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[40px] disabled:opacity-50"
+              className="sieve-control-primary disabled:opacity-50"
             >
               {isBuilding ? <span>Preparing transaction...</span> : <span>Prepare again</span>}
               <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />

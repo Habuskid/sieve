@@ -22,6 +22,7 @@ export function MarketRow({ market }: MarketRowProps) {
   const diff = market.differencePct ? parseFloat(market.differencePct) : null;
   const isDiscount = diff !== null && diff < 0;
   const isNear = diff !== null && diff >= 0 && diff <= 5;
+  const displayName = market.name.replace(/\s*\(Practice\)\s*$/i, "");
 
   return (
     <>
@@ -35,7 +36,7 @@ export function MarketRow({ market }: MarketRowProps) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={market.imageUrl}
-                  alt={market.name}
+                  alt={displayName}
                   className="h-full w-full object-cover"
                   onError={(e) => {
                     (e.target as HTMLElement).style.display = "none";
@@ -47,7 +48,7 @@ export function MarketRow({ market }: MarketRowProps) {
             </div>
             <div>
               <span className="font-semibold text-primaryText block">
-                {market.name}
+                {displayName}
               </span>
               <span className="font-mono text-[11px] text-mutedText">
                 {market.symbol}
@@ -93,7 +94,7 @@ export function MarketRow({ market }: MarketRowProps) {
         <td className="py-2.5 px-4 text-right">
           <Link
             href={`/buy?mint=${market.mint}`}
-            className="inline-flex items-center gap-1 rounded-[4px] border border-borderBase bg-surface px-2.5 py-1 text-xs font-semibold text-primaryText hover:bg-primaryText hover:text-white transition-colors min-h-[30px]"
+            className="sieve-control-primary sieve-control-primary-compact"
           >
             <span>Buy</span>
             <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
@@ -110,7 +111,7 @@ export function MarketRow({ market }: MarketRowProps) {
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={market.imageUrl}
-                  alt={market.name}
+                  alt={displayName}
                   className="h-full w-full object-cover"
                 />
               ) : (
@@ -119,7 +120,7 @@ export function MarketRow({ market }: MarketRowProps) {
             </div>
             <div>
               <span className="font-semibold text-primaryText block">
-                {market.name}
+                {displayName}
               </span>
               <span className="font-mono text-[11px] text-mutedText">
                 {market.symbol}
@@ -129,7 +130,7 @@ export function MarketRow({ market }: MarketRowProps) {
 
           <Link
             href={`/buy?mint=${market.mint}`}
-            className="inline-flex items-center gap-1 rounded-[4px] bg-primaryText px-3 py-1 text-xs font-semibold text-white min-h-[32px]"
+            className="sieve-control-primary sieve-control-primary-compact"
           >
             <span>Buy</span>
             <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
