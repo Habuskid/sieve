@@ -2,6 +2,7 @@
 
 import React, { useId } from "react";
 import type { FundingAsset } from "@/core/domain/types";
+import { TokenIcon } from "@/components/ui/token-icon";
 
 interface AmountInputProps {
   value: string;
@@ -64,7 +65,8 @@ export function AmountInput({
               : "border-borderStrong focus:border-sieveBlue"
           } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         />
-        <div className="absolute inset-y-0 right-0 flex items-center pointer-events-none">
+        <div className="absolute inset-y-0 right-0 flex items-center gap-1.5 pointer-events-none">
+          <TokenIcon asset={asset} size={16} />
           <span className="font-mono text-xs font-medium text-sieveBlue">
             {asset}
           </span>
