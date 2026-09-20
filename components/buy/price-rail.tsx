@@ -15,8 +15,6 @@ export interface PriceRailProps {
   className?: string;
 }
 
-const ticks = Array.from({ length: 17 });
-
 export function PriceRail({
   referencePriceUsd,
   currentBuyPriceUsd,
@@ -37,14 +35,24 @@ export function PriceRail({
     currentBuyPriceUsd !== null && hasReference
       ? ((currentBuyPriceUsd - referencePriceUsd) / referencePriceUsd) * 100
       : null;
-  const passesLimit = currentPremiumPct === null ? null : currentPremiumPct <= userLimitPct;
+  const passesLimit =
+    currentPremiumPct === null ? null : currentPremiumPct <= userLimitPct;
 
-  const visualMax = Math.max(10, userLimitPct * 1.75, (currentPremiumPct ?? 0) + 2);
-  const startPosition = 4;
+  const visualMax = Math.max(
+    maxLimitPct,
+    userLimitPct + 2,
+    (currentPremiumPct ?? 0) + 2
+  );
+
   const mapPremium = (premium: number) =>
-    Math.min(96, Math.max(startPosition, startPosition + (premium / visualMax) * 92));
+    Math.min(100, Math.max(0, (premium / visualMax) * 100));
+
   const limitPosition = mapPremium(userLimitPct);
-  const routePosition = currentPremiumPct === null ? null : mapPremium(currentPremiumPct);
+  const routePosition =
+    currentPremiumPct === null ? null : mapPremium(currentPremiumPct);
+
+  const sliderFill =
+    ((userLimitPct - minLimitPct) / (maxLimitPct - minLimitPct)) * 100;
 
   const formatPrice = (price: number | null) =>
     price === null ? "—" : `$${price.toFixed(2)}`;
@@ -53,84 +61,144 @@ export function PriceRail({
     ? `Reference price ${formatPrice(referencePriceUsd)}. Maximum price ${formatPrice(maxBuyPriceUsd)}. ${
         currentBuyPriceUsd === null
           ? "Route price has not been checked."
-          : `Route price ${formatPrice(currentBuyPriceUsd)}. The route ${passesLimit ? "passes" : "exceeds"} your limit.`
+          : `Route price ${formatPrice(currentBuyPriceUsd)}. The route ${
+              passesLimit ? "passes" : "exceeds"
+            } your limit.`
       }`
     : "Price data is unavailable. Route price has not been checked.";
 
   return (
-    <section className={cn("relative", className)} aria-labelledby={`${sliderId}-label`}>
-      <p className="sr-only" aria-live="polite">{screenReaderText}</p>
+    <section
+      className={cn("sieve-price-boundary", className)}
+      aria-labelledby={`${sliderId}-label`}
+    >
+      <p className="sr-only" aria-live="polite">
+        {screenReaderText}
+      </p>
 
       {interactive && onLimitChange && (
-        <div className="pb-8">
-          <div className="flex items-baseline justify-between gap-6">
+        <div className="sieve-limit-control">
+          <div className="sieve-limit-heading">
             <div>
-              <label id={`${sliderId}-label`} htmlFor={sliderId} className="text-base font-medium text-primaryText">
+              <label id={`${sliderId}-label`} htmlFor={sliderId}>
                 Maximum premium
               </label>
-              <p className="mt-1 text-sm text-mutedText">The most you&apos;ll accept above the reference price.</p>
+              <p>Your transaction stops if execution moves above this limit.</p>
             </div>
-            <span className="text-xl font-medium text-sieveBlue tabular-nums">+{userLimitPct.toFixed(1)}%</span>
+
+            <output htmlFor={sliderId} className="sieve-limit-value">
+              +{userLimitPct.toFixed(1)}%
+            </output>
           </div>
-          <input
-            id={sliderId}
-            type="range"
-            min={minLimitPct}
-            max={maxLimitPct}
-            step={step}
-            value={userLimitPct}
-            onChange={(event) => onLimitChange(Number.parseFloat(event.target.value))}
-            className="price-range mt-5 h-11 w-full cursor-pointer appearance-none bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
-            aria-valuemin={minLimitPct}
-            aria-valuemax={maxLimitPct}
-            aria-valuenow={userLimitPct}
-            aria-valuetext={`+${userLimitPct.toFixed(1)} percent${maxBuyPriceUsd === null ? "" : `, maximum price ${formatPrice(maxBuyPriceUsd)}`}`}
-          />
-          <div className="flex justify-between text-xs text-mutedText tabular-nums">
-            <span>0%</span>
-            <span>{maxLimitPct}%</span>
+
+          <div
+            className="sieve-limit-slider-wrap"
+            style={{ "--slider-fill": `${sliderFill}%` } as React.CSSProperties}
+          >
+            <input
+              id={sliderId}
+              type="range"
+              min={minLimitPct}
+              max={maxLimitPct}
+              step={step}
+              value={userLimitPct}
+              onChange={(event) =>
+                onLimitChange(Number.parseFloat(event.target.value))
+              }
+              className="sieve-limit-slider"
+              aria-valuemin={minLimitPct}
+              aria-valuemax={maxLimitPct}
+              aria-valuenow={userLimitPct}
+              aria-valuetext={`+${userLimitPct.toFixed(1)} percent${
+                maxBuyPriceUsd === null
+                  ? ""
+                  : `, maximum price ${formatPrice(maxBuyPriceUsd)}`
+              }`}
+            />
+
+            <div className="sieve-limit-scale" aria-hidden="true">
+              <span>{minLimitPct}%</span>
+              <span>{maxLimitPct}%</span>
+            </div>
           </div>
         </div>
       )}
 
-      <div className="mt-2 grid grid-cols-3 gap-4 border-y border-borderBase py-6 sm:gap-8">
-        <PriceDatum label="Reference price" value={formatPrice(referencePriceUsd)} />
-        <PriceDatum label="Maximum price" value={formatPrice(maxBuyPriceUsd)} accent />
-        <PriceDatum label="Route price" value={formatPrice(currentBuyPriceUsd)} state={passesLimit} />
+      <div className="sieve-price-strip">
+        <PriceDatum
+          label="Reference price"
+          value={formatPrice(referencePriceUsd)}
+        />
+        <PriceDatum
+          label="Maximum price"
+          value={formatPrice(maxBuyPriceUsd)}
+          accent
+        />
+        <PriceDatum
+          label="Route price"
+          value={formatPrice(currentBuyPriceUsd)}
+          state={passesLimit}
+        />
       </div>
 
-      <div className="relative mt-8 pb-10 pt-7 select-none" aria-hidden="true">
-        <div className="absolute inset-x-0 top-7 flex justify-between">
-          {ticks.map((_, index) => (
-            <span key={index} className={cn("w-px bg-borderStrong", index % 4 === 0 ? "h-3" : "h-1.5")} />
-          ))}
+      {routePosition === null ? (
+        <div className="sieve-route-empty" role="status" aria-live="polite">
+          <div>
+            <span className="sieve-route-empty-label">Route not checked</span>
+            <p>Check the price to place the executable route against your boundary.</p>
+          </div>
+          <span className="sieve-route-empty-line" aria-hidden="true" />
         </div>
-        <div className="relative mt-3 h-px bg-borderStrong">
-          <div className="absolute inset-y-0 left-0 bg-sieveBlue" style={{ width: `${limitPosition}%` }} />
-          <div className="absolute top-1/2 h-12 w-px -translate-y-1/2 bg-sieveBlue" style={{ left: `${limitPosition}%` }} />
-          {routePosition !== null && (
-            <div className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: `${routePosition}%` }}>
-              <span className={cn("block size-3 rounded-full border-2 border-surface", passesLimit ? "bg-sieveGreen" : "bg-sieveRed")} />
-            </div>
-          )}
-        </div>
-      </div>
+      ) : (
+        <div
+          className="sieve-boundary-visual"
+          style={
+            {
+              "--limit-position": `${limitPosition}%`,
+              "--route-position": `${routePosition}%`,
+            } as React.CSSProperties
+          }
+          aria-hidden="true"
+        >
+          <div className="sieve-boundary-track">
+            <span className="sieve-boundary-safe" />
+            <span className="sieve-boundary-limit" />
+            <span
+              className={cn(
+                "sieve-boundary-route",
+                passesLimit ? "is-safe" : "is-blocked"
+              )}
+            />
+          </div>
 
-      <div className="border-t border-borderBase pt-5" role={passesLimit === false ? "alert" : "status"} aria-live="polite">
+          <div className="sieve-boundary-labels">
+            <span>Reference</span>
+            <span className="sieve-boundary-limit-label">Your limit</span>
+            <span
+              className={cn(
+                "sieve-boundary-route-label",
+                passesLimit ? "is-safe" : "is-blocked"
+              )}
+            >
+              Route
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div
+        className="sieve-boundary-status"
+        role={passesLimit === false ? "alert" : "status"}
+        aria-live="polite"
+      >
         {passesLimit === null ? (
-          <p className="text-sm leading-6 text-secondaryText">Check the route to compare it with your limit.</p>
+          <p>Check the route to compare it with your limit.</p>
         ) : passesLimit ? (
-          <p className="flex items-center gap-2 text-sm font-medium text-primaryText">
-            <span className="size-2 rounded-full bg-sieveGreen" aria-hidden="true" />
-            The price is inside your limit.
-          </p>
+          <p className="is-safe">Execution is inside your maximum price.</p>
         ) : (
           <div>
-            <p className="flex items-center gap-2 text-sm font-medium text-primaryText">
-              <span className="size-2 rounded-full bg-sieveRed" aria-hidden="true" />
-              Price exceeds your limit.
-            </p>
-            <p className="mt-1 pl-4 text-sm text-secondaryText">No transaction was created.</p>
+            <p className="is-blocked">Execution exceeds your maximum price.</p>
+            <span>No transaction was created.</span>
           </div>
         )}
       </div>
@@ -150,16 +218,21 @@ function PriceDatum({
   state?: boolean | null;
 }) {
   return (
-    <div className="min-w-0">
-      <p className="text-xs text-mutedText">{label}</p>
-      <p
+    <div className="sieve-price-datum">
+      <p>{label}</p>
+      <strong
         className={cn(
-          "mt-2 truncate text-xl font-medium tabular-nums sm:text-2xl",
-          accent ? "text-sieveBlue" : state === true ? "text-sieveGreen" : state === false ? "text-sieveRed" : "text-primaryText"
+          accent
+            ? "is-accent"
+            : state === true
+              ? "is-safe"
+              : state === false
+                ? "is-blocked"
+                : ""
         )}
       >
         {value}
-      </p>
+      </strong>
     </div>
   );
 }
