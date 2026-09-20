@@ -3,25 +3,29 @@
 @tailwind utilities;
 
 :root {
-  --bg: #101722;
-  --surface: #151E2B;
-  --surface-subtle: #1A2635;
-  --surface-elevated: #202E40;
-  --text: #F1F5F9;
-  --text-secondary: #B3C0CE;
-  --text-muted: #7F90A3;
-  --border: #263446;
-  --border-strong: #35475D;
-  --blue: #55BFF4;
-  --blue-soft: rgba(85, 191, 244, 0.1);
-  --cyan: #06B6D4;
-  --cyan-soft: rgba(6, 182, 212, 0.1);
-  --green: #10B981;
-  --green-soft: rgba(16, 185, 129, 0.12);
-  --red: #F43F5E;
-  --red-soft: rgba(244, 63, 94, 0.12);
-  --amber: #F59E0B;
-  --amber-soft: rgba(245, 158, 11, 0.12);
+  --bg: #17212d;
+  --surface: #1d2a38;
+  --surface-subtle: #243445;
+  --surface-elevated: #2b3d50;
+  --text: #f7fafc;
+  --text-secondary: #c4d0dc;
+  --text-muted: #8fa2b6;
+  --border: #304255;
+  --border-strong: #465b70;
+  --blue: #67c8ff;
+  --blue-soft: rgba(103, 200, 255, 0.1);
+  --cyan: #38d0e5;
+  --cyan-soft: rgba(56, 208, 229, 0.1);
+  --green: #35c98a;
+  --green-soft: rgba(53, 201, 138, 0.1);
+  --red: #ff6b7d;
+  --red-soft: rgba(255, 107, 125, 0.1);
+  --amber: #f4b860;
+  --amber-soft: rgba(244, 184, 96, 0.1);
+}
+
+html {
+  background: var(--bg);
 }
 
 body {
@@ -29,10 +33,16 @@ body {
   color: var(--text);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: rgba(103, 200, 255, 0.22);
+  color: var(--text);
 }
 
 .price-range::-webkit-slider-runnable-track {
-  height: 1px;
+  height: 2px;
   background: var(--border-strong);
 }
 
@@ -41,30 +51,28 @@ body {
   height: 16px;
   margin-top: -7px;
   appearance: none;
-  border: 1px solid var(--blue);
+  border: 2px solid var(--blue);
   border-radius: 999px;
   background: var(--bg);
 }
 
 .price-range::-moz-range-track {
-  height: 1px;
+  height: 2px;
   background: var(--border-strong);
 }
 
 .price-range::-moz-range-thumb {
   width: 16px;
   height: 16px;
-  border: 1px solid var(--blue);
+  border: 2px solid var(--blue);
   border-radius: 999px;
   background: var(--bg);
 }
 
-/* Tabular numerals for financial numbers */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
 
-/* Hairline borders */
 .hairline-b {
   border-bottom: 1px solid var(--border);
 }
@@ -73,16 +81,14 @@ body {
   border-top: 1px solid var(--border);
 }
 
-/* Section label */
 .desk-label {
   font-size: 0.6875rem;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--text-secondary);
+  color: var(--text-muted);
 }
 
-/* Reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
