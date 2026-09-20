@@ -441,8 +441,10 @@ describe("Server Orchestration Services (Gate D - Server Authority)", () => {
         maximumFee: 0n,
       }),
       checkBalance: async () => ({ hasSufficient: true }),
+      checkDestinationAccount: async () => ({ exists: true, isFrozen: false, address: "mock-ata" }),
       confirmSignature: async () => ({ confirmed: true, err: null }),
     } as any;
+
 
     const mockDeterministicMarketService = {
       getMarketByMint: async () => ({

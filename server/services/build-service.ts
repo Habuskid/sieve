@@ -248,6 +248,22 @@ export class TransactionBuildService {
 
     // 9. Assemble transaction
     if (check.network === "mainnet") {
+      // Check destination ATA state before assembling transaction
+      if (targetMetadata) {
+        const destCheck = await this.solanaAdapter.checkDestinationAccount(
+          input.wallet,
+          freshAsset.mint,
+          targetMetadata.programOwner === "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+            ? new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
+            : new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+          targetMetadata.issuerControls?.defaultAccountState,
+          "mainnet"
+        );
+        if (destCheck.isFrozen || destCheck.error) {
+          throw new SieveAppError("ROUTE_RISK", destCheck.error || "Destination token account is Frozen");
+        }
+      }
+
       const inputMint = check.funding.fundingAsset === "USDC"
         ? CANONICAL_MINTS.mainnet.USDC
         : CANONICAL_MINTS.mainnet.WSOL;
@@ -272,6 +288,25 @@ export class TransactionBuildService {
       const netMinRaw = targetMetadata
         ? calculateNetOutput(grossMinRaw, targetMetadata.transferFee)
         : grossMinRaw;
+
+      // Handle TransferFee epoch transition:
+      // If older and newer transfer fee schedules exist and differ, evaluate worst-case net output
+      if (
+        targetMetadata?.olderTransferFee &&
+        targetMetadata?.newerTransferFee &&
+        (targetMetadata.olderTransferFee.basisPoints !== targetMetadata.newerTransferFee.basisPoints ||
+          targetMetadata.olderTransferFee.maximumFee !== targetMetadata.newerTransferFee.maximumFee)
+      ) {
+        const netOlder = calculateNetOutput(grossMinRaw, targetMetadata.olderTransferFee);
+        const netNewer = calculateNetOutput(grossMinRaw, targetMetadata.newerTransferFee);
+        const worstNetMinRaw = netOlder < netNewer ? netOlder : netNewer;
+        if (worstNetMinRaw < protection.minimumAcceptableOutputRaw) {
+          throw new SieveAppError(
+            "PRICE_MOVED_OUTSIDE_LIMIT",
+            `Assembled transaction worst-case net minimum output across fee epoch transition (${worstNetMinRaw}) is looser than Sieve price limit (${protection.minimumAcceptableOutputRaw})`
+          );
+        }
+      }
 
       if (netMinRaw < protection.minimumAcceptableOutputRaw) {
         throw new SieveAppError(
@@ -324,8 +359,9 @@ export class TransactionBuildService {
 
     if (targetMetadata?.scaledUiAmount?.newMultiplierEffectiveTimestamp) {
       const transitionTimestampMs = targetMetadata.scaledUiAmount.newMultiplierEffectiveTimestamp * 1000;
-      if (transitionTimestampMs > now && transitionTimestampMs < expiresAtMs) {
-        if (transitionTimestampMs - now < 5_000) {
+      const refTimeMs = targetMetadata.chainTimestamp ? targetMetadata.chainTimestamp * 1000 : now;
+      if (transitionTimestampMs > refTimeMs && transitionTimestampMs < expiresAtMs) {
+        if (transitionTimestampMs - refTimeMs < 5_000) {
           throw new SieveAppError(
             "DATA_UNAVAILABLE",
             "Target token multiplier scheduled to transition immediately; transaction cannot be safely prepared"
@@ -351,6 +387,7 @@ export class TransactionBuildService {
         fundingAsset: check.funding.fundingAsset,
         fundingAmount: check.funding.inputDisplay,
         targetSymbol: freshAsset.symbol,
+        targetDecimals,
         expectedTargetAmount: revalQuoteExpectedAmount,
         referencePriceUsd: revalDecision.referencePriceUsd,
         currentBuyPriceUsd: revalDecision.currentBuyPriceUsd!,
@@ -364,10 +401,13 @@ export class TransactionBuildService {
         ).toString(),
         premiumBps: revalDecision.premiumBps!,
         activeMultiplier: targetMetadata?.scaledUiAmount?.activeMultiplier,
+        chainTimestamp: targetMetadata?.chainTimestamp,
+        epoch: targetMetadata?.epoch?.toString(),
         issuerControls: targetMetadata?.issuerControls,
         feeInfo: buildResultFeeInfo,
       },
     };
+
 
     activeBuildIntentsStore.set(buildIntentId, buildIntent);
     await this.repo.saveBuildIntent(buildIntent);

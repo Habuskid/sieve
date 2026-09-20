@@ -14,8 +14,10 @@ import {
   evaluatePriceBoundary,
   deriveAllowedExecutionTolerance,
   calculateMinimumTargetTokensRaw,
+  rawToEconomicDisplay,
   Decimal,
 } from "../../core";
+
 
 describe("Core Money and Decimal Layer", () => {
   it("converts raw bigint to display decimal correctly for various token decimals", () => {
@@ -358,6 +360,58 @@ describe("Protection Derivation (BR-017, Audit Repair 3)", () => {
       }
     }
   });
+
+  it("ScaledUiAmount: rawToEconomicDisplay matches Solana's truncated integer arithmetic exactly", () => {
+    // 1. Multiplier = 1: standard scaling
+    expect(rawToEconomicDisplay(1_000_000n, 6, 1).toString()).toBe("1");
+    expect(rawToEconomicDisplay(1_500_000n, 6, "1").toString()).toBe("1.5");
+
+    // 2. Multiplier > 1 with truncation:
+    // raw = 1,000,001n, multiplier = 1.4861347 (OpenAI live config)
+    // 1000001 * 1.4861347 = 1486136.1861347 -> trunc = 1486136
+    // 1486136 / 10^6 = 1.486136
+    const openaiOut = rawToEconomicDisplay(1_000_001n, 6, "1.4861347");
+    expect(openaiOut.toString()).toBe("1.486136");
+
+    // 3. Multiplier < 1 with truncation:
+    // raw = 1,000,001n, multiplier = 0.8
+    // 1000001 * 0.8 = 800000.8 -> trunc = 800000
+    // 800000 / 10^6 = 0.8
+    const scaledDown = rawToEconomicDisplay(1_000_001n, 6, "0.8");
+    expect(scaledDown.toString()).toBe("0.8");
+
+    // 4. Fail closed when raw exceeds Number.MAX_SAFE_INTEGER
+    const overLimit = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+    expect(() => rawToEconomicDisplay(overLimit, 6, "1.5")).toThrow("exceeds Number.MAX_SAFE_INTEGER");
+  });
+
+  it("ScaledUiAmount: calculateMinimumTargetTokensRaw binary search finds exact smallest integer R", () => {
+    // Test cases: mult = 1, mult > 1, mult < 1, SpaceX (mult = 5), OpenAI (mult = 1.4861347)
+    const configs = [
+      { name: "multiplier = 1", mult: "1", decimals: 6, fundingUsd: "100.00", maxPrice: "105.00" },
+      { name: "multiplier = 1.5", mult: "1.5", decimals: 6, fundingUsd: "100.00", maxPrice: "105.00" },
+      { name: "multiplier = 0.8", mult: "0.8", decimals: 6, fundingUsd: "50.00", maxPrice: "105.00" },
+      { name: "SpaceX (mult = 5, dec = 9)", mult: "5", decimals: 9, fundingUsd: "100.00", maxPrice: "105.00" },
+      { name: "OpenAI (mult = 1.4861347, dec = 9)", mult: "1.4861347", decimals: 9, fundingUsd: "100.00", maxPrice: "105.00" },
+    ];
+
+    for (const cfg of configs) {
+      const minEconomic = new Decimal(cfg.fundingUsd).div(new Decimal(cfg.maxPrice));
+      const R = calculateMinimumTargetTokensRaw(cfg.fundingUsd, cfg.maxPrice, cfg.decimals, cfg.mult);
+
+      // R MUST satisfy: rawToEconomicDisplay(R) >= minEconomic
+      const economicAtR = rawToEconomicDisplay(R, cfg.decimals, cfg.mult);
+      expect(economicAtR.greaterThanOrEqualTo(minEconomic)).toBe(true);
+
+      // R - 1 MUST fail: rawToEconomicDisplay(R - 1) < minEconomic
+      if (R > 0n) {
+        const economicBelowR = rawToEconomicDisplay(R - 1n, cfg.decimals, cfg.mult);
+        expect(economicBelowR.lessThan(minEconomic)).toBe(true);
+      }
+    }
+  });
+
 });
+
 
 

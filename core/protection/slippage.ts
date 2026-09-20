@@ -18,9 +18,17 @@ export const DEFAULT_MAX_SLIPPAGE_BPS_CAP = 500; // 5.00% cap
  * Calculates the absolute minimum raw integer token output required to guarantee
  * that the effective purchase price does not exceed maximumBuyPrice:
  * minEconomicTokens = fundingUsdValue / maximumBuyPrice
- * minRaw = ceil((minEconomicTokens * 10^targetDecimals) / activeMultiplier)
- * Uses Decimal.ROUND_CEIL so that any executed trade with at least this amount
- * strictly satisfies: (fundingUsdValue / realizedEconomicTokens) <= maximumBuyPrice.
+ *
+ * Solana's ScaledUiAmount conversion uses truncated floating-point arithmetic.
+ * Therefore, naive continuous division ceil(E * 10^d / mult) can produce a raw
+ * integer R that yields LESS than minEconomicTokens when converted back by Solana!
+ *
+ * To guarantee that the effective price NEVER exceeds maximumBuyPrice, Sieve solves
+ * for the exact SMALLEST non-negative raw integer R such that:
+ * rawToEconomicDisplay(R, targetDecimals, activeMultiplier) >= minEconomicTokens
+ *
+ * Because rawToEconomicDisplay is monotonically non-decreasing in R, we compute R
+ * using binary search over the monotonic domain around the continuous estimate.
  */
 export function calculateMinimumTargetTokensRaw(
   fundingUsdValue: string | number | Decimal,
@@ -34,14 +42,49 @@ export function calculateMinimumTargetTokensRaw(
     throw new Error("Maximum buy price must be positive");
   }
   const minEconomicTokens = U.div(M);
+  if (minEconomicTokens.lessThanOrEqualTo(0)) {
+    return 0n;
+  }
   const mult = activeMultiplier ? toDecimal(activeMultiplier) : new Decimal(1);
   if (mult.lessThanOrEqualTo(0)) {
     throw new Error("Active scaled UI multiplier must be positive");
   }
+
+  // Initial continuous estimate
   const factor = new Decimal(10).pow(targetDecimals);
-  const minRawDec = minEconomicTokens.mul(factor).div(mult).toDecimalPlaces(0, Decimal.ROUND_CEIL);
-  return BigInt(minRawDec.toFixed(0));
+  const rawEst = minEconomicTokens.mul(factor).div(mult);
+  const center = BigInt(rawEst.toDecimalPlaces(0, Decimal.ROUND_FLOOR).toFixed(0));
+
+  // Search bounds around the center estimate
+  const slack = BigInt(Math.max(10, Math.ceil(2 / mult.toNumber())));
+  let low = center > slack ? center - slack : 0n;
+  let high = center + slack;
+
+  // Expand high if needed to ensure it satisfies the condition
+  while (rawToEconomicDisplay(high, targetDecimals, mult).lessThan(minEconomicTokens)) {
+    high += slack;
+    if (high > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error("Calculated minimum raw output exceeds Number.MAX_SAFE_INTEGER");
+    }
+  }
+
+  // Monotonic binary search for the smallest R in [low, high] satisfying rawToEconomicDisplay(R) >= minEconomicTokens
+  let result = high;
+  while (low <= high) {
+    const mid = (low + high) / 2n;
+    const economic = rawToEconomicDisplay(mid, targetDecimals, mult);
+    if (economic.greaterThanOrEqualTo(minEconomicTokens)) {
+      result = mid;
+      if (mid === 0n) break;
+      high = mid - 1n;
+    } else {
+      low = mid + 1n;
+    }
+  }
+
+  return result;
 }
+
 
 /**
  * Derives the execution protection parameters (minimum target output and slippage bps)

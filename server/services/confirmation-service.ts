@@ -7,8 +7,9 @@ import { getRepository } from "../database/db";
 import type { ISieveRepository } from "../database/repository";
 import { SieveAppError } from "./errors";
 import { isExpired } from "../../core";
-import { rawToDisplay } from "../../core/money/decimal";
+import { rawToDisplay, rawToEconomicDisplay } from "../../core/money/decimal";
 import type { TradeReceipt, NetworkMode } from "../../core/domain/types";
+
 
 export interface ConfirmRequestInput {
   buildIntentId: string;
@@ -99,6 +100,7 @@ export class ConfirmationService {
     let signature: string | null = input.signature ?? null;
     let realizedTargetAmount: string | null = null;
     let actualFundingAmount: string | null = null;
+    let rawWalletOutput: string | null = null;
     const internalExecutionId = uuidv4();
 
     if (network === "mainnet") {
@@ -138,9 +140,16 @@ export class ConfirmationService {
         }
 
         // Realized target amount: NEVER fall back to expected on Mainnet (Audit Defect 3)
+        // Convert using authoritative scaled UI conversion for ScaledUiAmount mints (Audit Requirement 5)
         if (execResult.totalOutputAmount) {
-          const targetDecimals = await this.solanaAdapter.resolveMintDecimals(check.asset.mint, "mainnet");
-          realizedTargetAmount = rawToDisplay(BigInt(execResult.totalOutputAmount), targetDecimals).toString();
+          rawWalletOutput = execResult.totalOutputAmount;
+          const targetDecimals = buildIntent.summary.targetDecimals ?? (await this.solanaAdapter.resolveMintDecimals(check.asset.mint, "mainnet"));
+          const activeMultiplier = buildIntent.summary.activeMultiplier ?? "1";
+          realizedTargetAmount = rawToEconomicDisplay(
+            BigInt(execResult.totalOutputAmount),
+            targetDecimals,
+            activeMultiplier
+          ).toString();
         } else {
           realizedTargetAmount = null;
         }
@@ -183,8 +192,13 @@ export class ConfirmationService {
       actualFundingAmount,
       targetSymbol: buildIntent.summary.targetSymbol,
       targetMint: check.asset.mint,
+      targetDecimals: buildIntent.summary.targetDecimals ?? null,
       expectedTargetAmount: buildIntent.summary.expectedTargetAmount,
       realizedTargetAmount,
+      rawWalletOutput,
+      activeMultiplier: buildIntent.summary.activeMultiplier ?? null,
+      chainTimestamp: buildIntent.summary.chainTimestamp ?? null,
+      epoch: buildIntent.summary.epoch ?? null,
       referencePriceUsd: buildIntent.summary.referencePriceUsd,
       checkedBuyPriceUsd: buildIntent.summary.currentBuyPriceUsd,
       maxPremiumBps: check.maxPremiumBps,
@@ -194,6 +208,7 @@ export class ConfirmationService {
       failureCode,
       internalExecutionId,
     };
+
 
     // Store receipt idempotently
     const savedReceipt = await this.repo.saveTradeReceipt(receipt);

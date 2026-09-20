@@ -100,25 +100,46 @@ export function formatPct(value: Decimal | string | number, decimalPlaces: numbe
 
 /**
  * Converts a raw integer token amount into economic/UI token units using mint decimals
- * and active scaled UI multiplier:
- * economicAmount = (raw * multiplier) / 10^decimals
+ * and active scaled UI multiplier, exactly matching Solana's ScaledUiAmount semantics:
+ * scaledAmount = Number(raw) * multiplier
+ * truncated = Math.trunc(scaledAmount)
+ * uiAmount = truncated / 10^decimals
+ *
+ * Guarantees:
+ * 1. Fails closed if raw > Number.MAX_SAFE_INTEGER (Solana floating-point limit)
+ * 2. Truncates before decimal scaling
+ * 3. economicUnitsUsedBySieve <= economicUnitsThatSolanaCredits
  */
 export function rawToEconomicDisplay(
   raw: bigint | string | number,
   decimals: number,
   multiplier: Decimal | string | number = 1
 ): Decimal {
-  const rawStr = typeof raw === "bigint" ? raw.toString() : raw;
-  const rawDec = new Decimal(rawStr);
   const mult = toDecimal(multiplier);
+  if (mult.lessThanOrEqualTo(0)) {
+    throw new Error("Scaled UI multiplier must be positive");
+  }
+  const rawBigInt = typeof raw === "bigint" ? raw : BigInt(toDecimal(raw).toFixed(0));
+  if (rawBigInt < 0n) {
+    throw new Error("Raw token amount cannot be negative");
+  }
+
+  if (rawBigInt > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(
+      `Raw amount ${rawBigInt} exceeds Number.MAX_SAFE_INTEGER (${Number.MAX_SAFE_INTEGER}) for ScaledUiAmount conversion`
+    );
+  }
+
+  const multNum = mult.toNumber();
+  const scaledAmount = Number(rawBigInt) * multNum;
+  const truncated = Math.trunc(scaledAmount);
   const factor = new Decimal(10).pow(decimals);
-  return rawDec.mul(mult).div(factor);
+  return new Decimal(truncated).div(factor);
 }
 
 /**
  * Converts economic/UI token units into raw integer token amount using mint decimals
- * and active scaled UI multiplier:
- * rawAmount = (economic * 10^decimals) / multiplier
+ * and active scaled UI multiplier.
  */
 export function economicDisplayToRaw(
   economic: Decimal | string | number,
@@ -135,3 +156,4 @@ export function economicDisplayToRaw(
   const rawDec = d.mul(factor).div(mult).toDecimalPlaces(0, roundingMode);
   return BigInt(rawDec.toFixed(0));
 }
+

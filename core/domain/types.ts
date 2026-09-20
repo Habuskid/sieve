@@ -110,6 +110,7 @@ export type BuildIntent = {
     fundingAsset: FundingAsset;
     fundingAmount: string;
     targetSymbol: string;
+    targetDecimals?: number;
     expectedTargetAmount: string;
     referencePriceUsd: string;
     currentBuyPriceUsd: string;
@@ -119,6 +120,8 @@ export type BuildIntent = {
     minimumAcceptableOutput?: string;
     premiumBps?: number;
     activeMultiplier?: string;
+    chainTimestamp?: number;
+    epoch?: string;
     issuerControls?: IssuerControls;
     feeInfo?: {
       signatureFeeLamports?: number | null;
@@ -147,8 +150,13 @@ export type TradeReceipt = {
   actualFundingAmount: string | null;
   targetSymbol: string;
   targetMint: string;
+  targetDecimals?: number | null;
   expectedTargetAmount: string;
   realizedTargetAmount: string | null;
+  rawWalletOutput?: string | null;
+  activeMultiplier?: string | null;
+  chainTimestamp?: number | null;
+  epoch?: string | null;
   referencePriceUsd: string;
   checkedBuyPriceUsd: string;
   maxPremiumBps: number;
@@ -157,3 +165,4 @@ export type TradeReceipt = {
   confirmedAt: string | null;
   failureCode?: string | null;
 };
+

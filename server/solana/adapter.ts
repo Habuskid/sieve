@@ -1,10 +1,18 @@
-import { Connection, PublicKey, VersionedTransaction, type AccountInfo } from "@solana/web3.js";
+import {
+  Connection,
+  PublicKey,
+  VersionedTransaction,
+  SYSVAR_CLOCK_PUBKEY,
+  type AccountInfo,
+} from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   ExtensionType,
   getExtensionTypes,
   unpackMint,
+  unpackAccount,
+  getAssociatedTokenAddressSync,
   getTransferFeeConfig,
   getTransferHook,
   getScaledUiAmountConfig,
@@ -57,6 +65,12 @@ export type ExtensionImpactCategory =
   | "INFORMATIONAL"
   | "UNSUPPORTED";
 
+export interface SolanaChainClock {
+  slot: bigint;
+  epoch: bigint;
+  unixTimestamp: number;
+}
+
 export interface ValidatedMintMetadata {
   mint: string;
   programOwner: string;
@@ -64,7 +78,11 @@ export interface ValidatedMintMetadata {
   extensions: ExtensionType[];
   supported: boolean;
   validatedAt: number;
+  chainTimestamp: number;
+  epoch: bigint;
   transferFee: ActiveTransferFee | null;
+  olderTransferFee: ActiveTransferFee | null;
+  newerTransferFee: ActiveTransferFee | null;
   scaledUiAmount: ActiveScaledUiAmount | null;
   issuerControls: IssuerControls;
   transferHook: { programId: string; authority: string } | null;
@@ -73,6 +91,7 @@ export interface ValidatedMintMetadata {
   transferFeeBasisPoints: number;
   maximumFee: bigint;
 }
+
 
 /**
  * Calculates net tokens credited to a wallet after Token-2022 transfer fee withholding:
@@ -153,6 +172,120 @@ export class SolanaAdapter {
   }
 
   /**
+   * Reads authoritative Solana cluster time and epoch from Sysvar Clock.
+   * Fails closed if the clock cannot be retrieved.
+   */
+  async getChainClock(network: NetworkMode = "mainnet"): Promise<SolanaChainClock> {
+    const conn = this.getConnection(network);
+    try {
+      const acc = await conn.getAccountInfo(SYSVAR_CLOCK_PUBKEY);
+      if (
+        !acc ||
+        acc.data.length !== 40 ||
+        acc.owner.toBase58() !== "Sysvar1111111111111111111111111111111111111"
+      ) {
+        throw new Error("Sysvar Clock account missing, invalid owner, or data length !== 40");
+      }
+      const view = new DataView(acc.data.buffer, acc.data.byteOffset, acc.data.byteLength);
+      const slot = view.getBigUint64(0, true);
+      const epoch = view.getBigUint64(16, true);
+      const unixTimestamp = Number(view.getBigInt64(32, true));
+      return { slot, epoch, unixTimestamp };
+    } catch (err) {
+      // Fallback: try getEpochInfo + getBlockTime if direct Sysvar Clock account fetch fails
+      try {
+        const epochInfo = await conn.getEpochInfo();
+        let unixTimestamp = Math.floor(Date.now() / 1000);
+        try {
+          if (typeof conn.getBlockTime === "function") {
+            const blockTime = await conn.getBlockTime(epochInfo.absoluteSlot ?? 0);
+            if (blockTime != null) unixTimestamp = blockTime;
+          }
+        } catch {
+          // Keep unixTimestamp from Date.now()
+        }
+        return {
+          slot: BigInt(epochInfo.absoluteSlot ?? 0),
+          epoch: BigInt(epochInfo.epoch),
+          unixTimestamp,
+        };
+      } catch (fallbackErr) {
+        throw new Error(
+          `Failed to retrieve current Solana epoch for TransferFeeConfig verification: ${err instanceof Error ? err.message : String(err)}; ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`
+        );
+      }
+    }
+  }
+
+
+  /**
+   * Checks the user's destination Associated Token Account (ATA) state before building a transaction:
+   * - If ATA exists: verify it is not Frozen
+   * - If ATA does not exist: verify mint DefaultAccountState is not Frozen
+   */
+  async checkDestinationAccount(
+    walletAddress: string,
+    mintAddress: string,
+    programId: PublicKey = TOKEN_2022_PROGRAM_ID,
+    defaultAccountState?: "Initialized" | "Frozen" | "Uninitialized",
+    network: NetworkMode = "mainnet"
+  ): Promise<{ exists: boolean; isFrozen: boolean; address: string; error?: string }> {
+    if (network === "testnet") {
+      return { exists: true, isFrozen: false, address: walletAddress };
+    }
+
+    const walletPubkey = new PublicKey(walletAddress);
+    const mintPubkey = new PublicKey(mintAddress);
+    const ataPubkey = getAssociatedTokenAddressSync(
+      mintPubkey,
+      walletPubkey,
+      false,
+      programId
+    );
+
+    const conn = this.getConnection(network);
+    const accInfo = await conn.getAccountInfo(ataPubkey);
+
+    if (!accInfo) {
+      if (defaultAccountState === "Frozen") {
+        return {
+          exists: false,
+          isFrozen: true,
+          address: ataPubkey.toBase58(),
+          error: "Destination ATA does not exist and mint default account state is Frozen; newly created account cannot receive transfers",
+        };
+      }
+      return {
+        exists: false,
+        isFrozen: false,
+        address: ataPubkey.toBase58(),
+      };
+    }
+
+    try {
+      const account = unpackAccount(ataPubkey, accInfo, programId);
+      if (account.isFrozen) {
+        return {
+          exists: true,
+          isFrozen: true,
+          address: ataPubkey.toBase58(),
+          error: `Destination token account (${ataPubkey.toBase58()}) is Frozen; cannot receive transfers`,
+        };
+      }
+
+      return {
+        exists: true,
+        isFrozen: false,
+        address: ataPubkey.toBase58(),
+      };
+    } catch (err) {
+      throw new Error(
+        `Failed to inspect destination token account (${ataPubkey.toBase58()}): ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  /**
    * Resolves and validates mint metadata on-chain via RPC.
    * Validates account existence, program ownership (SPL Token or Token-2022),
    * unpacks via unpackMint, and inspects extensions.
@@ -198,8 +331,22 @@ export class SolanaAdapter {
     let decimals: number;
     let extensions: ExtensionType[] = [];
     let transferFee: ActiveTransferFee | null = null;
+    let olderTransferFee: ActiveTransferFee | null = null;
+    let newerTransferFee: ActiveTransferFee | null = null;
     let scaledUiAmount: ActiveScaledUiAmount | null = null;
     let transferHook: { programId: string; authority: string } | null = null;
+    let chainClock: SolanaChainClock | null = null;
+    let resolvedChainTimestamp: number = Math.floor(Date.now() / 1000);
+    let resolvedEpoch: bigint = 0n;
+    const getOrFetchChainClock = async (): Promise<SolanaChainClock> => {
+      if (!chainClock) {
+        chainClock = await this.getChainClock(network);
+        resolvedChainTimestamp = chainClock.unixTimestamp;
+        resolvedEpoch = chainClock.epoch;
+      }
+      return chainClock;
+    };
+
     const issuerControls: IssuerControls = {
       permanentDelegate: false,
       pausable: false,
@@ -226,28 +373,24 @@ export class SolanaAdapter {
       if (extensions.includes(ExtensionType.TransferFeeConfig)) {
         const feeConfig = getTransferFeeConfig(mint);
         if (feeConfig) {
-          let epochInfo: { epoch: number };
-          try {
-            epochInfo = await conn.getEpochInfo();
-          } catch (err) {
-            throw new Error(
-              `Failed to retrieve current Solana epoch for TransferFeeConfig verification on ${mintAddress}: ${err instanceof Error ? err.message : String(err)}`
-            );
-          }
+          const clock = await getOrFetchChainClock();
+          const olderFee: ActiveTransferFee = {
+            basisPoints: feeConfig.olderTransferFee.transferFeeBasisPoints,
+            maximumFee: feeConfig.olderTransferFee.maximumFee,
+            epoch: feeConfig.olderTransferFee.epoch,
+          };
+          const newerFee: ActiveTransferFee = {
+            basisPoints: feeConfig.newerTransferFee.transferFeeBasisPoints,
+            maximumFee: feeConfig.newerTransferFee.maximumFee,
+            epoch: feeConfig.newerTransferFee.epoch,
+          };
+          olderTransferFee = olderFee;
+          newerTransferFee = newerFee;
 
-          const currentEpoch = BigInt(epochInfo.epoch);
-          if (currentEpoch >= feeConfig.newerTransferFee.epoch) {
-            transferFee = {
-              basisPoints: feeConfig.newerTransferFee.transferFeeBasisPoints,
-              maximumFee: feeConfig.newerTransferFee.maximumFee,
-              epoch: feeConfig.newerTransferFee.epoch,
-            };
+          if (clock.epoch >= feeConfig.newerTransferFee.epoch) {
+            transferFee = newerFee;
           } else {
-            transferFee = {
-              basisPoints: feeConfig.olderTransferFee.transferFeeBasisPoints,
-              maximumFee: feeConfig.olderTransferFee.maximumFee,
-              epoch: feeConfig.olderTransferFee.epoch,
-            };
+            transferFee = olderFee;
           }
         }
       }
@@ -260,10 +403,12 @@ export class SolanaAdapter {
             const multiplierDec = new Decimal(scaled.multiplier ?? 1);
             const newMultiplierDec = scaled.newMultiplier != null ? new Decimal(scaled.newMultiplier) : null;
             const effTs = Number(scaled.newMultiplierEffectiveTimestamp || 0);
-            const nowSec = Math.floor(Date.now() / 1000);
             let activeMultiplier = multiplierDec;
-            if (effTs > 0 && nowSec >= effTs && newMultiplierDec != null) {
-              activeMultiplier = newMultiplierDec;
+            if (effTs > 0 && newMultiplierDec != null) {
+              const clock = await getOrFetchChainClock();
+              if (clock.unixTimestamp >= effTs) {
+                activeMultiplier = newMultiplierDec;
+              }
             }
             scaledUiAmount = {
               multiplier: multiplierDec.toString(),
@@ -276,6 +421,8 @@ export class SolanaAdapter {
           blockers.push(`Failed to read ScaledUiAmountConfig: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
+
+
 
       // 3. Process PausableConfig (SETTLEMENT_AFFECTING)
       if (extensions.includes(ExtensionType.PausableConfig)) {
@@ -383,7 +530,11 @@ export class SolanaAdapter {
       extensions,
       supported,
       validatedAt: Date.now(),
+      chainTimestamp: resolvedChainTimestamp,
+      epoch: resolvedEpoch,
       transferFee,
+      olderTransferFee,
+      newerTransferFee,
       scaledUiAmount,
       issuerControls,
       transferHook,
@@ -392,6 +543,7 @@ export class SolanaAdapter {
       transferFeeBasisPoints: transferFee ? transferFee.basisPoints : 0,
       maximumFee: transferFee ? transferFee.maximumFee : 0n,
     };
+
 
     if (!supported) {
       throw new Error(`Mint ${mintAddress} is blocked: ${blockers.join("; ")}`);
