@@ -315,7 +315,7 @@ export function BuyView({ network }: BuyViewProps) {
           }
         } else {
           setBannerState("ERROR");
-          setErrorMessage(data.error?.message || "Practice execution failed");
+          setErrorMessage(data.error?.message || "Testnet simulation failed");
         }
         return;
       }
@@ -341,13 +341,13 @@ export function BuyView({ network }: BuyViewProps) {
         setReceipt(confirmData.receipt);
       } else {
         setBannerState("ERROR");
-        setErrorMessage(confirmData.error?.message || "Practice trade failed");
+        setErrorMessage(confirmData.error?.message || "Testnet simulation failed");
       }
     } catch (err) {
       setIsBuilding(false);
       setIsReviewOpen(false);
       setBannerState("ERROR");
-      setErrorMessage(err instanceof Error ? err.message : "Practice trade failed");
+      setErrorMessage(err instanceof Error ? err.message : "Testnet simulation failed");
     }
   };
 
