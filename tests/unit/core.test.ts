@@ -13,8 +13,11 @@ import {
   isExpired,
   evaluatePriceBoundary,
   deriveAllowedExecutionTolerance,
+  calculateMinimumTargetTokensRaw,
+  rawToEconomicDisplay,
   Decimal,
 } from "../../core";
+
 
 describe("Core Money and Decimal Layer", () => {
   it("converts raw bigint to display decimal correctly for various token decimals", () => {
@@ -137,8 +140,8 @@ describe("Policy Evaluator (BR-005, BR-006, BR-007, BR-008)", () => {
     expect(decision.status).toBe("GOOD_TO_GO");
     expect(decision.isExecutable).toBe(true);
     expect(decision.premiumPct).toBe("3.00");
-    expect(decision.currentBuyPriceUsd).toBe("103.0000");
-    expect(decision.maximumBuyPriceUsd).toBe("105.0000");
+    expect(decision.currentBuyPriceUsd).toBe("103");
+    expect(decision.maximumBuyPriceUsd).toBe("105");
   });
 
   it("PASS_EXACT_BOUNDARY: Reference 100, Current 105, Limit 5% -> GOOD_TO_GO", () => {
@@ -251,12 +254,35 @@ describe("Policy Evaluator (BR-005, BR-006, BR-007, BR-008)", () => {
   });
 });
 
-describe("Protection Derivation (BR-017)", () => {
-  it("derives conservative slippage and minimum raw target output within policy limit", () => {
+describe("Protection Derivation (BR-017, Audit Repair 3)", () => {
+  it("calculates minimum raw target tokens using ROUND_CEIL to strictly prevent price limit breach", () => {
+    // Exact integer division: $100 funding, $10 max price, 6 decimals -> exactly 10.0 tokens -> 10,000,000 units
+    const exactRaw = calculateMinimumTargetTokensRaw("100.00", "10.00", 6);
+    expect(exactRaw).toBe(10_000_000n);
+
+    // Fractional raw units: $10 funding, $105 max price, 6 decimals
+    // 10 / 105 = 0.095238095238... tokens = 95238.095238... raw units
+    // Ceiling MUST yield 95239n (floor would yield 95238n)
+    const ceilRaw = calculateMinimumTargetTokensRaw("10.00", "105.00", 6);
+    expect(ceilRaw).toBe(95239n);
+
+    // Mathematical verification:
+    // With 95239 units (0.095239 tokens):
+    // Buy price = 10 / 0.095239 = 104.99899... <= 105.00 (PASSES INVARIANT)
+    const priceAtCeil = new Decimal(10).div(new Decimal(95239).div(1_000_000));
+    expect(priceAtCeil.lessThanOrEqualTo(105)).toBe(true);
+
+    // With 1 raw unit below (95238 units, 0.095238 tokens):
+    // Buy price = 10 / 0.095238 = 105.000105... > 105.00 (VIOLATES INVARIANT!)
+    const priceAtFloor = new Decimal(10).div(new Decimal(95238).div(1_000_000));
+    expect(priceAtFloor.greaterThan(105)).toBe(true);
+  });
+
+  it("derives conservative slippage and minimum raw target output within policy limit using ceiling", () => {
     // Reference = 100, Limit = 5% -> Max Price M = 105
     // Funding = $10.00, Target Decimals = 6
     // Minimum required tokens = 10 / 105 = 0.095238095... tokens
-    // Minimum raw target = 95,238 units
+    // Minimum raw target with ROUND_CEIL = 95,239 units
     // Quoted target = 0.098 tokens (current price = $102.04, inside limit)
     const result = deriveAllowedExecutionTolerance({
       fundingUsdValue: "10.00",
@@ -267,7 +293,8 @@ describe("Protection Derivation (BR-017)", () => {
     });
 
     expect(result.isExecutable).toBe(true);
-    expect(result.minimumAcceptableOutputRaw).toBe(95238n);
+    expect(result.minimumAcceptableOutputRaw).toBe(95239n);
+    expect(result.minimumAcceptableOutputDisplay).toBe("0.095239");
 
     // Slippage = 1 - (0.095238 / 0.098) = 0.02818 -> 281 bps
     expect(result.slippageBps).toBe(281);
@@ -302,4 +329,89 @@ describe("Protection Derivation (BR-017)", () => {
     expect(result.isExecutable).toBe(true);
     expect(result.slippageBps).toBe(500);
   });
+
+  it("regression (Issue 4): preserves full Decimal precision and never rounds USD values downward to weaken boundary", () => {
+    // Test values: 1.234, 1.239, 0.0149
+    const testCases = [
+      { fundingUsd: "1.234", referenceUsd: "10.00", maxPremiumPct: "5.00" },
+      { fundingUsd: "1.239", referenceUsd: "10.00", maxPremiumPct: "5.00" },
+      { fundingUsd: "0.0149", referenceUsd: "1.00", maxPremiumPct: "5.00" },
+    ];
+
+    for (const tc of testCases) {
+      const maxPrice = deriveMaximumBuyPrice(tc.referenceUsd, tc.maxPremiumPct);
+      // Derive minimum target tokens with full precision
+      const minTokensRaw = calculateMinimumTargetTokensRaw(tc.fundingUsd, maxPrice, 6);
+      const minTokens = new Decimal(minTokensRaw.toString()).div(1_000_000);
+
+      // Verify that at minTokens, effective buy price is strictly <= maxPrice
+      const effectivePrice = new Decimal(tc.fundingUsd).div(minTokens);
+      expect(effectivePrice.lessThanOrEqualTo(maxPrice)).toBe(true);
+
+      // Verify that if fundingUsd had been rounded down (e.g. 1.239 -> 1.23),
+      // a lower output would have been allowed that breaches the true limit
+      const roundedDownFunding = new Decimal(tc.fundingUsd).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+      if (roundedDownFunding.lessThan(tc.fundingUsd)) {
+        const weakenedMinTokensRaw = calculateMinimumTargetTokensRaw(roundedDownFunding, maxPrice, 6);
+        const weakenedMinTokens = new Decimal(weakenedMinTokensRaw.toString()).div(1_000_000);
+        // If evaluated against true funding, weakened tokens would exceed max price
+        const breachedPrice = new Decimal(tc.fundingUsd).div(weakenedMinTokens);
+        expect(breachedPrice.greaterThan(maxPrice)).toBe(true);
+      }
+    }
+  });
+
+  it("ScaledUiAmount: rawToEconomicDisplay matches Solana's truncated integer arithmetic exactly", () => {
+    // 1. Multiplier = 1: standard scaling
+    expect(rawToEconomicDisplay(1_000_000n, 6, 1).toString()).toBe("1");
+    expect(rawToEconomicDisplay(1_500_000n, 6, "1").toString()).toBe("1.5");
+
+    // 2. Multiplier > 1 with truncation:
+    // raw = 1,000,001n, multiplier = 1.4861347 (OpenAI live config)
+    // 1000001 * 1.4861347 = 1486136.1861347 -> trunc = 1486136
+    // 1486136 / 10^6 = 1.486136
+    const openaiOut = rawToEconomicDisplay(1_000_001n, 6, "1.4861347");
+    expect(openaiOut.toString()).toBe("1.486136");
+
+    // 3. Multiplier < 1 with truncation:
+    // raw = 1,000,001n, multiplier = 0.8
+    // 1000001 * 0.8 = 800000.8 -> trunc = 800000
+    // 800000 / 10^6 = 0.8
+    const scaledDown = rawToEconomicDisplay(1_000_001n, 6, "0.8");
+    expect(scaledDown.toString()).toBe("0.8");
+
+    // 4. Fail closed when raw exceeds Number.MAX_SAFE_INTEGER
+    const overLimit = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+    expect(() => rawToEconomicDisplay(overLimit, 6, "1.5")).toThrow("exceeds Number.MAX_SAFE_INTEGER");
+  });
+
+  it("ScaledUiAmount: calculateMinimumTargetTokensRaw binary search finds exact smallest integer R", () => {
+    // Test cases: mult = 1, mult > 1, mult < 1, SpaceX (mult = 5), OpenAI (mult = 1.4861347)
+    const configs = [
+      { name: "multiplier = 1", mult: "1", decimals: 6, fundingUsd: "100.00", maxPrice: "105.00" },
+      { name: "multiplier = 1.5", mult: "1.5", decimals: 6, fundingUsd: "100.00", maxPrice: "105.00" },
+      { name: "multiplier = 0.8", mult: "0.8", decimals: 6, fundingUsd: "50.00", maxPrice: "105.00" },
+      { name: "SpaceX (mult = 5, dec = 9)", mult: "5", decimals: 9, fundingUsd: "100.00", maxPrice: "105.00" },
+      { name: "OpenAI (mult = 1.4861347, dec = 9)", mult: "1.4861347", decimals: 9, fundingUsd: "100.00", maxPrice: "105.00" },
+    ];
+
+    for (const cfg of configs) {
+      const minEconomic = new Decimal(cfg.fundingUsd).div(new Decimal(cfg.maxPrice));
+      const R = calculateMinimumTargetTokensRaw(cfg.fundingUsd, cfg.maxPrice, cfg.decimals, cfg.mult);
+
+      // R MUST satisfy: rawToEconomicDisplay(R) >= minEconomic
+      const economicAtR = rawToEconomicDisplay(R, cfg.decimals, cfg.mult);
+      expect(economicAtR.greaterThanOrEqualTo(minEconomic)).toBe(true);
+
+      // R - 1 MUST fail: rawToEconomicDisplay(R - 1) < minEconomic
+      if (R > 0n) {
+        const economicBelowR = rawToEconomicDisplay(R - 1n, cfg.decimals, cfg.mult);
+        expect(economicBelowR.lessThan(minEconomic)).toBe(true);
+      }
+    }
+  });
+
 });
+
+
+

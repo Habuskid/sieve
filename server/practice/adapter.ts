@@ -7,14 +7,19 @@ export class PracticeAdapter {
    * All assets are explicitly labeled source: "PRACTICE_FIXTURE" and network: "testnet".
    */
   async getMarkets(): Promise<MarketAsset[]> {
-    return FIXTURE_ASSETS;
+    const now = Date.now();
+    return FIXTURE_ASSETS.map((a) => ({
+      ...a,
+      observedAt: new Date(now - 2000).toISOString(),
+    }));
   }
 
   /**
    * Resolves a practice asset by mint.
    */
   async getMarketByMint(mint: string): Promise<MarketAsset | null> {
-    return FIXTURE_ASSETS.find((a) => a.mint === mint) ?? null;
+    const markets = await this.getMarkets();
+    return markets.find((a) => a.mint === mint) ?? null;
   }
 
   /**
@@ -37,11 +42,39 @@ export class PracticeAdapter {
     asset: MarketAsset;
   }> {
     const scenario = this.getScenario(scenarioId);
+    const now = Date.now();
+
+    // Preserve intentionally stale fixture timestamps
+    if (scenario.id === "STALE_REFERENCE" || scenario.id === "STALE_QUOTE") {
+      return {
+        quote: scenario.quote,
+        funding: scenario.funding,
+        maxPremiumPct: scenario.maxPremiumPct,
+        asset: scenario.asset,
+      };
+    }
+
+    const freshAsset: MarketAsset = {
+      ...scenario.asset,
+      observedAt: new Date(now - 2000).toISOString(),
+    };
+
+    const freshFunding: FundingValuation = {
+      ...scenario.funding,
+      observedAt: new Date(now - 2000).toISOString(),
+    };
+
+    const freshQuote: MarketQuote = {
+      ...scenario.quote,
+      observedAt: new Date(now - 1000).toISOString(),
+      expiresAt: scenario.quote.expiresAt ? new Date(now + 30_000).toISOString() : null,
+    };
+
     return {
-      quote: scenario.quote,
-      funding: scenario.funding,
+      quote: freshQuote,
+      funding: freshFunding,
       maxPremiumPct: scenario.maxPremiumPct,
-      asset: scenario.asset,
+      asset: freshAsset,
     };
   }
 
@@ -50,7 +83,13 @@ export class PracticeAdapter {
    */
   async getRevalidationQuote(scenarioId?: string): Promise<MarketQuote> {
     const scenario = this.getScenario(scenarioId);
-    return scenario.revalidationQuote ?? scenario.quote;
+    const q = scenario.revalidationQuote ?? scenario.quote;
+    const now = Date.now();
+    return {
+      ...q,
+      observedAt: new Date(now - 1000).toISOString(),
+      expiresAt: q.expiresAt ? new Date(now + 30_000).toISOString() : null,
+    };
   }
 }
 

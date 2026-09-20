@@ -2,12 +2,14 @@
 
 import React, { useState, useEffect } from "react";
 import type { FundingAsset } from "@/core/domain/types";
-import { Check, Trash2 } from "lucide-react";
+import { Check } from "lucide-react";
 
 export function PreferencesView() {
   const [defaultLimit, setDefaultLimit] = useState<number>(5.0);
   const [defaultAsset, setDefaultAsset] = useState<FundingAsset>("USDC");
   const [saved, setSaved] = useState(false);
+
+  const limitInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     try {
@@ -22,7 +24,10 @@ export function PreferencesView() {
 
   const handleSave = () => {
     try {
-      localStorage.setItem("sieve_default_limit", defaultLimit.toString());
+      const currentLimit = limitInputRef.current
+        ? parseFloat(limitInputRef.current.value) || defaultLimit
+        : defaultLimit;
+      localStorage.setItem("sieve_default_limit", currentLimit.toString());
       localStorage.setItem("sieve_default_asset", defaultAsset);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -45,92 +50,111 @@ export function PreferencesView() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl px-4 sm:px-6 py-8">
-      <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primaryText">
-          Preferences
+    <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8 py-6">
+      {/* Page Header */}
+      <div className="pb-4 mb-6 border-b border-borderBase">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-primaryText">
+          Trading Preferences
         </h1>
-        <p className="text-sm text-secondaryText mt-1">
-          Configure your default price limit and preferred funding asset.
+        <p className="text-xs text-secondaryText mt-0.5">
+          Configure default boundary parameters for new order tickets.
         </p>
       </div>
 
-      <div className="rounded-panel bg-surface border border-borderBase p-6 sm:p-8 shadow-xs space-y-6">
-        {/* Default Limit Slider */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <label htmlFor="pref-limit" className="text-xs font-semibold uppercase tracking-wider text-secondaryText">
-              Default Price Limit
-            </label>
+      <div className="rounded-panel bg-surface border border-borderBase divide-y divide-borderBase shadow-xs">
+        {/* Section: Default Limit */}
+        <div className="p-5 sm:p-6 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <label htmlFor="pref-limit" className="text-xs font-bold text-primaryText block">
+                Default Price Limit
+              </label>
+              <p className="text-[11px] text-secondaryText mt-0.5">
+                Maximum acceptable premium over official reference valuation when opening a trade.
+              </p>
+            </div>
             <span className="font-mono font-bold text-sieveBlue text-sm tabular-nums">
               +{defaultLimit.toFixed(1)}%
             </span>
           </div>
-          <input
-            id="pref-limit"
-            type="range"
-            min={0}
-            max={20}
-            step={0.5}
-            value={defaultLimit}
-            onChange={(e) => setDefaultLimit(parseFloat(e.target.value))}
-            className="w-full h-2 bg-surface-subtle border border-borderBase rounded-lg appearance-none cursor-pointer accent-sieveBlue focus:outline-none focus:ring-2 focus:ring-sieveBlue"
-          />
-          <p className="mt-1 text-xs text-mutedText">
-            The initial price limit applied when you open a token buy page.
-          </p>
+
+          <div className="pt-2">
+            <input
+              ref={limitInputRef}
+              id="pref-limit"
+              type="range"
+              min={0}
+              max={20}
+              step={0.5}
+              value={defaultLimit}
+              onChange={(e) => setDefaultLimit(parseFloat(e.target.value))}
+              onInput={(e) => setDefaultLimit(parseFloat(e.currentTarget.value))}
+              className="w-full h-1.5 bg-surface-subtle border border-borderBase rounded-[2px] appearance-none cursor-pointer accent-sieveBlue focus:outline-none focus:ring-1 focus:ring-sieveBlue"
+            />
+            <div className="flex justify-between text-[10px] font-mono text-mutedText mt-1">
+              <span>+0% (At reference)</span>
+              <span>+20%</span>
+            </div>
+          </div>
         </div>
 
-        {/* Default Funding Asset */}
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-secondaryText mb-2">
-            Default Funding Asset
-          </label>
-          <div className="grid grid-cols-2 gap-3">
+        {/* Section: Default Funding Asset */}
+        <div className="p-5 sm:p-6 space-y-3">
+          <div>
+            <label className="text-xs font-bold text-primaryText block">
+              Default Funding Asset
+            </label>
+            <p className="text-[11px] text-secondaryText mt-0.5">
+              Preferred capital token preselected in the buy workstation.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 max-w-xs">
             <button
               type="button"
               onClick={() => setDefaultAsset("USDC")}
-              className={`flex items-center justify-center gap-2 rounded-btn py-3 px-4 text-xs font-semibold transition-colors border min-h-[44px] ${
+              className={`flex items-center justify-center gap-2 rounded-[4px] py-2 px-3 text-xs font-semibold transition-colors border min-h-[38px] ${
                 defaultAsset === "USDC"
-                  ? "bg-surface text-primaryText border-borderStrong shadow-xs"
+                  ? "bg-surface text-primaryText border-borderStrong shadow-2xs font-bold"
                   : "bg-surface-subtle text-secondaryText border-borderBase hover:text-primaryText"
               }`}
             >
+              <span className="font-mono text-sieveBlue font-bold">$</span>
               <span>USDC</span>
             </button>
             <button
               type="button"
               onClick={() => setDefaultAsset("SOL")}
-              className={`flex items-center justify-center gap-2 rounded-btn py-3 px-4 text-xs font-semibold transition-colors border min-h-[44px] ${
+              className={`flex items-center justify-center gap-2 rounded-[4px] py-2 px-3 text-xs font-semibold transition-colors border min-h-[38px] ${
                 defaultAsset === "SOL"
-                  ? "bg-surface text-primaryText border-borderStrong shadow-xs"
+                  ? "bg-surface text-primaryText border-borderStrong shadow-2xs font-bold"
                   : "bg-surface-subtle text-secondaryText border-borderBase hover:text-primaryText"
               }`}
             >
+              <span className="font-mono text-secondaryText font-bold">◎</span>
               <span>SOL</span>
             </button>
           </div>
         </div>
 
-        {/* Save Button */}
-        <div className="pt-4 border-t border-borderBase flex items-center justify-between">
+        {/* Action Controls */}
+        <div className="p-5 sm:p-6 bg-surface-subtle/50 flex items-center justify-between">
           <button
             type="button"
             onClick={handleClearLocalData}
-            className="inline-flex items-center gap-1.5 text-xs text-sieveRed hover:underline font-medium min-h-[44px]"
+            className="text-xs text-sieveRed hover:underline font-medium min-h-[38px]"
           >
-            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-            <span>Reset preferences</span>
+            Reset preferences
           </button>
 
           <button
             type="button"
             onClick={handleSave}
-            className="inline-flex items-center gap-2 rounded-btn bg-primaryText px-5 py-2.5 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[44px]"
+            className="inline-flex items-center gap-2 rounded-btn bg-primaryText px-5 py-2 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[38px]"
           >
             {saved ? (
               <>
-                <Check className="h-4 w-4 text-emerald-400" aria-hidden="true" />
+                <Check className="h-3.5 w-3.5 text-emerald-400" aria-hidden="true" />
                 <span>Saved</span>
               </>
             ) : (

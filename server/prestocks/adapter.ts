@@ -85,8 +85,8 @@ export class PreStocksAdapter {
   /**
    * Resolves a specific PreStocks asset by its SPL token mint address.
    */
-  async getMarketByMint(mint: string): Promise<MarketAsset | null> {
-    const markets = await this.fetchMarkets();
+  async getMarketByMint(mint: string, options?: { bypassCache?: boolean }): Promise<MarketAsset | null> {
+    const markets = await this.fetchMarkets(options?.bypassCache ?? false);
     return markets.find((m) => m.mint === mint) ?? null;
   }
 }

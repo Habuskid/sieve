@@ -11,7 +11,7 @@ function InnerShell({ children }: { children: React.ReactNode }) {
 
   return (
     <SolanaWalletProvider network={network}>
-      <div className="min-h-screen flex flex-col bg-background text-primaryText pb-16 md:pb-0">
+      <div className="flex min-h-dvh flex-col bg-background pb-16 text-primaryText md:pb-0">
         <Header network={network} onNetworkChange={setNetwork} />
         <main className="flex-1">{children}</main>
         <BottomNav />

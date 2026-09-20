@@ -4,7 +4,7 @@ import {
   type JupiterOrderResponse,
   type JupiterExecuteResponse,
 } from "./schema";
-import { rawToDisplay } from "../../core/money/decimal";
+import { rawToDisplay, toDecimal, Decimal } from "../../core/money/decimal";
 import type { MarketQuote } from "../../core/domain/types";
 
 export interface JupiterAdapterConfig {
@@ -135,6 +135,16 @@ export class JupiterAdapter {
     requestId: string;
     lastValidBlockHeight?: string;
     otherAmountThreshold?: string;
+    signatureFeeLamports?: number | null;
+    signatureFeePayer?: string | null;
+    prioritizationFeeLamports?: number | null;
+    prioritizationFeePayer?: string | null;
+    rentFeeLamports?: number | null;
+    rentFeePayer?: string | null;
+    gasless?: boolean | null;
+    feeMint?: string | null;
+    feeBps?: number | null;
+    platformFee?: { feeMint?: string; feeBps?: number; amount?: string } | null;
     quote: MarketQuote;
     rawResponse: JupiterOrderResponse;
   }> {
@@ -193,6 +203,16 @@ export class JupiterAdapter {
       requestId: data.requestId,
       lastValidBlockHeight: data.lastValidBlockHeight ?? undefined,
       otherAmountThreshold: data.otherAmountThreshold ?? undefined,
+      signatureFeeLamports: data.signatureFeeLamports ?? null,
+      signatureFeePayer: data.signatureFeePayer ?? null,
+      prioritizationFeeLamports: data.prioritizationFeeLamports ?? null,
+      prioritizationFeePayer: data.prioritizationFeePayer ?? null,
+      rentFeeLamports: data.rentFeeLamports ?? null,
+      rentFeePayer: data.rentFeePayer ?? null,
+      gasless: data.gasless ?? null,
+      feeMint: data.feeMint ?? null,
+      feeBps: data.feeBps ?? null,
+      platformFee: data.platformFee ?? null,
       quote,
       rawResponse: data,
     };
@@ -232,6 +252,28 @@ export class JupiterAdapter {
     }
 
     return parseResult.data;
+  }
+
+  /**
+   * Derives contemporaneous SOL/USD valuation by querying Jupiter for SOL -> USDC quote
+   * and using the authoritative input USD valuation (inUsdValue).
+   * Fails closed if inUsdValue is unavailable to prevent fees/slippage from understating funding value.
+   */
+  async getSolUsdPrice(): Promise<Decimal> {
+    const quote = await this.getQuote({
+      inputMint: "So11111111111111111111111111111111111111112",
+      outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      amount: 1_000_000_000n, // 1 SOL (9 decimals)
+      outputDecimals: 6, // USDC 6 decimals
+    });
+
+    if (quote.inUsdValue != null && quote.inUsdValue > 0) {
+      return toDecimal(quote.inUsdValue);
+    }
+
+    throw new Error(
+      "Contemporaneous SOL input USD valuation (inUsdValue) is unavailable from Jupiter; failing closed to prevent understating funding value"
+    );
   }
 
   private async fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {

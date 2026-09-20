@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { TradeReceipt } from "@/core/domain/types";
-import { CheckCircle2, XCircle, ExternalLink, ArrowLeft } from "lucide-react";
+import { ExternalLink, ArrowLeft } from "lucide-react";
 
 interface TradeReceiptViewProps {
   receipt: TradeReceipt;
@@ -11,103 +11,181 @@ interface TradeReceiptViewProps {
 
 export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
   const isConfirmed = receipt.status === "CONFIRMED";
+  const isPractice = receipt.network === "testnet";
+  const hasRealSignature = Boolean(
+    receipt.signature && !receipt.signature.startsWith("sim-")
+  );
   const solscanUrl =
-    receipt.network === "mainnet"
+    !isPractice && hasRealSignature && receipt.signature
       ? `https://solscan.io/tx/${receipt.signature}`
-      : `https://solscan.io/tx/${receipt.signature}?cluster=devnet`;
+      : null;
+
+  const boughtDisplay = receipt.realizedTargetAmount
+    ? `${receipt.realizedTargetAmount} ${receipt.targetSymbol}`
+    : receipt.network === "mainnet"
+    ? "Unavailable"
+    : `${receipt.expectedTargetAmount} ${receipt.targetSymbol}`;
 
   return (
     <div className="rounded-panel bg-surface border border-borderBase p-6 sm:p-8 shadow-xs max-w-xl mx-auto animate-in fade-in zoom-in-95">
-      {/* Icon & Title */}
-      <div className="text-center mb-6">
-        <div
-          className={`mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full ${
-            isConfirmed
-              ? "bg-sieveGreen-soft text-sieveGreen"
-              : "bg-sieveRed-soft text-sieveRed"
-          }`}
-        >
-          {isConfirmed ? (
-            <CheckCircle2 className="h-8 w-8" aria-hidden="true" />
-          ) : (
-            <XCircle className="h-8 w-8" aria-hidden="true" />
-          )}
+      {/* Header */}
+      <div className="pb-4 border-b border-borderBase mb-4">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-secondaryText">
+            {isPractice ? "PRACTICE EXECUTION" : "MAINNET EXECUTION"}
+          </span>
+          <span
+            className={`text-xs font-mono font-bold px-2 py-0.5 rounded-[4px] border ${
+              isConfirmed
+                ? "bg-sieveGreen-soft border-emerald-300 text-sieveGreen"
+                : "bg-sieveRed-soft border-rose-300 text-sieveRed"
+            }`}
+          >
+            {isConfirmed ? "CONFIRMED" : "FAILED"}
+          </span>
         </div>
-
-        <h2 className="text-2xl font-bold text-primaryText">
+        <h2 className="text-xl font-bold text-primaryText mt-1">
           {isConfirmed ? "Trade complete" : "Trade wasn't completed"}
         </h2>
-        <p className="text-sm text-secondaryText mt-1">
+        <p className="text-xs text-secondaryText mt-0.5">
           {isConfirmed
-            ? `Your buy of ${receipt.targetSymbol} was confirmed on Solana.`
+            ? isPractice
+              ? `Your buy of ${receipt.targetSymbol} was simulated successfully.`
+              : `Your buy of ${receipt.targetSymbol} was confirmed on Solana.`
             : receipt.failureCode
-            ? `Transaction failed (${receipt.failureCode}). No funds were spent.`
-            : "The transaction could not be completed."}
+            ? `Transaction failed (${receipt.failureCode}). The trade did not complete. A network fee may still have been charged.`
+            : "The trade did not complete. A network fee may still have been charged."}
         </p>
       </div>
 
-      {/* Details Card */}
-      <div className="rounded-card bg-surface-subtle border border-borderBase p-5 mb-6 space-y-3.5 text-xs">
-        <div className="flex items-center justify-between pb-3 border-b border-borderBase">
-          <span className="text-secondaryText">Bought</span>
-          <span className="font-mono font-bold text-sm text-primaryText tabular-nums">
-            {receipt.realizedTargetAmount || receipt.expectedTargetAmount} {receipt.targetSymbol}
+      {/* Practice Mode Notice */}
+      {isPractice && (
+        <div className="mb-4 rounded-[4px] border border-blue-200 bg-blue-50/50 p-2.5 text-xs text-secondaryText">
+          <p className="font-mono text-[11px] text-primaryText font-medium">
+            Simulated transaction. No wallet signature or funds were used.
+          </p>
+        </div>
+      )}
+
+      {/* Confirmation Rows */}
+      <div className="divide-y divide-borderBase border-b border-borderBase text-xs mb-6">
+        {/* Asset */}
+        <div className="py-2.5 flex items-center justify-between">
+          <span className="text-secondaryText">Asset</span>
+          <span className="font-bold text-primaryText font-mono">
+            {receipt.targetSymbol}
           </span>
         </div>
 
-        <div className="flex items-center justify-between pb-3 border-b border-borderBase">
-          <span className="text-secondaryText">Paid</span>
-          <span className="font-mono font-bold text-sm text-primaryText tabular-nums">
-            {receipt.fundingAmount} {receipt.fundingAsset}
+        {/* Actual Paid */}
+        <div className="py-2.5 flex items-center justify-between">
+          <span className="text-secondaryText">Actual Paid</span>
+          <div className="text-right">
+            <span className="font-mono font-bold text-primaryText tabular-nums block">
+              {receipt.actualFundingAmount
+                ? `${receipt.actualFundingAmount} ${receipt.fundingAsset}`
+                : `${receipt.fundingAmount} ${receipt.fundingAsset}`}
+            </span>
+            {receipt.actualFundingAmount &&
+              receipt.requestedFundingAmount &&
+              receipt.actualFundingAmount !== receipt.requestedFundingAmount && (
+                <span className="text-mutedText text-[10px] block">
+                  Requested: {receipt.requestedFundingAmount} {receipt.fundingAsset}
+                </span>
+              )}
+          </div>
+        </div>
+
+        {/* Actual Received */}
+        <div className="py-2.5 flex items-center justify-between">
+          <span className="text-secondaryText">Actual Received</span>
+          <span className="font-mono font-bold text-sieveGreen tabular-nums">
+            {boughtDisplay}
           </span>
         </div>
 
-        <div className="flex items-center justify-between pb-3 border-b border-borderBase">
-          <span className="text-secondaryText">Reference price</span>
-          <span className="font-mono font-medium text-primaryText tabular-nums">
+        {/* Reference Price */}
+        <div className="py-2.5 flex items-center justify-between">
+          <span className="text-secondaryText">Reference Price</span>
+          <span className="font-mono text-primaryText tabular-nums">
             ${receipt.referencePriceUsd}
           </span>
         </div>
 
-        <div className="flex items-center justify-between pb-3 border-b border-borderBase">
-          <span className="text-secondaryText">Buy price</span>
-          <span className="font-mono font-medium text-sieveGreen tabular-nums">
-            ${receipt.checkedBuyPriceUsd} (+{(receipt.premiumBps / 100).toFixed(2)}%)
+        {/* Executed Price */}
+        <div className="py-2.5 flex items-center justify-between">
+          <span className="text-secondaryText">Executed Buy Price</span>
+          <span className="font-mono font-bold text-sieveGreen tabular-nums">
+            ${receipt.checkedBuyPriceUsd}
           </span>
         </div>
 
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-secondaryText">Signature</span>
-          <a
-            href={solscanUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 font-mono text-sieveBlue hover:underline tabular-nums"
-          >
-            <span>
-              {receipt.signature.slice(0, 6)}...{receipt.signature.slice(-6)}
+        {/* Premium */}
+        <div className="py-2.5 flex items-center justify-between">
+          <span className="text-secondaryText">Premium over Reference</span>
+          <span className="font-mono font-medium text-sieveGreen tabular-nums">
+            +{(receipt.premiumBps / 100).toFixed(2)}%
+          </span>
+        </div>
+
+        {/* Transaction Signature / Simulation ID */}
+        <div className="py-2.5 flex items-center justify-between">
+          <span className="text-secondaryText">
+            {isPractice ? "Simulation ID" : "Transaction"}
+          </span>
+          {isPractice ? (
+            <span
+              className="font-mono text-secondaryText tabular-nums text-[11px]"
+              title={receipt.signature || receipt.id}
+            >
+              {receipt.signature || receipt.id}
             </span>
-            <ExternalLink className="h-3 w-3" aria-hidden="true" />
-          </a>
+          ) : hasRealSignature && solscanUrl && receipt.signature ? (
+            <a
+              href={solscanUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-mono text-sieveBlue hover:underline tabular-nums"
+            >
+              <span>
+                {receipt.signature.slice(0, 8)}...{receipt.signature.slice(-8)}
+              </span>
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            </a>
+          ) : (
+            <span className="font-mono text-secondaryText">
+              Transaction reconciliation unavailable
+            </span>
+          )}
+        </div>
+
+        {/* Timestamp */}
+        <div className="py-2.5 flex items-center justify-between">
+          <span className="text-secondaryText">Execution Time</span>
+          <span className="font-mono text-secondaryText tabular-nums">
+            {receipt.confirmedAt ? new Date(receipt.confirmedAt).toLocaleString() : "—"}
+          </span>
         </div>
       </div>
 
       {/* Action Buttons */}
-      <div className="flex items-center justify-between gap-3">
-        <a
-          href={solscanUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-btn border border-borderBase px-4 py-2.5 text-xs font-semibold text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors min-h-[44px]"
-        >
-          <span>View on Solscan</span>
-          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-        </a>
+      <div className={`flex items-center ${!isPractice && hasRealSignature && solscanUrl ? "justify-between" : "justify-end"} gap-3`}>
+        {!isPractice && hasRealSignature && solscanUrl && (
+          <a
+            href={solscanUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-btn border border-borderBase px-3.5 py-2 text-xs font-semibold text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors min-h-[40px]"
+          >
+            <span>View on Solscan</span>
+            <ExternalLink className="h-3 w-3" aria-hidden="true" />
+          </a>
+        )}
 
         <button
           type="button"
           onClick={onDone}
-          className="inline-flex items-center gap-2 rounded-btn bg-primaryText px-6 py-2.5 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[44px]"
+          className="inline-flex items-center gap-1.5 rounded-btn bg-primaryText px-5 py-2 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[40px]"
         >
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Done</span>

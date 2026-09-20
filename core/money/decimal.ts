@@ -97,3 +97,63 @@ export function formatPct(value: Decimal | string | number, decimalPlaces: numbe
   }
   return `${formatted}%`;
 }
+
+/**
+ * Converts a raw integer token amount into economic/UI token units using mint decimals
+ * and active scaled UI multiplier, exactly matching Solana's ScaledUiAmount semantics:
+ * scaledAmount = Number(raw) * multiplier
+ * truncated = Math.trunc(scaledAmount)
+ * uiAmount = truncated / 10^decimals
+ *
+ * Guarantees:
+ * 1. Fails closed if raw > Number.MAX_SAFE_INTEGER (Solana floating-point limit)
+ * 2. Truncates before decimal scaling
+ * 3. economicUnitsUsedBySieve <= economicUnitsThatSolanaCredits
+ */
+export function rawToEconomicDisplay(
+  raw: bigint | string | number,
+  decimals: number,
+  multiplier: Decimal | string | number = 1
+): Decimal {
+  const mult = toDecimal(multiplier);
+  if (mult.lessThanOrEqualTo(0)) {
+    throw new Error("Scaled UI multiplier must be positive");
+  }
+  const rawBigInt = typeof raw === "bigint" ? raw : BigInt(toDecimal(raw).toFixed(0));
+  if (rawBigInt < 0n) {
+    throw new Error("Raw token amount cannot be negative");
+  }
+
+  if (rawBigInt > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(
+      `Raw amount ${rawBigInt} exceeds Number.MAX_SAFE_INTEGER (${Number.MAX_SAFE_INTEGER}) for ScaledUiAmount conversion`
+    );
+  }
+
+  const multNum = mult.toNumber();
+  const scaledAmount = Number(rawBigInt) * multNum;
+  const truncated = Math.trunc(scaledAmount);
+  const factor = new Decimal(10).pow(decimals);
+  return new Decimal(truncated).div(factor);
+}
+
+/**
+ * Converts economic/UI token units into raw integer token amount using mint decimals
+ * and active scaled UI multiplier.
+ */
+export function economicDisplayToRaw(
+  economic: Decimal | string | number,
+  decimals: number,
+  multiplier: Decimal | string | number = 1,
+  roundingMode: Decimal.Rounding = Decimal.ROUND_FLOOR
+): bigint {
+  const d = toDecimal(economic);
+  const mult = toDecimal(multiplier);
+  if (mult.lessThanOrEqualTo(0)) {
+    throw new Error("Scaled UI multiplier must be positive");
+  }
+  const factor = new Decimal(10).pow(decimals);
+  const rawDec = d.mul(factor).div(mult).toDecimalPlaces(0, roundingMode);
+  return BigInt(rawDec.toFixed(0));
+}
+

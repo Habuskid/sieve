@@ -9,16 +9,22 @@ import type {
   BuildIntent,
   TradeReceipt,
 } from "../../core/domain/types";
+import { toDecimal } from "../../core/money/decimal";
+import { SieveAppError } from "../services/errors";
 
 export class PostgresSieveRepository implements ISieveRepository {
   private sql: postgres.Sql;
 
-  constructor(connectionString: string) {
-    this.sql = postgres(connectionString, {
-      max: 10,
-      idle_timeout: 20,
-      connect_timeout: 10,
-    });
+  constructor(connectionStringOrSql: string | postgres.Sql) {
+    if (typeof connectionStringOrSql === "string") {
+      this.sql = postgres(connectionStringOrSql, {
+        max: 10,
+        idle_timeout: 20,
+        connect_timeout: 10,
+      });
+    } else {
+      this.sql = connectionStringOrSql;
+    }
   }
 
   async savePriceCheck(check: PriceCheck): Promise<void> {
@@ -32,7 +38,8 @@ export class PostgresSieveRepository implements ISieveRepository {
         route_fingerprint, price_impact_pct,
         current_buy_price_usd, maximum_buy_price_usd, premium_bps, max_premium_bps,
         decision, reason_code, client_intent_version,
-        created_at, expires_at
+        created_at, expires_at,
+        funding_method, quote_output_decimals
       ) VALUES (
         ${check.id}, ${check.network}, ${check.wallet},
         ${check.asset.name}, ${check.asset.symbol}, ${check.asset.mint},
@@ -42,7 +49,8 @@ export class PostgresSieveRepository implements ISieveRepository {
         ${check.quote?.routeFingerprint ?? null}, ${check.quote?.priceImpactPct ?? null},
         ${check.decision.currentBuyPriceUsd}, ${check.decision.maximumBuyPriceUsd}, ${check.decision.premiumBps}, ${check.maxPremiumBps},
         ${check.decision.status}, ${check.decision.status !== "GOOD_TO_GO" ? check.decision.status : null}, ${check.clientIntentVersion},
-        ${check.createdAt}, ${check.expiresAt}
+        ${check.createdAt}, ${check.expiresAt},
+        ${check.funding.method}, ${check.quote?.outputDecimals ?? null}
       )
       ON CONFLICT (id) DO NOTHING
     `;
@@ -94,19 +102,24 @@ export class PostgresSieveRepository implements ISieveRepository {
   }
 
   async saveBuildIntent(intent: BuildIntent): Promise<void> {
+    const premiumBps = toDecimal(intent.summary.premiumPct).times(100).round().toNumber();
     await this.sql`
       INSERT INTO build_intents (
         id, check_id, wallet, network,
         revalidation_reference_price_usd, revalidation_buy_price_usd, revalidation_premium_bps,
         minimum_output_raw, protection_method, protection_value,
         provider_request_id, transaction_hash, last_valid_block_height,
-        expires_at, status, created_at
+        funding_asset, funding_amount_display, target_symbol, expected_target_amount, max_premium_pct,
+        expires_at, status, created_at,
+        target_decimals, active_multiplier, chain_timestamp, epoch
       ) VALUES (
         ${intent.id}, ${intent.checkId}, ${intent.wallet}, ${intent.network},
-        ${intent.summary.referencePriceUsd}, ${intent.summary.currentBuyPriceUsd}, ${parseInt(intent.summary.premiumPct) * 100 || 0},
+        ${intent.summary.referencePriceUsd}, ${intent.summary.currentBuyPriceUsd}, ${premiumBps},
         ${intent.minimumAcceptableOutputRaw.toString()}, ${intent.protectionMethod}, null,
         ${intent.requestId ?? null}, null, ${intent.lastValidBlockHeight ?? null},
-        ${intent.expiresAt}, 'READY_FOR_WALLET', NOW()
+        ${intent.summary.fundingAsset}, ${intent.summary.fundingAmount}, ${intent.summary.targetSymbol}, ${intent.summary.expectedTargetAmount}, ${intent.summary.maxPremiumPct},
+        ${intent.expiresAt}, 'READY_FOR_WALLET', NOW(),
+        ${intent.summary.targetDecimals ?? null}, ${intent.summary.activeMultiplier ?? null}, ${intent.summary.chainTimestamp ?? null}, ${intent.summary.epoch ?? null}
       )
       ON CONFLICT (id) DO NOTHING
     `;
@@ -118,6 +131,29 @@ export class PostgresSieveRepository implements ISieveRepository {
     `;
     if (rows.length === 0) return null;
     const r = rows[0];
+
+    // Fail closed if any required persisted lifecycle field is missing (Defect 9)
+    if (
+      !r.funding_asset ||
+      r.funding_amount_display == null ||
+      !r.target_symbol ||
+      r.expected_target_amount == null ||
+      r.max_premium_pct == null
+    ) {
+      throw new SieveAppError(
+        "DATABASE_INTEGRITY_ERROR",
+        `Persisted build intent ${id} is missing required lifecycle fields; database integrity check failed`
+      );
+    }
+
+    // Fail closed if target_decimals is missing (Requirement 3)
+    if (r.target_decimals == null) {
+      throw new SieveAppError(
+        "DATABASE_INTEGRITY_ERROR",
+        `Persisted build intent ${id} is missing required target_decimals; database integrity check failed`
+      );
+    }
+
     return {
       id: r.id,
       checkId: r.check_id,
@@ -128,16 +164,20 @@ export class PostgresSieveRepository implements ISieveRepository {
       transactionBase64: "", // Not persisted in DB for size/security
       lastValidBlockHeight: r.last_valid_block_height?.toString(),
       requestId: r.provider_request_id,
-      expiresAt: r.expires_at.toISOString(),
+      expiresAt: r.expires_at instanceof Date ? r.expires_at.toISOString() : new Date(r.expires_at).toISOString(),
       summary: {
-        fundingAsset: "USDC", // Default fallback
-        fundingAmount: "0",
-        targetSymbol: "",
-        expectedTargetAmount: "0",
+        fundingAsset: r.funding_asset as any,
+        fundingAmount: r.funding_amount_display.toString(),
+        targetSymbol: r.target_symbol,
+        targetDecimals: Number(r.target_decimals),
+        expectedTargetAmount: r.expected_target_amount.toString(),
         referencePriceUsd: r.revalidation_reference_price_usd.toString(),
         currentBuyPriceUsd: r.revalidation_buy_price_usd.toString(),
         premiumPct: (r.revalidation_premium_bps / 100).toFixed(2),
-        maxPremiumPct: "0",
+        maxPremiumPct: r.max_premium_pct.toString(),
+        activeMultiplier: r.active_multiplier != null ? r.active_multiplier.toString() : undefined,
+        chainTimestamp: r.chain_timestamp != null ? Number(r.chain_timestamp) : undefined,
+        epoch: r.epoch != null ? r.epoch.toString() : undefined,
       },
     };
   }
@@ -145,21 +185,45 @@ export class PostgresSieveRepository implements ISieveRepository {
   async saveTradeReceipt(receipt: TradeReceipt): Promise<TradeReceipt> {
     const rows = await this.sql`
       INSERT INTO trade_receipts (
-        id, check_id, build_intent_id, wallet, network, signature, status,
-        funding_asset, funding_amount_display, target_symbol, target_mint,
-        expected_target_amount, realized_target_amount,
+        id, check_id, build_intent_id, wallet, network, signature, internal_execution_id, status,
+        funding_asset, funding_amount_display, requested_funding_amount, actual_funding_amount,
+        target_symbol, target_mint, expected_target_amount, realized_target_amount,
         reference_price_usd, checked_buy_price_usd, max_premium_bps, premium_bps,
-        submitted_at, confirmed_at, failure_code, created_at
+        submitted_at, confirmed_at, failure_code, created_at,
+        raw_wallet_output, target_decimals, active_multiplier, chain_timestamp, epoch
       ) VALUES (
-        ${receipt.id}, ${receipt.checkId}, ${receipt.buildIntentId}, ${receipt.wallet}, ${receipt.network}, ${receipt.signature}, ${receipt.status},
-        ${receipt.fundingAsset}, ${receipt.fundingAmount}, ${receipt.targetSymbol}, ${receipt.targetMint},
-        ${receipt.expectedTargetAmount}, ${receipt.realizedTargetAmount},
+        ${receipt.id}, ${receipt.checkId}, ${receipt.buildIntentId}, ${receipt.wallet}, ${receipt.network},
+        ${receipt.signature ?? null}, ${receipt.internalExecutionId ?? null}, ${receipt.status},
+        ${receipt.fundingAsset}, ${receipt.fundingAmount}, ${receipt.requestedFundingAmount}, ${receipt.actualFundingAmount ?? null},
+        ${receipt.targetSymbol}, ${receipt.targetMint}, ${receipt.expectedTargetAmount}, ${receipt.realizedTargetAmount},
         ${receipt.referencePriceUsd}, ${receipt.checkedBuyPriceUsd}, ${receipt.maxPremiumBps}, ${receipt.premiumBps},
-        ${receipt.submittedAt}, ${receipt.confirmedAt}, ${receipt.failureCode ?? null}, NOW()
+        ${receipt.submittedAt}, ${receipt.confirmedAt}, ${receipt.failureCode ?? null}, NOW(),
+        ${receipt.rawWalletOutput ?? null}, ${receipt.targetDecimals ?? null}, ${receipt.activeMultiplier ?? null}, ${receipt.chainTimestamp ?? null}, ${receipt.epoch ?? null}
       )
-      ON CONFLICT (signature) DO UPDATE SET confirmed_at = EXCLUDED.confirmed_at
+      ON CONFLICT (signature) DO NOTHING
       RETURNING *
     `;
+    if (rows.length === 0) {
+      if (!receipt.signature) {
+        throw new SieveAppError("INTERNAL_ERROR", "Failed to insert trade receipt without signature");
+      }
+      const existing = await this.getTradeReceiptBySignature(receipt.signature);
+      if (!existing) {
+        throw new SieveAppError("INTERNAL_ERROR", "Conflicting trade receipt not found");
+      }
+      if (
+        existing.buildIntentId !== receipt.buildIntentId ||
+        existing.checkId !== receipt.checkId ||
+        existing.wallet !== receipt.wallet ||
+        existing.network !== receipt.network
+      ) {
+        throw new SieveAppError(
+          "IDEMPOTENCY_VIOLATION",
+          "Signature belongs to a different trade receipt or build intent"
+        );
+      }
+      return existing;
+    }
     return this.mapReceiptRow(rows[0]);
   }
 
@@ -209,6 +273,13 @@ export class PostgresSieveRepository implements ISieveRepository {
   }
 
   private mapPriceCheckRow(r: Record<string, any>): PriceCheck {
+    if (!r.funding_method) {
+      throw new SieveAppError("DATABASE_INTEGRITY_ERROR", "Persisted price check is missing required funding_method");
+    }
+    if (r.quote_output_raw && r.quote_output_decimals == null) {
+      throw new SieveAppError("DATABASE_INTEGRITY_ERROR", "Persisted price check with quote is missing required quote_output_decimals");
+    }
+
     return {
       id: r.id,
       network: r.network,
@@ -234,7 +305,7 @@ export class PostgresSieveRepository implements ISieveRepository {
         inputRaw: BigInt(r.funding_amount_raw),
         inputDisplay: r.funding_amount_display.toString(),
         inputUsdValue: r.funding_usd_value.toString(),
-        method: "USDC_PAR",
+        method: r.funding_method,
         observedAt: r.created_at.toISOString(),
       },
       quote: r.quote_output_raw
@@ -244,7 +315,7 @@ export class PostgresSieveRepository implements ISieveRepository {
             outputMint: r.target_mint,
             inputRaw: BigInt(r.funding_amount_raw),
             outputRaw: BigInt(r.quote_output_raw),
-            outputDecimals: 6,
+            outputDecimals: Number(r.quote_output_decimals),
             expectedTargetAmount: r.quote_output_display.toString(),
             priceImpactPct: r.price_impact_pct?.toString() ?? null,
             observedAt: r.quote_observed_at?.toISOString() ?? r.created_at.toISOString(),
@@ -274,20 +345,30 @@ export class PostgresSieveRepository implements ISieveRepository {
   }
 
   private mapReceiptRow(r: Record<string, any>): TradeReceipt {
+    const actualFunding = r.actual_funding_amount != null ? r.actual_funding_amount.toString() : null;
+    const requestedFunding = r.requested_funding_amount != null ? r.requested_funding_amount.toString() : r.funding_amount_display.toString();
     return {
       id: r.id,
       checkId: r.check_id,
       buildIntentId: r.build_intent_id,
       wallet: r.wallet,
       network: r.network,
-      signature: r.signature,
+      signature: r.signature ?? null,
+      internalExecutionId: r.internal_execution_id ?? null,
       status: r.status,
       fundingAsset: r.funding_asset,
-      fundingAmount: r.funding_amount_display.toString(),
+      fundingAmount: actualFunding ?? requestedFunding,
+      requestedFundingAmount: requestedFunding,
+      actualFundingAmount: actualFunding,
       targetSymbol: r.target_symbol,
       targetMint: r.target_mint,
+      targetDecimals: r.target_decimals != null ? Number(r.target_decimals) : null,
       expectedTargetAmount: r.expected_target_amount.toString(),
       realizedTargetAmount: r.realized_target_amount?.toString() ?? null,
+      rawWalletOutput: r.raw_wallet_output != null ? r.raw_wallet_output.toString() : null,
+      activeMultiplier: r.active_multiplier != null ? r.active_multiplier.toString() : null,
+      chainTimestamp: r.chain_timestamp != null ? Number(r.chain_timestamp) : null,
+      epoch: r.epoch != null ? r.epoch.toString() : null,
       referencePriceUsd: r.reference_price_usd.toString(),
       checkedBuyPriceUsd: r.checked_buy_price_usd.toString(),
       maxPremiumBps: r.max_premium_bps,
@@ -300,19 +381,27 @@ export class PostgresSieveRepository implements ISieveRepository {
 }
 
 // Global repository singleton: uses Postgres if DATABASE_URL is set, otherwise InMemory
-let repoInstance: ISieveRepository | null = null;
+const globalForRepo = globalThis as unknown as {
+  sieveRepoInstance?: ISieveRepository;
+};
 
 export function getRepository(): ISieveRepository {
-  if (!repoInstance) {
+  if (!globalForRepo.sieveRepoInstance) {
     if (process.env.DATABASE_URL) {
-      repoInstance = new PostgresSieveRepository(process.env.DATABASE_URL);
+      globalForRepo.sieveRepoInstance = new PostgresSieveRepository(process.env.DATABASE_URL);
     } else {
-      repoInstance = new InMemorySieveRepository();
+      if (
+        process.env.NODE_ENV === "production" &&
+        process.env.NEXT_PHASE !== "phase-production-build"
+      ) {
+        throw new Error("DATABASE_URL must be configured in production environment");
+      }
+      globalForRepo.sieveRepoInstance = new InMemorySieveRepository();
     }
   }
-  return repoInstance;
+  return globalForRepo.sieveRepoInstance;
 }
 
 export function setRepository(repo: ISieveRepository): void {
-  repoInstance = repo;
+  globalForRepo.sieveRepoInstance = repo;
 }

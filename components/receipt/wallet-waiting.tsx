@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { RefreshCw, Shield } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 
 interface WalletWaitingProps {
   onCancel?: () => void;
@@ -13,18 +13,20 @@ export function WalletWaiting({ onCancel }: WalletWaitingProps) {
       role="dialog"
       aria-modal="true"
       aria-labelledby="wallet-waiting-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
     >
-      <div className="w-full max-w-sm rounded-panel bg-surface p-8 shadow-xl border border-borderBase text-center animate-in fade-in zoom-in-95">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-sieveBlue-soft text-sieveBlue relative">
-          <RefreshCw className="h-7 w-7 animate-spin" aria-hidden="true" />
-          <Shield className="h-3.5 w-3.5 absolute text-sieveBlue" aria-hidden="true" />
+      <div className="w-full max-w-sm rounded-panel bg-surface p-6 shadow-xl border border-borderBase text-center animate-in fade-in zoom-in-95">
+        <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-[4px] bg-sieveBlue-soft text-sieveBlue">
+          <RefreshCw className="h-5 w-5 animate-spin" aria-hidden="true" />
         </div>
 
-        <h3 id="wallet-waiting-title" className="text-lg font-bold text-primaryText mb-1.5">
+        <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-secondaryText block mb-1">
+          AWAITING APPROVAL
+        </span>
+        <h3 id="wallet-waiting-title" className="text-base font-bold text-primaryText mb-1">
           Waiting for your wallet
         </h3>
-        <p className="text-xs text-secondaryText mb-6">
+        <p className="text-xs text-secondaryText mb-5 leading-relaxed">
           Please approve the transaction in your Solana wallet window.
         </p>
 
@@ -32,7 +34,7 @@ export function WalletWaiting({ onCancel }: WalletWaitingProps) {
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-btn border border-borderBase px-4 py-2 text-xs font-medium text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors min-h-[44px]"
+            className="rounded-btn border border-borderBase px-4 py-2 text-xs font-semibold text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors min-h-[38px]"
           >
             Cancel
           </button>

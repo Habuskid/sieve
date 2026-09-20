@@ -2,14 +2,14 @@ import { v4 as uuidv4 } from "uuid";
 import { defaultMarketService, MarketService } from "./market-service";
 import { defaultJupiterAdapter, JupiterAdapter } from "../jupiter/adapter";
 import { defaultPracticeAdapter, PracticeAdapter } from "../practice/adapter";
-import { defaultSolanaAdapter, SolanaAdapter, CANONICAL_MINTS } from "../solana/adapter";
+import { defaultSolanaAdapter, SolanaAdapter, CANONICAL_MINTS, calculateNetOutput } from "../solana/adapter";
 import { getRepository } from "../database/db";
 import type { ISieveRepository } from "../database/repository";
 import {
   evaluatePriceBoundary,
   DEFAULT_CHECK_EXPIRY_MS,
 } from "../../core";
-import { displayToRaw, rawToDisplay, isPositiveFinite, toDecimal } from "../../core/money/decimal";
+import { displayToRaw, rawToDisplay, rawToEconomicDisplay, isPositiveFinite, toDecimal } from "../../core/money/decimal";
 import { SieveAppError } from "./errors";
 import type {
   NetworkMode,
@@ -17,6 +17,7 @@ import type {
   PriceCheck,
   FundingValuation,
   MarketQuote,
+  IssuerControls,
 } from "../../core/domain/types";
 
 export interface CheckRequestInput {
@@ -62,10 +63,18 @@ export interface CheckResponseDto {
     title: string;
     message: string;
   };
+  warnings?: string[];
+  issuerControls?: IssuerControls;
+  activeMultiplier?: string;
 }
 
 // In-memory cache for checks (backed by DB in persistence phase)
-export const activeChecksStore = new Map<string, PriceCheck>();
+const globalForChecks = globalThis as unknown as {
+  sieveActiveChecks?: Map<string, PriceCheck>;
+};
+export const activeChecksStore =
+  globalForChecks.sieveActiveChecks ??
+  (globalForChecks.sieveActiveChecks = new Map<string, PriceCheck>());
 
 export class PriceCheckService {
   constructor(
@@ -99,14 +108,21 @@ export class PriceCheckService {
     const now = Date.now();
     const observedAt = new Date(now).toISOString();
 
+    let targetMetadata: import("../solana/adapter").ValidatedMintMetadata | null = null;
+
     if (input.network === "mainnet") {
       // 3. Mainnet flow
-      const targetDecimals = await this.solanaAdapter.resolveMintDecimals(asset.mint, "mainnet");
+      targetMetadata = await this.solanaAdapter.resolveMintMetadata(asset.mint, "mainnet");
+      if (!targetMetadata.supported) {
+        throw new SieveAppError("ROUTE_RISK", targetMetadata.blockers?.join(", ") || "Asset not supported");
+      }
+      const targetDecimals = targetMetadata.decimals;
+      const activeMultiplier = targetMetadata.scaledUiAmount?.activeMultiplier ?? "1";
 
       if (input.fundingAsset === "USDC") {
         const inputMint = CANONICAL_MINTS.mainnet.USDC;
         const inputRaw = displayToRaw(input.amount, CANONICAL_MINTS.mainnet.USDC_DECIMALS);
-        const inputUsdValue = toDecimal(input.amount).toFixed(2);
+        const inputUsdValue = toDecimal(input.amount).toString();
 
         fundingValuation = {
           fundingAsset: "USDC",
@@ -123,7 +139,18 @@ export class PriceCheckService {
           amount: inputRaw,
           outputDecimals: targetDecimals,
         });
-        quote = jupQuote.quote;
+
+        // Guarantee NET output by accounting for Token-2022 transfer fee withholding
+        const netOutputRaw = calculateNetOutput(
+          jupQuote.quote.outputRaw,
+          targetMetadata.transferFee
+        );
+        const expectedNetTargetAmount = rawToEconomicDisplay(netOutputRaw, targetDecimals, activeMultiplier).toString();
+        quote = {
+          ...jupQuote.quote,
+          outputRaw: netOutputRaw,
+          expectedTargetAmount: expectedNetTargetAmount,
+        };
       } else {
         // SOL funding asset
         const inputMint = CANONICAL_MINTS.mainnet.WSOL;
@@ -135,20 +162,42 @@ export class PriceCheckService {
           amount: inputRaw,
           outputDecimals: targetDecimals,
         });
-        quote = jupQuote.quote;
 
-        // Jupiter provides contemporaneous inUsdValue directly
-        const usdVal = jupQuote.inUsdValue != null
-          ? jupQuote.inUsdValue.toString()
-          : (parseFloat(input.amount) * 150).toFixed(2); // Fallback if provider omits
+        // Contemporaneous SOL USD valuation from Jupiter (never a hardcoded constant)
+        let usdVal: string;
+        if (jupQuote.inUsdValue != null && jupQuote.inUsdValue > 0) {
+          usdVal = toDecimal(jupQuote.inUsdValue).toString();
+        } else {
+          try {
+            const solPrice = await this.jupiterAdapter.getSolUsdPrice();
+            usdVal = toDecimal(input.amount).mul(solPrice).toString();
+          } catch (err) {
+            throw new SieveAppError(
+              "DATA_UNAVAILABLE",
+              `Unable to derive contemporaneous SOL/USD valuation: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        }
 
         fundingValuation = {
           fundingAsset: "SOL",
           inputRaw,
           inputDisplay: input.amount,
-          inputUsdValue: toDecimal(usdVal).toFixed(2),
+          inputUsdValue: usdVal,
           method: "CURRENT_MARKET_ROUTE",
           observedAt,
+        };
+
+        // Guarantee NET output by accounting for Token-2022 transfer fee withholding
+        const netOutputRaw = calculateNetOutput(
+          jupQuote.quote.outputRaw,
+          targetMetadata.transferFee
+        );
+        const expectedNetTargetAmount = rawToEconomicDisplay(netOutputRaw, targetDecimals, activeMultiplier).toString();
+        quote = {
+          ...jupQuote.quote,
+          outputRaw: netOutputRaw,
+          expectedTargetAmount: expectedNetTargetAmount,
         };
       }
     } else {
@@ -158,6 +207,56 @@ export class PriceCheckService {
       fundingValuation = practiceResult.funding;
       if (practiceResult.asset) {
         asset = practiceResult.asset;
+      }
+
+      // If user customized fundingAsset and amount in Practice mode without a fixed scenario,
+      // dynamically scale the fixture funding valuation and quote:
+      if (!input.scenarioId && input.amount) {
+        const inputAmt = input.amount;
+        if (input.fundingAsset === "SOL") {
+          const solPriceUsd = 150; // $150 / SOL in practice fixture
+          const usdVal = (parseFloat(inputAmt) * solPriceUsd).toString();
+          const targetPrice = parseFloat(asset.referencePriceUsd) * 1.03; // ~3% premium in practice
+          const targetTokens = (parseFloat(usdVal) / targetPrice).toFixed(6);
+          fundingValuation = {
+            fundingAsset: "SOL",
+            inputRaw: BigInt(Math.floor(parseFloat(inputAmt) * 1e9)),
+            inputDisplay: inputAmt,
+            inputUsdValue: usdVal,
+            method: "CURRENT_MARKET_ROUTE",
+            observedAt,
+          };
+          if (quote) {
+            quote = {
+              ...quote,
+              expectedTargetAmount: targetTokens,
+              outputRaw: BigInt(Math.floor(parseFloat(targetTokens) * 1e6)),
+              observedAt: new Date(now - 1000).toISOString(),
+              expiresAt: new Date(now + 30_000).toISOString(),
+            };
+          }
+        } else {
+          const usdVal = inputAmt;
+          const targetPrice = parseFloat(asset.referencePriceUsd) * 1.03; // ~3% premium in practice
+          const targetTokens = (parseFloat(usdVal) / targetPrice).toFixed(6);
+          fundingValuation = {
+            fundingAsset: "USDC",
+            inputRaw: BigInt(Math.floor(parseFloat(inputAmt) * 1e6)),
+            inputDisplay: inputAmt,
+            inputUsdValue: usdVal,
+            method: "USDC_PAR",
+            observedAt,
+          };
+          if (quote) {
+            quote = {
+              ...quote,
+              expectedTargetAmount: targetTokens,
+              outputRaw: BigInt(Math.floor(parseFloat(targetTokens) * 1e6)),
+              observedAt: new Date(now - 1000).toISOString(),
+              expiresAt: new Date(now + 30_000).toISOString(),
+            };
+          }
+        }
       }
     }
 
@@ -232,6 +331,9 @@ export class PriceCheckService {
         title: decision.displayTitle,
         message: decision.displayMessage,
       },
+      warnings: targetMetadata?.warnings ?? [],
+      issuerControls: targetMetadata?.issuerControls,
+      activeMultiplier: targetMetadata?.scaledUiAmount?.activeMultiplier,
     };
   }
 

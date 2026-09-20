@@ -21,9 +21,13 @@ export class MarketService {
   /**
    * Resolves a single market asset by mint address.
    */
-  async getMarketByMint(mint: string, network: NetworkMode): Promise<MarketAsset | null> {
+  async getMarketByMint(
+    mint: string,
+    network: NetworkMode,
+    options?: { bypassCache?: boolean }
+  ): Promise<MarketAsset | null> {
     if (network === "mainnet") {
-      return this.prestocksAdapter.getMarketByMint(mint);
+      return this.prestocksAdapter.getMarketByMint(mint, options);
     }
     return this.practiceAdapter.getMarketByMint(mint);
   }

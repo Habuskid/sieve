@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { ArrowUpRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 
 export interface MarketItem {
   name: string;
@@ -26,11 +26,11 @@ export function MarketRow({ market }: MarketRowProps) {
   return (
     <>
       {/* Desktop Table Row */}
-      <tr className="hidden sm:table-row border-b border-borderBase hover:bg-surface-subtle/70 transition-colors">
+      <tr className="hidden sm:table-row border-b border-borderBase hover:bg-surface-subtle/50 transition-colors text-xs">
         {/* Company & Symbol */}
-        <td className="py-4 px-4">
+        <td className="py-2.5 px-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-subtle border border-borderBase font-bold text-xs text-secondaryText overflow-hidden">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-surface-subtle border border-borderBase font-mono font-bold text-[11px] text-secondaryText overflow-hidden">
               {market.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -46,10 +46,10 @@ export function MarketRow({ market }: MarketRowProps) {
               )}
             </div>
             <div>
-              <span className="font-semibold text-sm text-primaryText block">
+              <span className="font-semibold text-primaryText block">
                 {market.name}
               </span>
-              <span className="font-mono text-xs text-mutedText">
+              <span className="font-mono text-[11px] text-mutedText">
                 {market.symbol}
               </span>
             </div>
@@ -57,62 +57,55 @@ export function MarketRow({ market }: MarketRowProps) {
         </td>
 
         {/* Market Buy Price */}
-        <td className="py-4 px-4 text-right">
-          <span className="font-mono font-bold text-sm text-primaryText tabular-nums">
+        <td className="py-2.5 px-4 text-right">
+          <span className="font-mono font-medium text-primaryText tabular-nums">
             {market.sourceTokenPriceUsd ? `$${parseFloat(market.sourceTokenPriceUsd).toFixed(2)}` : "—"}
           </span>
         </td>
 
         {/* Reference Price */}
-        <td className="py-4 px-4 text-right">
-          <span className="font-mono text-xs text-secondaryText tabular-nums">
+        <td className="py-2.5 px-4 text-right">
+          <span className="font-mono text-secondaryText tabular-nums">
             ${parseFloat(market.referencePriceUsd).toFixed(2)}
           </span>
         </td>
 
-        {/* Difference Pill */}
-        <td className="py-4 px-4 text-right">
+        {/* Difference - Signed numeric text, no colorful pill overload */}
+        <td className="py-2.5 px-4 text-right">
           {diff !== null ? (
             <span
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold tabular-nums font-mono ${
+              className={`font-mono font-medium tabular-nums ${
                 isDiscount
-                  ? "bg-sieveBlue-soft text-sieveBlue"
+                  ? "text-sieveBlue"
                   : isNear
-                  ? "bg-sieveGreen-soft text-sieveGreen"
-                  : "bg-sieveAmber-soft text-sieveAmber"
+                  ? "text-sieveGreen"
+                  : "text-sieveAmber"
               }`}
             >
-              {isDiscount ? (
-                <TrendingDown className="h-3 w-3" aria-hidden="true" />
-              ) : isNear ? (
-                <Minus className="h-3 w-3" aria-hidden="true" />
-              ) : (
-                <TrendingUp className="h-3 w-3" aria-hidden="true" />
-              )}
               {diff > 0 ? `+${diff.toFixed(2)}%` : `${diff.toFixed(2)}%`}
             </span>
           ) : (
-            <span className="text-xs text-mutedText">—</span>
+            <span className="text-mutedText font-mono">—</span>
           )}
         </td>
 
         {/* Action Button */}
-        <td className="py-4 px-4 text-right">
+        <td className="py-2.5 px-4 text-right">
           <Link
             href={`/buy?mint=${market.mint}`}
-            className="inline-flex items-center gap-1 rounded-btn bg-surface border border-borderBase px-3.5 py-1.5 text-xs font-semibold text-primaryText hover:bg-primaryText hover:text-white transition-colors shadow-2xs min-h-[36px]"
+            className="inline-flex items-center gap-1 rounded-[4px] border border-borderBase bg-surface px-2.5 py-1 text-xs font-semibold text-primaryText hover:bg-primaryText hover:text-white transition-colors min-h-[30px]"
           >
             <span>Buy</span>
-            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+            <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
           </Link>
         </td>
       </tr>
 
       {/* Mobile Card Row */}
-      <div className="sm:hidden rounded-card bg-surface border border-borderBase p-4 mb-3 shadow-2xs">
-        <div className="flex items-center justify-between mb-3">
+      <div className="sm:hidden border-b border-borderBase py-3 px-1 text-xs">
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-subtle border border-borderBase font-bold text-xs text-secondaryText overflow-hidden">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[4px] bg-surface-subtle border border-borderBase font-mono font-bold text-[11px] text-secondaryText overflow-hidden">
               {market.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -125,10 +118,10 @@ export function MarketRow({ market }: MarketRowProps) {
               )}
             </div>
             <div>
-              <span className="font-semibold text-sm text-primaryText block">
+              <span className="font-semibold text-primaryText block">
                 {market.name}
               </span>
-              <span className="font-mono text-xs text-mutedText">
+              <span className="font-mono text-[11px] text-mutedText">
                 {market.symbol}
               </span>
             </div>
@@ -136,33 +129,33 @@ export function MarketRow({ market }: MarketRowProps) {
 
           <Link
             href={`/buy?mint=${market.mint}`}
-            className="inline-flex items-center gap-1 rounded-btn bg-primaryText px-3.5 py-1.5 text-xs font-semibold text-white shadow-2xs min-h-[36px]"
+            className="inline-flex items-center gap-1 rounded-[4px] bg-primaryText px-3 py-1 text-xs font-semibold text-white min-h-[32px]"
           >
             <span>Buy</span>
-            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
+            <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
           </Link>
         </div>
 
-        <div className="flex items-center justify-between text-xs pt-2 border-t border-borderBase/60">
+        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-borderBase/40 text-[11px]">
           <div>
-            <span className="text-secondaryText block">Market Price</span>
-            <span className="font-mono font-bold text-primaryText tabular-nums">
+            <span className="text-secondaryText block">Market</span>
+            <span className="font-mono font-medium text-primaryText tabular-nums">
               {market.sourceTokenPriceUsd ? `$${parseFloat(market.sourceTokenPriceUsd).toFixed(2)}` : "—"}
             </span>
           </div>
 
           <div className="text-center">
-            <span className="text-secondaryText block">Reference</span>
+            <span className="text-secondaryText block">Ref</span>
             <span className="font-mono text-mutedText tabular-nums">
               ${parseFloat(market.referencePriceUsd).toFixed(2)}
             </span>
           </div>
 
           <div className="text-right">
-            <span className="text-secondaryText block">Difference</span>
+            <span className="text-secondaryText block">Diff</span>
             {diff !== null ? (
               <span
-                className={`font-mono font-semibold tabular-nums ${
+                className={`font-mono font-medium tabular-nums ${
                   isDiscount
                     ? "text-sieveBlue"
                     : isNear
@@ -173,7 +166,7 @@ export function MarketRow({ market }: MarketRowProps) {
                 {diff > 0 ? `+${diff.toFixed(2)}%` : `${diff.toFixed(2)}%`}
               </span>
             ) : (
-              <span className="text-mutedText">—</span>
+              <span className="text-mutedText font-mono">—</span>
             )}
           </div>
         </div>

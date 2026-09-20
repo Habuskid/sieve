@@ -17,7 +17,7 @@ export function BottomNav() {
 
   return (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t border-borderBase bg-surface/95 backdrop-blur-md px-4 py-2"
+      className="fixed bottom-0 left-0 right-0 z-30 border-t border-borderBase bg-surface px-2 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1 md:hidden"
       aria-label="Mobile Bottom Navigation"
     >
       <div className="flex items-center justify-around">
@@ -28,14 +28,14 @@ export function BottomNav() {
             <Link
               key={link.href}
               href={link.href}
-              className={`flex flex-col items-center justify-center gap-1 min-w-[64px] min-h-[44px] rounded-lg py-1 text-xs font-medium transition-colors ${
+              className={`flex min-h-12 min-w-16 flex-col items-center justify-center gap-1 border-t py-1 text-xs transition-colors duration-150 ${
                 isActive
-                  ? "text-sieveBlue font-semibold"
-                  : "text-secondaryText hover:text-primaryText"
+                  ? "border-sieveBlue font-medium text-sieveBlue"
+                  : "border-transparent text-secondaryText hover:text-primaryText"
               }`}
               aria-current={isActive ? "page" : undefined}
             >
-              <Icon className="h-5 w-5" aria-hidden="true" />
+              <Icon className="h-4 w-4" aria-hidden="true" />
               <span>{link.label}</span>
             </Link>
           );

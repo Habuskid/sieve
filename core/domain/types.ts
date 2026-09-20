@@ -88,6 +88,13 @@ export type PriceCheck = {
   expiresAt: string;
 };
 
+export type IssuerControls = {
+  permanentDelegate: boolean;
+  pausable: boolean;
+  isPaused: boolean;
+  defaultAccountState: "Initialized" | "Frozen" | "Uninitialized";
+};
+
 export type BuildIntent = {
   id: string;
   checkId: string;
@@ -103,11 +110,28 @@ export type BuildIntent = {
     fundingAsset: FundingAsset;
     fundingAmount: string;
     targetSymbol: string;
+    targetDecimals?: number;
     expectedTargetAmount: string;
     referencePriceUsd: string;
     currentBuyPriceUsd: string;
     premiumPct: string;
     maxPremiumPct: string;
+    maxBuyPriceUsd?: string;
+    minimumAcceptableOutput?: string;
+    premiumBps?: number;
+    activeMultiplier?: string;
+    chainTimestamp?: number;
+    epoch?: string;
+    issuerControls?: IssuerControls;
+    feeInfo?: {
+      signatureFeeLamports?: number | null;
+      signatureFeePayer?: string | null;
+      prioritizationFeeLamports?: number | null;
+      prioritizationFeePayer?: string | null;
+      rentFeeLamports?: number | null;
+      rentFeePayer?: string | null;
+      gasless?: boolean | null;
+    };
   };
 };
 
@@ -117,14 +141,22 @@ export type TradeReceipt = {
   buildIntentId: string;
   wallet: string;
   network: NetworkMode;
-  signature: string;
+  signature: string | null;
+  internalExecutionId?: string | null;
   status: "CONFIRMED" | "FAILED";
   fundingAsset: FundingAsset;
   fundingAmount: string;
+  requestedFundingAmount: string;
+  actualFundingAmount: string | null;
   targetSymbol: string;
   targetMint: string;
+  targetDecimals?: number | null;
   expectedTargetAmount: string;
   realizedTargetAmount: string | null;
+  rawWalletOutput?: string | null;
+  activeMultiplier?: string | null;
+  chainTimestamp?: number | null;
+  epoch?: string | null;
   referencePriceUsd: string;
   checkedBuyPriceUsd: string;
   maxPremiumBps: number;
@@ -133,3 +165,4 @@ export type TradeReceipt = {
   confirmedAt: string | null;
   failureCode?: string | null;
 };
+

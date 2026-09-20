@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import { activeChecksStore, type CheckResponseDto } from "./check-service";
 import { defaultJupiterAdapter, JupiterAdapter } from "../jupiter/adapter";
 import { defaultPracticeAdapter, PracticeAdapter } from "../practice/adapter";
-import { defaultSolanaAdapter, SolanaAdapter, CANONICAL_MINTS } from "../solana/adapter";
+import { defaultSolanaAdapter, SolanaAdapter, CANONICAL_MINTS, calculateNetOutput } from "../solana/adapter";
 import { defaultMarketService, MarketService } from "./market-service";
 import { getRepository } from "../database/db";
 import type { ISieveRepository } from "../database/repository";
@@ -12,6 +12,8 @@ import {
   isExpired,
   DEFAULT_CHECK_EXPIRY_MS,
 } from "../../core";
+import { Keypair, PublicKey, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
+import { toDecimal, rawToDisplay, rawToEconomicDisplay } from "../../core/money/decimal";
 import { SieveAppError } from "./errors";
 import type {
   BuildIntent,
@@ -32,16 +34,7 @@ export type BuildResult =
       network: NetworkMode;
       serializedTransaction: string;
       expiresAt: string;
-      summary: {
-        fundingAsset: FundingAsset;
-        fundingAmount: string;
-        targetSymbol: string;
-        expectedTargetAmount: string;
-        referencePriceUsd: string;
-        currentBuyPriceUsd: string;
-        premiumPct: string;
-        maxPremiumPct: string;
-      };
+      summary: BuildIntent["summary"];
     }
   | {
       status: "BLOCKED";
@@ -49,7 +42,12 @@ export type BuildResult =
       refreshedCheck: CheckResponseDto;
     };
 
-export const activeBuildIntentsStore = new Map<string, BuildIntent>();
+const globalForBuilds = globalThis as unknown as {
+  sieveActiveBuildIntents?: Map<string, BuildIntent>;
+};
+export const activeBuildIntentsStore =
+  globalForBuilds.sieveActiveBuildIntents ??
+  (globalForBuilds.sieveActiveBuildIntents = new Map<string, BuildIntent>());
 
 export class TransactionBuildService {
   constructor(
@@ -74,13 +72,28 @@ export class TransactionBuildService {
       throw new SieveAppError("TRANSACTION_EXPIRED", "The price check expired before building transaction");
     }
 
-    // 3. Wallet format validation
+    // 3. Wallet format validation and context binding
     if (!input.wallet || input.wallet.length < 32 || input.wallet.length > 44) {
       throw new SieveAppError("WALLET_NOT_CONNECTED", "Valid Solana wallet address is required");
     }
 
-    // 4. Server-Side Revalidation: Refetch fresh reference and quote
-    let freshAsset = await this.marketService.getMarketByMint(check.asset.mint, check.network);
+    if (check.wallet && check.wallet !== input.wallet) {
+      throw new SieveAppError("WALLET_MISMATCH", "Wallet address does not match price check");
+    }
+
+    // 4. Wallet balance verification
+    const balanceCheck = await this.solanaAdapter.checkBalance(
+      input.wallet,
+      check.funding.fundingAsset,
+      check.funding.inputRaw,
+      check.network
+    );
+    if (!balanceCheck.hasSufficient) {
+      throw new SieveAppError("INSUFFICIENT_FUNDS", balanceCheck.error || "Insufficient wallet balance");
+    }
+
+    // 5. Server-Side Revalidation: Refetch fresh reference and quote (force cache bypass)
+    let freshAsset = await this.marketService.getMarketByMint(check.asset.mint, check.network, { bypassCache: true });
     if (!freshAsset) {
       throw new SieveAppError("PRICE_REFERENCE_INVALID", "Market asset no longer available");
     }
@@ -90,9 +103,25 @@ export class TransactionBuildService {
     let serializedTx = "";
     let lastValidBlockHeight: string | undefined;
     let requestId: string | undefined;
+    let freshFundingUsdValue = check.funding.inputUsdValue;
+    let targetMetadata: import("../solana/adapter").ValidatedMintMetadata | null = null;
+    let buildResultFeeInfo: {
+      signatureFeeLamports?: number | null;
+      signatureFeePayer?: string | null;
+      prioritizationFeeLamports?: number | null;
+      prioritizationFeePayer?: string | null;
+      rentFeeLamports?: number | null;
+      rentFeePayer?: string | null;
+      gasless?: boolean | null;
+    } | undefined;
 
     if (check.network === "mainnet") {
-      const targetDecimals = await this.solanaAdapter.resolveMintDecimals(freshAsset.mint, "mainnet");
+      targetMetadata = await this.solanaAdapter.resolveMintMetadata(freshAsset.mint, "mainnet", { bypassCache: true });
+      if (!targetMetadata.supported) {
+        throw new SieveAppError("ROUTE_RISK", targetMetadata.blockers?.join(", ") || "Asset not supported");
+      }
+      const targetDecimals = targetMetadata.decimals;
+      const activeMultiplier = targetMetadata.scaledUiAmount?.activeMultiplier ?? "1";
       const inputMint = check.funding.fundingAsset === "USDC"
         ? CANONICAL_MINTS.mainnet.USDC
         : CANONICAL_MINTS.mainnet.WSOL;
@@ -105,31 +134,58 @@ export class TransactionBuildService {
         outputDecimals: targetDecimals,
       });
 
-      revalQuoteExpectedAmount = jupQuote.quote.expectedTargetAmount;
+      // Account for Token-2022 transfer fee withholding on expected target tokens
+      const netRevalRaw = calculateNetOutput(
+        jupQuote.quote.outputRaw,
+        targetMetadata.transferFee
+      );
+      revalQuoteExpectedAmount = rawToEconomicDisplay(netRevalRaw, targetDecimals, activeMultiplier).toString();
       revalPriceImpact = jupQuote.quote.priceImpactPct;
+
+      // Refresh SOL valuation contemporaneously if funding with SOL
+      if (check.funding.fundingAsset === "SOL") {
+        if (jupQuote.rawResponse?.inUsdValue != null && jupQuote.rawResponse.inUsdValue > 0) {
+          freshFundingUsdValue = toDecimal(jupQuote.rawResponse.inUsdValue).toString();
+        } else {
+          try {
+            const solPrice = await this.jupiterAdapter.getSolUsdPrice();
+            freshFundingUsdValue = toDecimal(check.funding.inputDisplay).mul(solPrice).toString();
+          } catch (err) {
+            throw new SieveAppError(
+              "DATA_UNAVAILABLE",
+              `Unable to refresh contemporaneous SOL/USD valuation: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+        }
+      }
     } else {
       // Practice mode revalidation quote
-      const practiceRevalQuote = await this.practiceAdapter.getRevalidationQuote(input.scenarioId);
-      revalQuoteExpectedAmount = practiceRevalQuote.expectedTargetAmount;
-      revalPriceImpact = practiceRevalQuote.priceImpactPct;
-      const scenario = this.practiceAdapter.getScenario(input.scenarioId);
-      if (scenario && scenario.asset) {
-        freshAsset = scenario.asset;
+      if (input.scenarioId && this.practiceAdapter.getScenario(input.scenarioId).id === input.scenarioId) {
+        const practiceRevalQuote = await this.practiceAdapter.getRevalidationQuote(input.scenarioId);
+        revalQuoteExpectedAmount = practiceRevalQuote.expectedTargetAmount;
+        revalPriceImpact = practiceRevalQuote.priceImpactPct;
+        const scenario = this.practiceAdapter.getScenario(input.scenarioId);
+        if (scenario && scenario.asset) {
+          freshAsset = scenario.asset;
+        }
+      } else {
+        revalQuoteExpectedAmount = check.quote?.expectedTargetAmount ?? "0";
+        revalPriceImpact = check.quote?.priceImpactPct ?? null;
       }
     }
 
-    // 5. Re-evaluate decision with fresh values
+    // 6. Re-evaluate decision with fresh values
     const revalDecision = evaluatePriceBoundary({
       referencePriceUsd: freshAsset.referencePriceUsd,
       referenceObservedAt: freshAsset.observedAt,
-      fundingUsdValue: check.funding.inputUsdValue,
+      fundingUsdValue: freshFundingUsdValue,
       expectedTargetTokens: revalQuoteExpectedAmount,
       maxPremiumPct: check.maxPremiumPct,
       priceImpactPct: revalPriceImpact,
       now,
     });
 
-    // 6. If decision is not GOOD_TO_GO, block the build!
+    // 7. If decision is not GOOD_TO_GO, block the build!
     if (revalDecision.status !== "GOOD_TO_GO") {
       const refreshedCheckDto: CheckResponseDto = {
         checkId: check.id,
@@ -144,7 +200,7 @@ export class TransactionBuildService {
         funding: {
           asset: check.funding.fundingAsset,
           amount: check.funding.inputDisplay,
-          usdValue: check.funding.inputUsdValue,
+          usdValue: freshFundingUsdValue,
         },
         price: {
           referenceUsd: revalDecision.referencePriceUsd,
@@ -172,25 +228,42 @@ export class TransactionBuildService {
       };
     }
 
-    // 7. Decision is GOOD_TO_GO: Derive transaction protection
-    const targetDecimals = check.network === "mainnet"
-      ? await this.solanaAdapter.resolveMintDecimals(freshAsset.mint, "mainnet")
+    // 8. Decision is GOOD_TO_GO: Derive transaction protection
+    const targetDecimals = check.network === "mainnet" && targetMetadata
+      ? targetMetadata.decimals
       : 6;
 
     const protection = deriveAllowedExecutionTolerance({
-      fundingUsdValue: check.funding.inputUsdValue,
+      fundingUsdValue: freshFundingUsdValue,
       referencePriceUsd: freshAsset.referencePriceUsd,
       maxPremiumPct: check.maxPremiumPct,
       expectedTargetTokens: revalQuoteExpectedAmount,
       targetDecimals,
+      activeMultiplier: targetMetadata?.scaledUiAmount?.activeMultiplier,
     });
 
     if (!protection.isExecutable) {
       throw new SieveAppError("PRICE_MOVED_OUTSIDE_LIMIT", "Price moved outside limit during protection derivation");
     }
 
-    // 8. Assemble transaction
+    // 9. Assemble transaction
     if (check.network === "mainnet") {
+      // Check destination ATA state before assembling transaction
+      if (targetMetadata) {
+        const destCheck = await this.solanaAdapter.checkDestinationAccount(
+          input.wallet,
+          freshAsset.mint,
+          targetMetadata.programOwner === "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+            ? new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
+            : new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"),
+          targetMetadata.issuerControls?.defaultAccountState,
+          "mainnet"
+        );
+        if (destCheck.isFrozen || destCheck.error) {
+          throw new SieveAppError("ROUTE_RISK", destCheck.error || "Destination token account is Frozen");
+        }
+      }
+
       const inputMint = check.funding.fundingAsset === "USDC"
         ? CANONICAL_MINTS.mainnet.USDC
         : CANONICAL_MINTS.mainnet.WSOL;
@@ -204,14 +277,109 @@ export class TransactionBuildService {
         slippageBps: protection.slippageBps,
       });
 
+      // Boundary enforcement: ensure assembled transaction slippage threshold strictly satisfies Sieve policy
+      // Note on Token-2022 Transfer Fee Semantics with Jupiter:
+      // Upstream Jupiter API documentation does not explicitly guarantee whether `outAmount` and `otherAmountThreshold`
+      // reflect gross transfer amounts (prior to Token-2022 transfer fee withholding) or net amounts deposited into the ATA.
+      // To strictly guarantee that the user never receives less than Sieve's maximum buy-price boundary regardless of upstream
+      // interpretation, Sieve conservatively assumes `otherAmountThreshold` is gross and applies `calculateNetOutput(grossMinRaw, feeConfig)`.
+      // If Jupiter's threshold is already net, our check is strictly conservative (protects the user even more).
+      // If Jupiter's threshold is gross, our check ensures the actual tokens hitting the wallet satisfy the boundary.
+      // Sieve guarantees the maximum buy-price boundary against the authoritative reference price and Token-2022 economic conversion state captured during final transaction preparation.
+      if (!buildResult.otherAmountThreshold) {
+        throw new SieveAppError(
+          "ROUTE_RISK",
+          "Final assembled Jupiter order does not expose a verifiable minimum-output protection threshold"
+        );
+      }
+      const grossMinRaw = BigInt(buildResult.otherAmountThreshold);
+      const netMinRaw = targetMetadata
+        ? calculateNetOutput(grossMinRaw, targetMetadata.transferFee)
+        : grossMinRaw;
+
+      // Handle TransferFee epoch transition:
+      // If older and newer transfer fee schedules exist and differ, evaluate worst-case net output
+      if (
+        targetMetadata?.olderTransferFee &&
+        targetMetadata?.newerTransferFee &&
+        (targetMetadata.olderTransferFee.basisPoints !== targetMetadata.newerTransferFee.basisPoints ||
+          targetMetadata.olderTransferFee.maximumFee !== targetMetadata.newerTransferFee.maximumFee)
+      ) {
+        const netOlder = calculateNetOutput(grossMinRaw, targetMetadata.olderTransferFee);
+        const netNewer = calculateNetOutput(grossMinRaw, targetMetadata.newerTransferFee);
+        const worstNetMinRaw = netOlder < netNewer ? netOlder : netNewer;
+        if (worstNetMinRaw < protection.minimumAcceptableOutputRaw) {
+          throw new SieveAppError(
+            "PRICE_MOVED_OUTSIDE_LIMIT",
+            `Assembled transaction worst-case net minimum output across fee epoch transition (${worstNetMinRaw}) is looser than Sieve price limit (${protection.minimumAcceptableOutputRaw})`
+          );
+        }
+      }
+
+      if (netMinRaw < protection.minimumAcceptableOutputRaw) {
+        throw new SieveAppError(
+          "PRICE_MOVED_OUTSIDE_LIMIT",
+          `Assembled transaction net minimum output (${netMinRaw}) is looser than Sieve price limit (${protection.minimumAcceptableOutputRaw})`
+        );
+      }
+
       serializedTx = buildResult.transactionBase64;
       lastValidBlockHeight = buildResult.lastValidBlockHeight;
       requestId = buildResult.requestId;
+      buildResultFeeInfo = {
+        signatureFeeLamports: buildResult.signatureFeeLamports ?? null,
+        signatureFeePayer: buildResult.signatureFeePayer ?? null,
+        prioritizationFeeLamports: buildResult.prioritizationFeeLamports ?? null,
+        prioritizationFeePayer: buildResult.prioritizationFeePayer ?? null,
+        rentFeeLamports: buildResult.rentFeeLamports ?? null,
+        rentFeePayer: buildResult.rentFeePayer ?? null,
+        gasless: buildResult.gasless ?? null,
+      };
     } else {
-      // Deterministic base64 mock transaction for Testnet practice
-      serializedTx = Buffer.from(`mock-testnet-tx-${check.id}-${input.wallet}`).toString("base64");
+      // Practice mode: construct a valid, deserialize-able minimal VersionedTransaction
+      const dummyBlockhash = Keypair.generate().publicKey.toBase58();
+      try {
+        const payer = new PublicKey(input.wallet);
+        const message = new TransactionMessage({
+          payerKey: payer,
+          recentBlockhash: dummyBlockhash,
+          instructions: [],
+        }).compileToV0Message();
+        const dummyTx = new VersionedTransaction(message);
+        serializedTx = Buffer.from(dummyTx.serialize()).toString("base64");
+      } catch {
+        const dummyKey = Keypair.generate().publicKey;
+        const message = new TransactionMessage({
+          payerKey: dummyKey,
+          recentBlockhash: dummyBlockhash,
+          instructions: [],
+        }).compileToV0Message();
+        const dummyTx = new VersionedTransaction(message);
+        serializedTx = Buffer.from(dummyTx.serialize()).toString("base64");
+      }
       lastValidBlockHeight = "426500000";
       requestId = `practice-req-${check.id}`;
+    }
+
+    // Scaled-UI transition safety: evaluate using authoritative Solana chain time.
+    // Never mix host time with chain transition timestamps.
+    // If a future ScaledUi multiplier transition can occur within the next 120 seconds of authoritative Solana chain time:
+    // BLOCK transaction preparation with ROUTE_RISK and prompt user to retry after transition.
+    if (check.network === "mainnet" && targetMetadata?.scaledUiAmount?.newMultiplierEffectiveTimestamp != null) {
+      const effTs = targetMetadata.scaledUiAmount.newMultiplierEffectiveTimestamp;
+      const chainTs = targetMetadata.chainTimestamp;
+      if (chainTs == null) {
+        throw new SieveAppError(
+          "ROUTE_RISK",
+          "Authoritative Solana chain time required to evaluate ScaledUi multiplier transition safety"
+        );
+      }
+      if (effTs > chainTs && effTs <= chainTs + 120) {
+        throw new SieveAppError(
+          "ROUTE_RISK",
+          `Target token multiplier transition scheduled in ${effTs - chainTs}s (within 120s of chain time); transaction cannot be safely prepared. Please retry after transition.`
+        );
+      }
     }
 
     const buildIntentId = uuidv4();
@@ -232,13 +400,27 @@ export class TransactionBuildService {
         fundingAsset: check.funding.fundingAsset,
         fundingAmount: check.funding.inputDisplay,
         targetSymbol: freshAsset.symbol,
+        targetDecimals,
         expectedTargetAmount: revalQuoteExpectedAmount,
         referencePriceUsd: revalDecision.referencePriceUsd,
         currentBuyPriceUsd: revalDecision.currentBuyPriceUsd!,
         premiumPct: revalDecision.premiumPct!,
         maxPremiumPct: check.maxPremiumPct,
+        maxBuyPriceUsd: revalDecision.maximumBuyPriceUsd,
+        minimumAcceptableOutput: rawToEconomicDisplay(
+          protection.minimumAcceptableOutputRaw,
+          targetDecimals,
+          targetMetadata?.scaledUiAmount?.activeMultiplier
+        ).toString(),
+        premiumBps: revalDecision.premiumBps!,
+        activeMultiplier: targetMetadata?.scaledUiAmount?.activeMultiplier,
+        chainTimestamp: targetMetadata?.chainTimestamp ?? undefined,
+        epoch: targetMetadata?.epoch?.toString(),
+        issuerControls: targetMetadata?.issuerControls,
+        feeInfo: buildResultFeeInfo,
       },
     };
+
 
     activeBuildIntentsStore.set(buildIntentId, buildIntent);
     await this.repo.saveBuildIntent(buildIntent);
