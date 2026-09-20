@@ -345,6 +345,40 @@ body {
     animation: sieve-refresh-spin 850ms linear infinite;
   }
 
+  .sieve-refresh-action {
+    display: inline-flex;
+    min-height: 2rem;
+    align-items: center;
+    gap: 0.5rem;
+    border: 0;
+    border-bottom: 1px solid var(--sieve-border-strong);
+    background: transparent;
+    padding: 0.25rem 0.125rem;
+    color: var(--sieve-text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    transition:
+      border-color var(--sieve-motion-fast) ease,
+      color var(--sieve-motion-fast) ease,
+      opacity var(--sieve-motion-fast) ease;
+  }
+
+  .sieve-refresh-action:hover {
+    border-color: var(--sieve-blue);
+    color: var(--sieve-text);
+  }
+
+  .sieve-refresh-action:focus-visible {
+    outline: 2px solid var(--sieve-blue);
+    outline-offset: 3px;
+  }
+
+  .sieve-refresh-action:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+
   .sieve-execution-stage {
     position: relative;
     min-height: 25rem;
