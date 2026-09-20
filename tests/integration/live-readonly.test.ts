@@ -19,12 +19,14 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
     expect(openAi!.mint).toBe("PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
     expect(parseFloat(openAi!.referencePriceUsd)).toBeGreaterThan(0);
 
-    // 2. Authoritative on-chain Token-2022 safety check:
-    // On Mainnet, PreStocks tokens have PermanentDelegate and other unsafe extensions.
-    // Verify that Sieve fails closed and refuses to allow transactions for unsafe tokens.
-    await expect(
-      defaultSolanaAdapter.resolveMintMetadata(openAi!.mint, "mainnet")
-    ).rejects.toThrow(/PermanentDelegate/);
+    // 2. Authoritative on-chain Token-2022 inspection:
+    // On Mainnet, OpenAI has PermanentDelegate (with disclosure), 50 bps transfer fee, and 1.4861347 ScaledUi multiplier.
+    // Verify that Sieve correctly supports and parses all parameters.
+    const openAiMetadata = await defaultSolanaAdapter.resolveMintMetadata(openAi!.mint, "mainnet");
+    expect(openAiMetadata.supported).toBe(true);
+    expect(openAiMetadata.issuerControls.permanentDelegate).toBe(true);
+    expect(openAiMetadata.transferFee?.basisPoints).toBe(50);
+    expect(openAiMetadata.scaledUiAmount?.activeMultiplier).toBe("1.4861347");
 
     // 3. Query live Jupiter V2 quote for canonical USDC -> WSOL in read-only mode
     const usdcAmount = "10"; // 10 USDC

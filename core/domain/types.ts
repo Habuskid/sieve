@@ -88,6 +88,13 @@ export type PriceCheck = {
   expiresAt: string;
 };
 
+export type IssuerControls = {
+  permanentDelegate: boolean;
+  pausable: boolean;
+  isPaused: boolean;
+  defaultAccountState: "Initialized" | "Frozen" | "Uninitialized";
+};
+
 export type BuildIntent = {
   id: string;
   checkId: string;
@@ -111,6 +118,8 @@ export type BuildIntent = {
     maxBuyPriceUsd?: string;
     minimumAcceptableOutput?: string;
     premiumBps?: number;
+    activeMultiplier?: string;
+    issuerControls?: IssuerControls;
     feeInfo?: {
       signatureFeeLamports?: number | null;
       signatureFeePayer?: string | null;

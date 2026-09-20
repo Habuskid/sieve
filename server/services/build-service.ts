@@ -13,7 +13,7 @@ import {
   DEFAULT_CHECK_EXPIRY_MS,
 } from "../../core";
 import { Keypair, PublicKey, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
-import { toDecimal, rawToDisplay } from "../../core/money/decimal";
+import { toDecimal, rawToDisplay, rawToEconomicDisplay } from "../../core/money/decimal";
 import { SieveAppError } from "./errors";
 import type {
   BuildIntent,
@@ -117,7 +117,11 @@ export class TransactionBuildService {
 
     if (check.network === "mainnet") {
       targetMetadata = await this.solanaAdapter.resolveMintMetadata(freshAsset.mint, "mainnet", { bypassCache: true });
+      if (!targetMetadata.supported) {
+        throw new SieveAppError("ROUTE_RISK", targetMetadata.blockers?.join(", ") || "Asset not supported");
+      }
       const targetDecimals = targetMetadata.decimals;
+      const activeMultiplier = targetMetadata.scaledUiAmount?.activeMultiplier ?? "1";
       const inputMint = check.funding.fundingAsset === "USDC"
         ? CANONICAL_MINTS.mainnet.USDC
         : CANONICAL_MINTS.mainnet.WSOL;
@@ -133,10 +137,9 @@ export class TransactionBuildService {
       // Account for Token-2022 transfer fee withholding on expected target tokens
       const netRevalRaw = calculateNetOutput(
         jupQuote.quote.outputRaw,
-        targetMetadata.transferFeeBasisPoints,
-        targetMetadata.maximumFee
+        targetMetadata.transferFee
       );
-      revalQuoteExpectedAmount = rawToDisplay(netRevalRaw, targetDecimals).toString();
+      revalQuoteExpectedAmount = rawToEconomicDisplay(netRevalRaw, targetDecimals, activeMultiplier).toString();
       revalPriceImpact = jupQuote.quote.priceImpactPct;
 
       // Refresh SOL valuation contemporaneously if funding with SOL
@@ -236,6 +239,7 @@ export class TransactionBuildService {
       maxPremiumPct: check.maxPremiumPct,
       expectedTargetTokens: revalQuoteExpectedAmount,
       targetDecimals,
+      activeMultiplier: targetMetadata?.scaledUiAmount?.activeMultiplier,
     });
 
     if (!protection.isExecutable) {
@@ -266,7 +270,7 @@ export class TransactionBuildService {
       }
       const grossMinRaw = BigInt(buildResult.otherAmountThreshold);
       const netMinRaw = targetMetadata
-        ? calculateNetOutput(grossMinRaw, targetMetadata.transferFeeBasisPoints, targetMetadata.maximumFee)
+        ? calculateNetOutput(grossMinRaw, targetMetadata.transferFee)
         : grossMinRaw;
 
       if (netMinRaw < protection.minimumAcceptableOutputRaw) {
@@ -315,7 +319,22 @@ export class TransactionBuildService {
     }
 
     const buildIntentId = uuidv4();
-    const expiresAt = new Date(now + 60_000).toISOString();
+    const defaultExpiresAtMs = now + 60_000;
+    let expiresAtMs = defaultExpiresAtMs;
+
+    if (targetMetadata?.scaledUiAmount?.newMultiplierEffectiveTimestamp) {
+      const transitionTimestampMs = targetMetadata.scaledUiAmount.newMultiplierEffectiveTimestamp * 1000;
+      if (transitionTimestampMs > now && transitionTimestampMs < expiresAtMs) {
+        if (transitionTimestampMs - now < 5_000) {
+          throw new SieveAppError(
+            "DATA_UNAVAILABLE",
+            "Target token multiplier scheduled to transition immediately; transaction cannot be safely prepared"
+          );
+        }
+        expiresAtMs = transitionTimestampMs;
+      }
+    }
+    const expiresAt = new Date(expiresAtMs).toISOString();
 
     const buildIntent: BuildIntent = {
       id: buildIntentId,
@@ -338,8 +357,14 @@ export class TransactionBuildService {
         premiumPct: revalDecision.premiumPct!,
         maxPremiumPct: check.maxPremiumPct,
         maxBuyPriceUsd: revalDecision.maximumBuyPriceUsd,
-        minimumAcceptableOutput: rawToDisplay(protection.minimumAcceptableOutputRaw, targetDecimals).toString(),
+        minimumAcceptableOutput: rawToEconomicDisplay(
+          protection.minimumAcceptableOutputRaw,
+          targetDecimals,
+          targetMetadata?.scaledUiAmount?.activeMultiplier
+        ).toString(),
         premiumBps: revalDecision.premiumBps!,
+        activeMultiplier: targetMetadata?.scaledUiAmount?.activeMultiplier,
+        issuerControls: targetMetadata?.issuerControls,
         feeInfo: buildResultFeeInfo,
       },
     };

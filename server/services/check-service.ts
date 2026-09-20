@@ -9,7 +9,7 @@ import {
   evaluatePriceBoundary,
   DEFAULT_CHECK_EXPIRY_MS,
 } from "../../core";
-import { displayToRaw, rawToDisplay, isPositiveFinite, toDecimal } from "../../core/money/decimal";
+import { displayToRaw, rawToDisplay, rawToEconomicDisplay, isPositiveFinite, toDecimal } from "../../core/money/decimal";
 import { SieveAppError } from "./errors";
 import type {
   NetworkMode,
@@ -17,6 +17,7 @@ import type {
   PriceCheck,
   FundingValuation,
   MarketQuote,
+  IssuerControls,
 } from "../../core/domain/types";
 
 export interface CheckRequestInput {
@@ -62,6 +63,9 @@ export interface CheckResponseDto {
     title: string;
     message: string;
   };
+  warnings?: string[];
+  issuerControls?: IssuerControls;
+  activeMultiplier?: string;
 }
 
 // In-memory cache for checks (backed by DB in persistence phase)
@@ -104,10 +108,16 @@ export class PriceCheckService {
     const now = Date.now();
     const observedAt = new Date(now).toISOString();
 
+    let targetMetadata: import("../solana/adapter").ValidatedMintMetadata | null = null;
+
     if (input.network === "mainnet") {
       // 3. Mainnet flow
-      const targetMetadata = await this.solanaAdapter.resolveMintMetadata(asset.mint, "mainnet");
+      targetMetadata = await this.solanaAdapter.resolveMintMetadata(asset.mint, "mainnet");
+      if (!targetMetadata.supported) {
+        throw new SieveAppError("ROUTE_RISK", targetMetadata.blockers?.join(", ") || "Asset not supported");
+      }
       const targetDecimals = targetMetadata.decimals;
+      const activeMultiplier = targetMetadata.scaledUiAmount?.activeMultiplier ?? "1";
 
       if (input.fundingAsset === "USDC") {
         const inputMint = CANONICAL_MINTS.mainnet.USDC;
@@ -133,10 +143,9 @@ export class PriceCheckService {
         // Guarantee NET output by accounting for Token-2022 transfer fee withholding
         const netOutputRaw = calculateNetOutput(
           jupQuote.quote.outputRaw,
-          targetMetadata.transferFeeBasisPoints,
-          targetMetadata.maximumFee
+          targetMetadata.transferFee
         );
-        const expectedNetTargetAmount = rawToDisplay(netOutputRaw, targetDecimals).toString();
+        const expectedNetTargetAmount = rawToEconomicDisplay(netOutputRaw, targetDecimals, activeMultiplier).toString();
         quote = {
           ...jupQuote.quote,
           outputRaw: netOutputRaw,
@@ -182,10 +191,9 @@ export class PriceCheckService {
         // Guarantee NET output by accounting for Token-2022 transfer fee withholding
         const netOutputRaw = calculateNetOutput(
           jupQuote.quote.outputRaw,
-          targetMetadata.transferFeeBasisPoints,
-          targetMetadata.maximumFee
+          targetMetadata.transferFee
         );
-        const expectedNetTargetAmount = rawToDisplay(netOutputRaw, targetDecimals).toString();
+        const expectedNetTargetAmount = rawToEconomicDisplay(netOutputRaw, targetDecimals, activeMultiplier).toString();
         quote = {
           ...jupQuote.quote,
           outputRaw: netOutputRaw,
@@ -323,6 +331,9 @@ export class PriceCheckService {
         title: decision.displayTitle,
         message: decision.displayMessage,
       },
+      warnings: targetMetadata?.warnings ?? [],
+      issuerControls: targetMetadata?.issuerControls,
+      activeMultiplier: targetMetadata?.scaledUiAmount?.activeMultiplier,
     };
   }
 

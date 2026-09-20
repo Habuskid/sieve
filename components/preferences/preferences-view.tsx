@@ -9,6 +9,8 @@ export function PreferencesView() {
   const [defaultAsset, setDefaultAsset] = useState<FundingAsset>("USDC");
   const [saved, setSaved] = useState(false);
 
+  const limitInputRef = React.useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     try {
       const storedLimit = localStorage.getItem("sieve_default_limit");
@@ -22,7 +24,10 @@ export function PreferencesView() {
 
   const handleSave = () => {
     try {
-      localStorage.setItem("sieve_default_limit", defaultLimit.toString());
+      const currentLimit = limitInputRef.current
+        ? parseFloat(limitInputRef.current.value) || defaultLimit
+        : defaultLimit;
+      localStorage.setItem("sieve_default_limit", currentLimit.toString());
       localStorage.setItem("sieve_default_asset", defaultAsset);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -67,6 +72,7 @@ export function PreferencesView() {
             </span>
           </div>
           <input
+            ref={limitInputRef}
             id="pref-limit"
             type="range"
             min={0}
@@ -74,6 +80,7 @@ export function PreferencesView() {
             step={0.5}
             value={defaultLimit}
             onChange={(e) => setDefaultLimit(parseFloat(e.target.value))}
+            onInput={(e) => setDefaultLimit(parseFloat(e.currentTarget.value))}
             className="w-full h-2 bg-surface-subtle border border-borderBase rounded-lg appearance-none cursor-pointer accent-sieveBlue focus:outline-none focus:ring-2 focus:ring-sieveBlue"
           />
           <p className="mt-1 text-xs text-mutedText">

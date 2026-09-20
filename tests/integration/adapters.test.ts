@@ -507,12 +507,9 @@ describe("Solana Adapter Contracts", () => {
     }
 
     it.each([
-      ["ScaledUiAmountConfig", ExtensionType.ScaledUiAmountConfig],
+      ["NonTransferable", ExtensionType.NonTransferable],
       ["InterestBearingConfig", ExtensionType.InterestBearingConfig],
-      ["DefaultAccountState", ExtensionType.DefaultAccountState],
-      ["PausableConfig", ExtensionType.PausableConfig],
-      ["PermanentDelegate", ExtensionType.PermanentDelegate],
-      ["ConfidentialTransferMint", ExtensionType.ConfidentialTransferMint],
+      ["PermissionedBurn", ExtensionType.PermissionedBurn],
     ])("rejects blocked extension %s", async (name, extType) => {
       const { TOKEN_2022_PROGRAM_ID } = await import("@solana/spl-token");
       const { Keypair } = await import("@solana/web3.js");
@@ -529,7 +526,152 @@ describe("Solana Adapter Contracts", () => {
 
       await expect(
         adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true })
-      ).rejects.toThrow(/has blocked extension/);
+      ).rejects.toThrow(/is blocked:.*fails closed/);
+    });
+
+    it("allows unpaused PausableConfig with disclosure warning, and blocks paused PausableConfig", async () => {
+      const { TOKEN_2022_PROGRAM_ID, ExtensionType } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+
+      // Unpaused mint
+      const unpausedMint = Keypair.generate().publicKey.toBase58();
+      const unpausedBuf = createExtensionMintBuffer(ExtensionType.PausableConfig, 33);
+      unpausedBuf[165 + 1 + 4 + 32] = 0; // paused = false
+
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({
+          owner: TOKEN_2022_PROGRAM_ID,
+          data: unpausedBuf,
+        }),
+      });
+
+      const unpausedMeta = await adapter.resolveMintMetadata(unpausedMint, "mainnet", { bypassCache: true });
+      expect(unpausedMeta.supported).toBe(true);
+      expect(unpausedMeta.issuerControls.pausable).toBe(true);
+      expect(unpausedMeta.issuerControls.isPaused).toBe(false);
+      expect(unpausedMeta.warnings).toContain("Issuer retains pause authority for this token.");
+
+      // Paused mint
+      const pausedMint = Keypair.generate().publicKey.toBase58();
+      const pausedBuf = createExtensionMintBuffer(ExtensionType.PausableConfig, 33);
+      pausedBuf[165 + 1 + 4 + 32] = 1; // paused = true
+
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({
+          owner: TOKEN_2022_PROGRAM_ID,
+          data: pausedBuf,
+        }),
+      });
+
+      await expect(
+        adapter.resolveMintMetadata(pausedMint, "mainnet", { bypassCache: true })
+      ).rejects.toThrow(/Mint is currently paused/);
+    });
+
+    it("allows Initialized DefaultAccountState and blocks Frozen DefaultAccountState", async () => {
+      const { TOKEN_2022_PROGRAM_ID, ExtensionType } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+
+      // Initialized mint (state = 1)
+      const initMint = Keypair.generate().publicKey.toBase58();
+      const initBuf = createExtensionMintBuffer(ExtensionType.DefaultAccountState, 1);
+      initBuf[165 + 1 + 4] = 1; // Initialized
+
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({
+          owner: TOKEN_2022_PROGRAM_ID,
+          data: initBuf,
+        }),
+      });
+
+      const initMeta = await adapter.resolveMintMetadata(initMint, "mainnet", { bypassCache: true });
+      expect(initMeta.supported).toBe(true);
+      expect(initMeta.issuerControls.defaultAccountState).toBe("Initialized");
+
+      // Frozen mint (state = 2)
+      const frozenMint = Keypair.generate().publicKey.toBase58();
+      const frozenBuf = createExtensionMintBuffer(ExtensionType.DefaultAccountState, 1);
+      frozenBuf[165 + 1 + 4] = 2; // Frozen
+
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({
+          owner: TOKEN_2022_PROGRAM_ID,
+          data: frozenBuf,
+        }),
+      });
+
+      await expect(
+        adapter.resolveMintMetadata(frozenMint, "mainnet", { bypassCache: true })
+      ).rejects.toThrow(/Default account state is Frozen/);
+    });
+
+    it("allows PermanentDelegate with disclosure warning", async () => {
+      const { TOKEN_2022_PROGRAM_ID, ExtensionType } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+
+      const buffer = createExtensionMintBuffer(ExtensionType.PermanentDelegate, 32);
+
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({
+          owner: TOKEN_2022_PROGRAM_ID,
+          data: buffer,
+        }),
+      });
+
+      const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
+      expect(meta.supported).toBe(true);
+      expect(meta.issuerControls.permanentDelegate).toBe(true);
+      expect(meta.warnings).toContain("Issuer retains transfer/burn authority for this token.");
+    });
+
+    it("allows ScaledUiAmountConfig and correctly derives active multiplier", async () => {
+      const { TOKEN_2022_PROGRAM_ID, ExtensionType } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+
+      const buffer = createExtensionMintBuffer(ExtensionType.ScaledUiAmountConfig, 56);
+      // Write multiplier = 1.4861347 at offset 32 (double)
+      buffer.writeDoubleLE(1.4861347, 165 + 1 + 4 + 32);
+
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({
+          owner: TOKEN_2022_PROGRAM_ID,
+          data: buffer,
+        }),
+      });
+
+      const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
+      expect(meta.supported).toBe(true);
+      expect(meta.scaledUiAmount).not.toBeNull();
+      expect(meta.scaledUiAmount?.activeMultiplier).toBe("1.4861347");
+    });
+
+    it("rejects custom TransferHook program", async () => {
+      const { TOKEN_2022_PROGRAM_ID, ExtensionType } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+      const customProgram = Keypair.generate().publicKey;
+
+      const buffer = createExtensionMintBuffer(ExtensionType.TransferHook, 64);
+      // Write authority (32 bytes) + programId (32 bytes)
+      customProgram.toBuffer().copy(buffer, 165 + 1 + 4 + 32);
+
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({
+          owner: TOKEN_2022_PROGRAM_ID,
+          data: buffer,
+        }),
+      });
+
+      await expect(
+        adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true })
+      ).rejects.toThrow(/custom TransferHook program/i);
     });
 
     it("rejects unknown or unclassified Token-2022 extension", async () => {

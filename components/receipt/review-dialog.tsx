@@ -17,6 +17,13 @@ export interface BuildSummaryDto {
   maxBuyPriceUsd?: string;
   minimumAcceptableOutput?: string;
   premiumBps?: number;
+  activeMultiplier?: string;
+  issuerControls?: {
+    permanentDelegate: boolean;
+    pausable: boolean;
+    isPaused: boolean;
+    defaultAccountState: string;
+  };
   feeInfo?: {
     signatureFeeLamports?: number | null;
     signatureFeePayer?: string | null;
@@ -203,6 +210,31 @@ export function ReviewDialog({
             </div>
           )
         )}
+
+        {/* Token-2022 Issuer Controls Disclosures */}
+        {(() => {
+          const issuerControls = buildSummary?.issuerControls ?? check?.issuerControls;
+          const hasPermanentDelegate = issuerControls?.permanentDelegate === true;
+          const hasPausable = issuerControls?.pausable === true;
+          if (!hasPermanentDelegate && !hasPausable) return null;
+          return (
+            <div data-testid="issuer-controls-disclosure" className="mt-4 p-3 rounded-card bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1">
+              <span className="font-semibold block">Token Extension Notice</span>
+              {hasPermanentDelegate && (
+                <div className="flex items-start gap-1.5" data-testid="disclosure-permanent-delegate">
+                  <span className="shrink-0">•</span>
+                  <span>Issuer retains transfer/burn authority for this token.</span>
+                </div>
+              )}
+              {hasPausable && (
+                <div className="flex items-start gap-1.5" data-testid="disclosure-pausable">
+                  <span className="shrink-0">•</span>
+                  <span>Issuer retains pause authority for this token.</span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Trade Summary Grid */}
         <div className="my-6 space-y-4">

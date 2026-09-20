@@ -19,6 +19,10 @@ import {
   ExtensionType,
   getTransferHook,
   getTransferFeeConfig,
+  getScaledUiAmountConfig,
+  getPausableConfig,
+  getDefaultAccountState,
+  AccountState,
 } from "@solana/spl-token";
 
 const PRESTOCKS_API_URL = "https://prestocks.com/api/prestocks";
@@ -27,13 +31,7 @@ const MAINNET_RPC_URL =
 
 const BLOCKED_EXTENSIONS = new Map([
   [ExtensionType.NonTransferable, "NonTransferable tokens cannot be traded"],
-  [ExtensionType.ScaledUiAmountConfig, "ScaledUiAmountConfig alters amount/UI multiplier"],
   [ExtensionType.InterestBearingConfig, "InterestBearingConfig mutates token balances continuously"],
-  [ExtensionType.DefaultAccountState, "DefaultAccountState can freeze accounts by default"],
-  [ExtensionType.PausableConfig, "PausableConfig allows authorities to freeze transfers arbitrarily"],
-  [ExtensionType.PermanentDelegate, "PermanentDelegate allows third party to transfer/burn tokens"],
-  [ExtensionType.ConfidentialTransferMint, "ConfidentialTransferMint obscures transfer amounts"],
-  [ExtensionType.ConfidentialTransferFeeConfig, "ConfidentialTransferFeeConfig obscures fees"],
   [ExtensionType.PermissionedBurn, "PermissionedBurn alters burn authority semantics"],
 ]);
 
@@ -46,6 +44,13 @@ const ALLOWED_EXTENSIONS = new Set([
   ExtensionType.GroupMemberPointer,
   ExtensionType.TokenGroupMember,
   ExtensionType.MintCloseAuthority,
+  ExtensionType.ScaledUiAmountConfig,
+  ExtensionType.PermanentDelegate,
+  ExtensionType.PausableConfig,
+  ExtensionType.DefaultAccountState,
+  ExtensionType.ConfidentialTransferMint,
+  16, // ConfidentialTransferFeeConfig
+  17, // ConfidentialTransferFeeAmount
 ]);
 
 async function checkPreStocksCompatibility() {
@@ -98,6 +103,7 @@ async function checkPreStocksCompatibility() {
         program: "N/A",
         extensions: "None",
         feeBps: "0",
+        multiplier: "1",
         status: "BLOCKED_SAFE",
         reason: "Missing contract_address in API payload",
       });
@@ -116,6 +122,7 @@ async function checkPreStocksCompatibility() {
         program: "N/A",
         extensions: "None",
         feeBps: "0",
+        multiplier: "1",
         status: "BLOCKED_SAFE",
         reason: "Invalid Solana public key format",
       });
@@ -133,6 +140,7 @@ async function checkPreStocksCompatibility() {
           program: "N/A",
           extensions: "None",
           feeBps: "0",
+          multiplier: "1",
           status: "BLOCKED_SAFE",
           reason: "Mint account does not exist on Mainnet",
         });
@@ -151,6 +159,7 @@ async function checkPreStocksCompatibility() {
           program: accountInfo.owner.toBase58(),
           extensions: "None",
           feeBps: "0",
+          multiplier: "1",
           status: "BLOCKED_SAFE",
           reason: `Owned by unknown program: ${accountInfo.owner.toBase58()}`,
         });
@@ -166,6 +175,7 @@ async function checkPreStocksCompatibility() {
           program: isToken ? "SPL-Token" : "Token-2022",
           extensions: "None",
           feeBps: "0",
+          multiplier: "1",
           status: "BLOCKED_SAFE",
           reason: `Account data too short (${accountInfo.data.length} bytes)`,
         });
@@ -187,6 +197,7 @@ async function checkPreStocksCompatibility() {
           program: "SPL-Token",
           extensions: "None",
           feeBps: "0",
+          multiplier: "1",
           status: "PASS_SUPPORTED",
           reason: "Standard SPL Token mint without extensions",
         });
@@ -225,6 +236,20 @@ async function checkPreStocksCompatibility() {
             break;
           }
         }
+        if (ext === ExtensionType.PausableConfig) {
+          const pausable = getPausableConfig(mintData);
+          if (pausable && pausable.paused) {
+            blockedReason = "MINT_PAUSED: Mint is currently paused";
+            break;
+          }
+        }
+        if (ext === ExtensionType.DefaultAccountState) {
+          const defaultState = getDefaultAccountState(mintData);
+          if (defaultState && defaultState.state === AccountState.Frozen) {
+            blockedReason = "DEFAULT_ACCOUNT_FROZEN: Default account state is Frozen";
+            break;
+          }
+        }
         if (!ALLOWED_EXTENSIONS.has(ext) && ext !== ExtensionType.TransferHook && ext !== ExtensionType.TransferHookAccount) {
           blockedReason = `Unclassified Token-2022 extension (type ${ext})`;
           break;
@@ -240,6 +265,7 @@ async function checkPreStocksCompatibility() {
           program: "Token-2022",
           extensions: extNames.join(", ") || "None",
           feeBps: "0",
+          multiplier: "1",
           status: "BLOCKED_SAFE",
           reason: blockedReason,
         });
@@ -259,6 +285,23 @@ async function checkPreStocksCompatibility() {
         }
       }
 
+      // Check ScaledUiAmount multiplier
+      let activeMultiplier = "1";
+      if (extensionTypes.includes(ExtensionType.ScaledUiAmountConfig)) {
+        const scaledConfig = getScaledUiAmountConfig(mintData);
+        if (scaledConfig) {
+          const nowSec = Math.floor(Date.now() / 1000);
+          if (
+            scaledConfig.newMultiplierEffectiveTimestamp != null &&
+            nowSec >= scaledConfig.newMultiplierEffectiveTimestamp
+          ) {
+            activeMultiplier = scaledConfig.newMultiplier.toString();
+          } else {
+            activeMultiplier = scaledConfig.multiplier.toString();
+          }
+        }
+      }
+
       results.push({
         symbol,
         name,
@@ -267,11 +310,11 @@ async function checkPreStocksCompatibility() {
         program: "Token-2022",
         extensions: extNames.join(", ") || "None",
         feeBps: `${feeBps} bps`,
+        multiplier: activeMultiplier,
         status: "PASS_SUPPORTED",
-        reason: feeBps > 0 ? `Token-2022 with verified ${feeBps} bps transfer fee` : "Token-2022 with allowed extensions",
+        reason: `Token-2022 supported (fee: ${feeBps} bps, mult: ${activeMultiplier})`,
       });
     } catch (err) {
-      // console.error(err.stack);
       results.push({
         symbol,
         name,
@@ -280,6 +323,7 @@ async function checkPreStocksCompatibility() {
         program: "N/A",
         extensions: "N/A",
         feeBps: "N/A",
+        multiplier: "1",
         status: "BLOCKED_SAFE",
         reason: `RPC verification failed: ${err.message}`,
         stack: err.stack,
@@ -288,12 +332,12 @@ async function checkPreStocksCompatibility() {
   }
 
   // Print results table
-  console.log("| Symbol | Name | Mint | Dec | Program | Extensions | Fee | Status | Reason |");
-  console.log("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |");
+  console.log("| Symbol | Name | Mint | Dec | Program | Extensions | Fee | Multiplier | Status | Reason |");
+  console.log("| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |");
   for (const r of results) {
     const shortMint = r.mint.length > 12 ? `${r.mint.slice(0, 4)}...${r.mint.slice(-4)}` : r.mint;
     console.log(
-      `| ${r.symbol} | ${r.name} | \`${shortMint}\` | ${r.decimals} | ${r.program} | ${r.extensions} | ${r.feeBps} | **${r.status}** | ${r.reason} |`
+      `| ${r.symbol} | ${r.name} | \`${shortMint}\` | ${r.decimals} | ${r.program} | ${r.extensions} | ${r.feeBps} | ${r.multiplier} | **${r.status}** | ${r.reason} |`
     );
   }
 

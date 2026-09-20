@@ -97,3 +97,41 @@ export function formatPct(value: Decimal | string | number, decimalPlaces: numbe
   }
   return `${formatted}%`;
 }
+
+/**
+ * Converts a raw integer token amount into economic/UI token units using mint decimals
+ * and active scaled UI multiplier:
+ * economicAmount = (raw * multiplier) / 10^decimals
+ */
+export function rawToEconomicDisplay(
+  raw: bigint | string | number,
+  decimals: number,
+  multiplier: Decimal | string | number = 1
+): Decimal {
+  const rawStr = typeof raw === "bigint" ? raw.toString() : raw;
+  const rawDec = new Decimal(rawStr);
+  const mult = toDecimal(multiplier);
+  const factor = new Decimal(10).pow(decimals);
+  return rawDec.mul(mult).div(factor);
+}
+
+/**
+ * Converts economic/UI token units into raw integer token amount using mint decimals
+ * and active scaled UI multiplier:
+ * rawAmount = (economic * 10^decimals) / multiplier
+ */
+export function economicDisplayToRaw(
+  economic: Decimal | string | number,
+  decimals: number,
+  multiplier: Decimal | string | number = 1,
+  roundingMode: Decimal.Rounding = Decimal.ROUND_FLOOR
+): bigint {
+  const d = toDecimal(economic);
+  const mult = toDecimal(multiplier);
+  if (mult.lessThanOrEqualTo(0)) {
+    throw new Error("Scaled UI multiplier must be positive");
+  }
+  const factor = new Decimal(10).pow(decimals);
+  const rawDec = d.mul(factor).div(mult).toDecimalPlaces(0, roundingMode);
+  return BigInt(rawDec.toFixed(0));
+}
