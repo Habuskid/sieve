@@ -15,7 +15,7 @@ import { TradeReceiptView } from "../receipt/trade-receipt-view";
 import type { NetworkMode, FundingAsset, TradeReceipt } from "@/core/domain/types";
 import type { CheckResponseDto } from "@/server/services/check-service";
 import type { MarketItem } from "../markets/market-row";
-import { ArrowRight, ShieldCheck, RefreshCw } from "lucide-react";
+import { ArrowRight, RefreshCw } from "lucide-react";
 
 interface BuildData {
   buildIntentId: string;
@@ -365,35 +365,54 @@ export function BuyView({ network }: BuyViewProps) {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 sm:px-6 py-8">
-      {/* Practice Mode Banner */}
+    <div className="mx-auto max-w-[1240px] px-4 sm:px-6 lg:px-8 py-6">
+      {/* Environment Notice for Practice Mode */}
       {network === "testnet" && (
-        <div className="mb-4 rounded-card border border-warning/30 bg-warning-soft px-4 py-2 text-xs font-semibold text-warning text-center">
-          Practice mode — Test data / Simulated transaction
+        <div className="mb-4 rounded-[4px] border border-amber-300 bg-sieveAmber-soft px-3.5 py-1.5 text-xs text-amber-900 flex items-center justify-between">
+          <span className="font-mono text-[11px] font-semibold tracking-wider">
+            Practice mode — Test data / Simulated transaction
+          </span>
+          <span className="text-[11px] text-amber-800 hidden sm:inline">
+            Zero real funds or wallet signatures required.
+          </span>
         </div>
       )}
 
-      {/* Page Title */}
-      <div className="mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primaryText">
-          Buy {selectedMarket ? selectedMarket.name : "Company"}
-        </h1>
-        <p className="text-sm text-secondaryText mt-1">
-          Set your limit first. Sieve will check the live price before you sign.
-        </p>
+      {/* Page Title Toolbar */}
+      <div className="flex items-center justify-between pb-3 mb-6 border-b border-borderBase">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-primaryText">
+            Execution Workstation — {selectedMarket ? selectedMarket.name : "Asset"}
+          </h1>
+          <p className="text-xs text-secondaryText mt-0.5">
+            Configure order parameters on the left. Sieve validates the live Solana execution route on the right.
+          </p>
+        </div>
+        <div className="hidden sm:flex items-center gap-2 font-mono text-xs text-secondaryText">
+          <span>STATUS:</span>
+          <span className="font-bold text-primaryText uppercase">{bannerState}</span>
+        </div>
       </div>
 
-      <div className="rounded-panel bg-surface border border-borderBase p-6 sm:p-8 shadow-xs space-y-6">
-        {/* Company Selector (if multiple) */}
-        {markets.length > 1 && (
+      {/* Split Workstation Layout: 42% Left (Config) / 58% Right (Protection Rail) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* LEFT COLUMN: Order Configuration (5 of 12 cols = ~42%) */}
+        <div className="lg:col-span-5 rounded-panel bg-surface border border-borderBase p-5 sm:p-6 shadow-xs space-y-5">
+          <div className="pb-3 border-b border-borderBase">
+            <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-secondaryText">
+              ORDER CONFIGURATION
+            </span>
+          </div>
+
+          {/* Asset Selector */}
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-secondaryText mb-2">
-              Select company
+            <label className="block text-[11px] font-mono uppercase tracking-wider text-secondaryText mb-1.5">
+              Asset
             </label>
             <select
               value={selectedMint}
               onChange={(e) => setSelectedMint(e.target.value)}
-              className="w-full rounded-btn bg-surface border border-borderBase px-4 py-2.5 text-sm font-semibold text-primaryText shadow-2xs focus:outline-none focus:ring-2 focus:ring-sieveBlue min-h-[44px]"
+              className="w-full rounded-btn bg-surface border border-borderBase px-3 py-2 text-xs font-semibold text-primaryText shadow-2xs focus:outline-none focus:ring-1 focus:ring-primaryText min-h-[40px]"
             >
               {markets.map((m) => (
                 <option key={m.mint} value={m.mint}>
@@ -402,29 +421,118 @@ export function BuyView({ network }: BuyViewProps) {
               ))}
             </select>
           </div>
-        )}
 
-        {/* 1. Pay with SOL / USDC */}
-        <FundingSelector
-          selected={fundingAsset}
-          onChange={setFundingAsset}
-          disabled={false}
-        />
+          {/* Funding Asset */}
+          <FundingSelector
+            selected={fundingAsset}
+            onChange={setFundingAsset}
+            disabled={false}
+          />
 
-        {/* 2. How much? */}
-        <AmountInput
-          value={amount}
-          onChange={setAmount}
-          asset={fundingAsset}
-          disabled={false}
-          error={errorMessage}
-        />
+          {/* Amount */}
+          <AmountInput
+            value={amount}
+            onChange={setAmount}
+            asset={fundingAsset}
+            disabled={false}
+            error={errorMessage}
+          />
 
-        {/* 3. Your price limit (Signature Visual Rail) */}
-        <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-secondaryText mb-2">
-            Your price limit
-          </label>
+          {/* Action Trigger in Configuration Surface */}
+          <div className="pt-2 border-t border-borderBase space-y-2">
+            {bannerState === "GOOD_TO_GO" && checkResult ? (
+              <button
+                type="button"
+                onClick={handleStartReview}
+                className="flex w-full items-center justify-center gap-2 rounded-btn bg-sieveBlue py-3 px-5 text-xs font-bold text-white hover:bg-sieveBlue-hover transition-colors shadow-xs min-h-[44px]"
+              >
+                <span>Review buy</span>
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleCheckPrice}
+                disabled={checking}
+                className="flex w-full items-center justify-center gap-2 rounded-btn bg-primaryText py-3 px-5 text-xs font-bold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[44px] disabled:opacity-50"
+              >
+                {checking ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                    <span>Checking today&apos;s price...</span>
+                  </>
+                ) : (
+                  <span>Check today&apos;s price</span>
+                )}
+              </button>
+            )}
+            <p className="text-center text-[11px] text-mutedText">
+              Zero transaction signing on this step.
+            </p>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: Sieve Protection / Signature Panel (7 of 12 cols = ~58%) */}
+        <div className="lg:col-span-7 space-y-5">
+          {/* Dominant Numerical Hierarchy */}
+          <div className="grid grid-cols-3 gap-3">
+            {/* Reference */}
+            <div className="p-3.5 rounded-panel border border-borderBase bg-surface shadow-2xs">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-secondaryText block mb-1">
+                REFERENCE
+              </span>
+              <span className="text-base sm:text-lg font-bold font-mono text-primaryText tabular-nums block">
+                {checkResult?.price.referenceUsd
+                  ? `$${checkResult.price.referenceUsd}`
+                  : selectedMarket
+                  ? `$${parseFloat(selectedMarket.referencePriceUsd).toFixed(2)}`
+                  : "—"}
+              </span>
+              <span className="text-[10px] text-mutedText mt-0.5 block">Official valuation</span>
+            </div>
+
+            {/* Max Allowed */}
+            <div className="p-3.5 rounded-panel border border-borderBase bg-surface shadow-2xs">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-sieveBlue block mb-1">
+                MAX ALLOWED
+              </span>
+              <span className="text-base sm:text-lg font-bold font-mono text-sieveBlue tabular-nums block">
+                {checkResult?.price.maxBuyUsd
+                  ? `$${checkResult.price.maxBuyUsd}`
+                  : refPrice
+                  ? `$${(refPrice * (1 + userLimitPct / 100)).toFixed(2)}`
+                  : "—"}
+              </span>
+              <span className="text-[10px] text-sieveBlue/80 mt-0.5 block">+{userLimitPct.toFixed(1)}% ceiling</span>
+            </div>
+
+            {/* Live Buy Price */}
+            <div className="p-3.5 rounded-panel border border-borderBase bg-surface shadow-2xs">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-secondaryText block mb-1">
+                LIVE BUY PRICE
+              </span>
+              <span
+                className={`text-base sm:text-lg font-bold font-mono tabular-nums block ${
+                  checkResult?.price.currentBuyUsd
+                    ? bannerState === "GOOD_TO_GO"
+                      ? "text-sieveGreen"
+                      : "text-sieveRed"
+                    : "text-secondaryText"
+                }`}
+              >
+                {checkResult?.price.currentBuyUsd
+                  ? `$${checkResult.price.currentBuyUsd}`
+                  : "—"}
+              </span>
+              <span className="text-[10px] text-mutedText mt-0.5 block">
+                {checkResult?.price.premiumPct
+                  ? `${parseFloat(checkResult.price.premiumPct) >= 0 ? "+" : ""}${checkResult.price.premiumPct}% premium`
+                  : "Awaiting check"}
+              </span>
+            </div>
+          </div>
+
+          {/* Sieve Core Signature: Price Boundary Rail */}
           <PriceRail
             referencePriceUsd={refPrice}
             currentBuyPriceUsd={currentBuyPrice}
@@ -432,55 +540,16 @@ export function BuyView({ network }: BuyViewProps) {
             onLimitChange={setUserLimitPct}
             interactive={true}
           />
-          <p className="mt-1.5 text-xs text-mutedText">
-            We&apos;ll stop the buy if the live price moves past this.
-          </p>
-        </div>
 
-        {/* State Banner */}
-        <StateBanner
-          state={bannerState}
-          title={checkResult?.display.title}
-          message={checkResult?.display.message}
-          premiumPct={checkResult?.price.premiumPct}
-          limitPct={userLimitPct.toFixed(2)}
-          onRefresh={handleCheckPrice}
-        />
-
-        {/* Action Buttons */}
-        <div className="pt-2">
-          {bannerState === "GOOD_TO_GO" && checkResult ? (
-            <button
-              type="button"
-              onClick={handleStartReview}
-              className="flex w-full items-center justify-center gap-2 rounded-btn bg-sieveBlue py-3.5 px-6 text-sm font-bold text-white hover:bg-sieveBlue-hover transition-colors shadow-md min-h-[52px]"
-            >
-              <span>Review buy</span>
-              <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleCheckPrice}
-              disabled={checking}
-              className="flex w-full items-center justify-center gap-2 rounded-btn bg-primaryText py-3.5 px-6 text-sm font-bold text-white hover:bg-primaryText/90 transition-colors shadow-md min-h-[52px] disabled:opacity-50"
-            >
-              {checking ? (
-                <>
-                  <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
-                  <span>Checking today&apos;s price...</span>
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-                  <span>Check today&apos;s price</span>
-                </>
-              )}
-            </button>
-          )}
-          <p className="mt-2 text-center text-xs text-mutedText">
-            You won&apos;t sign anything on this step.
-          </p>
+          {/* Analytical Decision State Banner */}
+          <StateBanner
+            state={bannerState}
+            title={checkResult?.display.title}
+            message={checkResult?.display.message}
+            premiumPct={checkResult?.price.premiumPct}
+            limitPct={userLimitPct.toFixed(2)}
+            onRefresh={handleCheckPrice}
+          />
         </div>
       </div>
 

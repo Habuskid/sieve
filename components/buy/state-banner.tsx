@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { CheckCircle2, AlertTriangle, Clock, RefreshCw, XCircle } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 
 export type BannerState =
   | "IDLE"
@@ -33,9 +33,11 @@ export function StateBanner({
 }: StateBannerProps) {
   if (state === "IDLE") {
     return (
-      <div className="rounded-card bg-surface-subtle border border-borderBase p-4 text-xs text-secondaryText flex items-center gap-3">
-        <Clock className="h-4 w-4 text-mutedText shrink-0" aria-hidden="true" />
-        <p>Set your price limit and click &ldquo;Check today&apos;s price&rdquo; to verify before you sign.</p>
+      <div className="rounded-[4px] bg-surface border border-borderBase p-3 text-xs text-secondaryText flex items-center justify-between">
+        <span className="font-mono text-[11px] uppercase tracking-wider text-mutedText">
+          DECISION STATUS
+        </span>
+        <span>Configure parameters and click &ldquo;Check today&apos;s price&rdquo;</span>
       </div>
     );
   }
@@ -43,13 +45,13 @@ export function StateBanner({
   if (state === "CHECKING") {
     return (
       <div
-        className="rounded-card bg-sieveBlue-soft border border-blue-200 p-4 text-xs text-sieveBlue flex items-center justify-between animate-pulse"
+        className="rounded-[4px] bg-sieveBlue-soft border border-blue-200 p-3 text-xs text-sieveBlue flex items-center justify-between"
         role="status"
         aria-live="polite"
       >
-        <div className="flex items-center gap-3">
-          <RefreshCw className="h-4 w-4 animate-spin shrink-0" aria-hidden="true" />
-          <p className="font-medium">Checking live market price against your limit...</p>
+        <div className="flex items-center gap-2">
+          <RefreshCw className="h-3.5 w-3.5 animate-spin shrink-0" aria-hidden="true" />
+          <span className="font-mono font-medium">Evaluating live Solana route against price boundary...</span>
         </div>
       </div>
     );
@@ -58,31 +60,30 @@ export function StateBanner({
   if (state === "GOOD_TO_GO") {
     return (
       <div
-        className="rounded-card bg-sieveGreen-soft border border-emerald-200 p-4 transition-all duration-300"
+        className="rounded-[4px] bg-sieveGreen-soft border border-emerald-300 p-3.5 transition-colors"
         role="status"
         aria-live="polite"
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <CheckCircle2
-              className="h-5 w-5 text-sieveGreen shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            <div>
-              <h4 className="text-sm font-semibold text-sieveGreen">
-                {title || "The price is inside your limit."}
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="h-2 w-2 rounded-full bg-sieveGreen" aria-hidden="true" />
+              <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-sieveGreen">
+                INSIDE LIMIT
               </h4>
-              <p className="text-xs text-secondaryText mt-0.5">
-                {message ||
-                  `You're paying about ${premiumPct}% above the reference price. Your limit is ${limitPct}%.`}
-              </p>
             </div>
+            <p className="text-xs text-primaryText font-medium">
+              {title || "The price is inside your limit."}
+            </p>
+            <p className="text-[11px] font-mono text-secondaryText mt-0.5 tabular-nums">
+              {message ||
+                `Premium: ${premiumPct}% | Limit: ${limitPct}%`}
+            </p>
           </div>
 
           {expiresInSeconds != null && (
-            <div className="flex items-center gap-1.5 text-xs text-secondaryText shrink-0 font-mono tabular-nums">
-              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-              <span>{expiresInSeconds}s</span>
+            <div className="text-right shrink-0 font-mono text-xs text-secondaryText tabular-nums">
+              Quote: {expiresInSeconds}s
             </div>
           )}
         </div>
@@ -93,35 +94,35 @@ export function StateBanner({
   if (state === "PRICE_TOO_HIGH") {
     return (
       <div
-        className="rounded-card bg-sieveRed-soft border border-rose-200 p-4 transition-all duration-300"
+        className="rounded-[4px] bg-sieveRed-soft border border-rose-300 p-3.5 transition-colors"
         role="alert"
         aria-live="assertive"
       >
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <XCircle
-              className="h-5 w-5 text-sieveRed shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            <div>
-              <h4 className="text-sm font-semibold text-sieveRed">
-                {title || "This buy is outside your limit."}
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="h-2 w-2 rounded-full bg-sieveRed" aria-hidden="true" />
+              <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-sieveRed">
+                OUTSIDE LIMIT — EXECUTION HALTED
               </h4>
-              <p className="text-xs text-secondaryText mt-0.5">
-                {message ||
-                  `The current price is ${premiumPct}% above the reference price. Your limit is ${limitPct}%.`}
-              </p>
-              <p className="text-xs font-semibold text-sieveRed mt-1">
-                No trade would be created.
-              </p>
             </div>
+            <p className="text-xs text-primaryText font-medium">
+              {title || "This buy is outside your limit."}
+            </p>
+            <p className="text-[11px] font-mono text-secondaryText mt-0.5 tabular-nums">
+              {message ||
+                `Live price exceeds limit. Premium: ${premiumPct}% | Maximum: ${limitPct}%`}
+            </p>
+            <p className="text-[11px] font-mono font-semibold text-sieveRed mt-1">
+              No trade would be created. Signing blocked.
+            </p>
           </div>
 
           {onRefresh && (
             <button
               type="button"
               onClick={onRefresh}
-              className="rounded-md border border-rose-200 bg-surface px-2.5 py-1 text-xs font-medium text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors shrink-0"
+              className="rounded-[4px] border border-borderBase bg-surface px-2.5 py-1 text-xs font-semibold text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors shrink-0"
             >
               Re-check
             </button>
@@ -137,41 +138,45 @@ export function StateBanner({
 
   return (
     <div
-      className="rounded-card bg-sieveAmber-soft border border-amber-200 p-4 transition-all duration-300"
+      className="rounded-[4px] bg-sieveAmber-soft border border-amber-300 p-3.5 transition-colors"
       role="alert"
       aria-live="polite"
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <AlertTriangle
-            className="h-5 w-5 text-sieveAmber shrink-0 mt-0.5"
-            aria-hidden="true"
-          />
-          <div>
-            <h4 className="text-sm font-semibold text-sieveAmber">
-              {title ||
-                (isStale
-                  ? "Market quote expired"
-                  : isNoRoute
-                  ? "No market route found"
-                  : "Check could not be completed")}
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="h-2 w-2 rounded-full bg-sieveAmber" aria-hidden="true" />
+            <h4 className="text-xs font-mono font-bold uppercase tracking-wider text-sieveAmber">
+              {isStale
+                ? "QUOTE EXPIRED"
+                : isNoRoute
+                ? "NO ROUTE FOUND"
+                : "CHECK FAILED"}
             </h4>
-            <p className="text-xs text-secondaryText mt-0.5">
-              {message ||
-                (isStale
-                  ? "The market quote or reference price expired. Please check today's price again."
-                  : isNoRoute
-                  ? "There is currently no executable market route for this token and amount."
-                  : "Please try checking again.")}
-            </p>
           </div>
+          <p className="text-xs text-primaryText font-medium">
+            {title ||
+              (isStale
+                ? "Market quote expired"
+                : isNoRoute
+                ? "No market route found"
+                : "Check could not be completed")}
+          </p>
+          <p className="text-[11px] text-secondaryText mt-0.5">
+            {message ||
+              (isStale
+                ? "The market quote or reference price expired. Please check today's price again."
+                : isNoRoute
+                ? "There is currently no executable market route for this token and amount."
+                : "Please try checking again.")}
+          </p>
         </div>
 
         {onRefresh && (
           <button
             type="button"
             onClick={onRefresh}
-            className="rounded-md border border-amber-300 bg-surface px-2.5 py-1 text-xs font-medium text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors shrink-0"
+            className="rounded-[4px] border border-borderBase bg-surface px-2.5 py-1 text-xs font-semibold text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors shrink-0"
           >
             Check again
           </button>

@@ -5,7 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import type { NetworkMode } from "@/core/domain/types";
 import type { HistoryItem } from "@/server/services/history-service";
-import { History, ExternalLink, ShieldAlert, CheckCircle2, Wallet, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw } from "lucide-react";
 
 interface HistoryViewProps {
   network: NetworkMode;
@@ -51,36 +51,37 @@ export function HistoryView({ network }: HistoryViewProps) {
 
   if (!connected) {
     return (
-      <div className="mx-auto max-w-4xl px-4 sm:px-6 py-12 text-center">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-sieveBlue-soft text-sieveBlue">
-          <Wallet className="h-7 w-7" aria-hidden="true" />
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 py-16 text-center">
+        <div className="rounded-panel bg-surface border border-borderBase p-8 shadow-xs max-w-md mx-auto">
+          <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-secondaryText block mb-1">
+            AUTHENTICATION REQUIRED
+          </span>
+          <h2 className="text-lg font-bold text-primaryText mb-1.5">Connect wallet to view history</h2>
+          <p className="text-xs text-secondaryText mb-6 leading-relaxed">
+            Connect your Solana wallet to view your past price checks, blocked orders, and confirmed trades.
+          </p>
+          <button
+            type="button"
+            onClick={() => setWalletModalVisible(true)}
+            className="inline-flex items-center gap-2 rounded-btn bg-primaryText px-5 py-2.5 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[40px]"
+          >
+            Connect wallet
+          </button>
         </div>
-        <h2 className="text-xl font-bold text-primaryText">Connect your wallet</h2>
-        <p className="text-xs text-secondaryText mt-1 mb-6 max-w-sm mx-auto">
-          Connect your Solana wallet to view your past price checks, blocked trades, and confirmed orders.
-        </p>
-        <button
-          type="button"
-          onClick={() => setWalletModalVisible(true)}
-          className="inline-flex items-center gap-2 rounded-btn bg-sieveBlue px-5 py-2.5 text-xs font-semibold text-white hover:bg-sieveBlue-hover transition-colors shadow-xs min-h-[44px]"
-        >
-          <Wallet className="h-4 w-4" aria-hidden="true" />
-          Connect wallet
-        </button>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-8">
+    <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 mb-4 border-b border-borderBase">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-primaryText">
-            History
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-primaryText">
+            Execution History
           </h1>
-          <p className="text-sm text-secondaryText mt-0.5">
-            Review previous price checks and completed trades.
+          <p className="text-xs text-secondaryText mt-0.5">
+            Audit previous price checks, boundary-enforced blocks, and confirmed on-chain executions.
           </p>
         </div>
 
@@ -88,9 +89,9 @@ export function HistoryView({ network }: HistoryViewProps) {
           type="button"
           onClick={fetchHistory}
           disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-btn border border-borderBase bg-surface px-3.5 py-2 text-xs font-medium text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors shadow-2xs self-start sm:self-auto min-h-[44px]"
+          className="inline-flex items-center gap-1.5 rounded-[4px] border border-borderBase bg-surface px-3 py-1.5 text-xs font-semibold text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors shadow-2xs self-start sm:self-auto min-h-[34px]"
         >
-          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           <span>Refresh</span>
         </button>
       </div>
@@ -99,15 +100,15 @@ export function HistoryView({ network }: HistoryViewProps) {
       <div
         role="group"
         aria-label="History filters"
-        className="flex items-center gap-2 mb-6"
+        className="flex items-center gap-1.5 mb-4"
       >
         <button
           type="button"
           onClick={() => setFilter("ALL")}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors min-h-[36px] ${
+          className={`px-3 py-1 rounded-[4px] text-xs font-medium transition-colors min-h-[32px] border ${
             filter === "ALL"
-              ? "bg-primaryText text-white font-semibold shadow-xs"
-              : "bg-surface border border-borderBase text-secondaryText hover:text-primaryText"
+              ? "bg-surface-subtle border-borderStrong text-primaryText font-semibold shadow-2xs"
+              : "bg-surface border-borderBase text-secondaryText hover:text-primaryText hover:bg-surface-subtle"
           }`}
           aria-pressed={filter === "ALL"}
         >
@@ -116,10 +117,10 @@ export function HistoryView({ network }: HistoryViewProps) {
         <button
           type="button"
           onClick={() => setFilter("TRADES")}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors min-h-[36px] ${
+          className={`px-3 py-1 rounded-[4px] text-xs font-medium transition-colors min-h-[32px] border ${
             filter === "TRADES"
-              ? "bg-primaryText text-white font-semibold shadow-xs"
-              : "bg-surface border border-borderBase text-secondaryText hover:text-primaryText"
+              ? "bg-surface-subtle border-borderStrong text-primaryText font-semibold shadow-2xs"
+              : "bg-surface border-borderBase text-secondaryText hover:text-primaryText hover:bg-surface-subtle"
           }`}
           aria-pressed={filter === "TRADES"}
         >
@@ -128,10 +129,10 @@ export function HistoryView({ network }: HistoryViewProps) {
         <button
           type="button"
           onClick={() => setFilter("BLOCKED")}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors min-h-[36px] ${
+          className={`px-3 py-1 rounded-[4px] text-xs font-medium transition-colors min-h-[32px] border ${
             filter === "BLOCKED"
-              ? "bg-primaryText text-white font-semibold shadow-xs"
-              : "bg-surface border border-borderBase text-secondaryText hover:text-primaryText"
+              ? "bg-surface-subtle border-borderStrong text-primaryText font-semibold shadow-2xs"
+              : "bg-surface border-borderBase text-secondaryText hover:text-primaryText hover:bg-surface-subtle"
           }`}
           aria-pressed={filter === "BLOCKED"}
         >
@@ -139,109 +140,183 @@ export function HistoryView({ network }: HistoryViewProps) {
         </button>
       </div>
 
-      {/* History Items List */}
+      {/* History Items List / Table */}
       {loading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-16 w-full rounded-card bg-surface border border-borderBase animate-pulse"
-            />
-          ))}
+        <div className="border border-borderBase rounded-panel overflow-hidden bg-surface">
+          <div className="divide-y divide-borderBase">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-12 w-full bg-surface animate-pulse" />
+            ))}
+          </div>
         </div>
       ) : filteredItems.length === 0 ? (
-        <div className="rounded-panel bg-surface border border-borderBase p-12 text-center">
-          <History className="mx-auto h-8 w-8 text-mutedText mb-3" aria-hidden="true" />
-          <h3 className="text-base font-semibold text-primaryText">No history found</h3>
-          <p className="text-xs text-secondaryText mt-1">
-            Price checks and completed trades on this network will appear here.
+        <div className="rounded-panel bg-surface border border-borderBase p-8 text-center">
+          <p className="text-xs font-medium text-secondaryText">
+            No execution history found for this filter.
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filteredItems.map((item) => {
-            const isTrade = item.type === "TRADE_CONFIRMED";
-            const isBlocked = item.type === "CHECK_BLOCKED";
-            const solscanUrl = item.signature
-              ? item.network === "mainnet"
-                ? `https://solscan.io/tx/${item.signature}`
-                : `https://solscan.io/tx/${item.signature}?cluster=devnet`
-              : null;
+        <div className="border border-borderBase rounded-panel overflow-hidden bg-surface shadow-2xs">
+          {/* Desktop Financial Table */}
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead className="bg-surface-subtle border-b border-borderBase text-[10px] font-mono font-semibold uppercase tracking-wider text-secondaryText">
+                <tr>
+                  <th scope="col" className="py-2.5 px-4">Status</th>
+                  <th scope="col" className="py-2.5 px-4">Asset</th>
+                  <th scope="col" className="py-2.5 px-4 text-right">Paid</th>
+                  <th scope="col" className="py-2.5 px-4 text-right">Buy Price</th>
+                  <th scope="col" className="py-2.5 px-4 text-right">Limit</th>
+                  <th scope="col" className="py-2.5 px-4 text-right">Time</th>
+                  <th scope="col" className="py-2.5 px-4 text-right">Signature</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-borderBase">
+                {filteredItems.map((item) => {
+                  const isTrade = item.type === "TRADE_CONFIRMED";
+                  const isBlocked = item.type === "CHECK_BLOCKED";
+                  const solscanUrl = item.signature
+                    ? item.network === "mainnet"
+                      ? `https://solscan.io/tx/${item.signature}`
+                      : `https://solscan.io/tx/${item.signature}?cluster=devnet`
+                    : null;
 
-            return (
-              <div
-                key={item.id}
-                className="rounded-card bg-surface border border-borderBase p-4 shadow-2xs hover:bg-surface-subtle/50 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-              >
-                <div className="flex items-start gap-3.5">
-                  <div
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                      isTrade
-                        ? "bg-sieveGreen-soft text-sieveGreen border border-emerald-200"
-                        : isBlocked
-                        ? "bg-sieveRed-soft text-sieveRed border border-rose-200"
-                        : "bg-surface-subtle text-secondaryText border border-borderBase"
-                    }`}
-                  >
-                    {isTrade ? (
-                      <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
-                    ) : isBlocked ? (
-                      <ShieldAlert className="h-5 w-5" aria-hidden="true" />
-                    ) : (
-                      <History className="h-5 w-5" aria-hidden="true" />
-                    )}
-                  </div>
+                  return (
+                    <tr key={item.id} className="hover:bg-surface-subtle/50 transition-colors">
+                      {/* Status */}
+                      <td className="py-2.5 px-4">
+                        <span
+                          className={`font-mono text-[11px] font-semibold px-2 py-0.5 rounded-[2px] border ${
+                            isTrade
+                              ? "bg-sieveGreen-soft border-emerald-300 text-sieveGreen"
+                              : isBlocked
+                              ? "bg-sieveRed-soft border-rose-300 text-sieveRed"
+                              : "bg-surface-subtle border-borderBase text-secondaryText"
+                          }`}
+                        >
+                          {item.statusLabel}
+                        </span>
+                      </td>
 
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-primaryText">
-                        {item.asset.name} ({item.asset.symbol})
-                      </span>
-                      <span
-                        className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
-                          isTrade
-                            ? "bg-sieveGreen-soft text-sieveGreen"
-                            : isBlocked
-                            ? "bg-sieveRed-soft text-sieveRed"
-                            : "bg-surface-subtle text-secondaryText"
-                        }`}
-                      >
-                        {item.statusLabel}
-                      </span>
-                    </div>
+                      {/* Asset */}
+                      <td className="py-2.5 px-4">
+                        <span className="font-bold text-primaryText block">
+                          {item.asset.symbol}
+                        </span>
+                        <span className="text-[11px] text-secondaryText">
+                          {item.asset.name}
+                        </span>
+                      </td>
 
-                    <p className="text-xs text-secondaryText mt-0.5">
-                      Paid:{" "}
-                      <span className="font-mono font-medium text-primaryText tabular-nums">
+                      {/* Paid */}
+                      <td className="py-2.5 px-4 text-right font-mono tabular-nums text-primaryText font-medium">
                         {item.funding.amount} {item.funding.asset}
-                      </span>{" "}
-                      • Buy:{" "}
-                      <span className="font-mono tabular-nums">${item.price.checkedBuyUsd}</span> (
-                      {item.price.premiumPct}% premium) • Limit:{" "}
-                      <span className="font-mono tabular-nums">{item.price.limitPct}%</span>
-                    </p>
+                      </td>
 
-                    <span className="text-[11px] text-mutedText mt-0.5 block">
-                      {new Date(item.timestamp).toLocaleString()}
+                      {/* Buy Price */}
+                      <td className="py-2.5 px-4 text-right font-mono tabular-nums text-primaryText">
+                        ${item.price.checkedBuyUsd}{" "}
+                        <span className="text-secondaryText text-[11px]">
+                          (+{item.price.premiumPct}%)
+                        </span>
+                      </td>
+
+                      {/* Limit */}
+                      <td className="py-2.5 px-4 text-right font-mono tabular-nums text-secondaryText">
+                        +{item.price.limitPct}%
+                      </td>
+
+                      {/* Time */}
+                      <td className="py-2.5 px-4 text-right font-mono text-[11px] text-mutedText tabular-nums">
+                        {new Date(item.timestamp).toLocaleString()}
+                      </td>
+
+                      {/* Signature */}
+                      <td className="py-2.5 px-4 text-right">
+                        {solscanUrl ? (
+                          <a
+                            href={solscanUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 font-mono text-xs text-sieveBlue hover:underline tabular-nums"
+                          >
+                            <span>
+                              {item.signature?.slice(0, 4)}...{item.signature?.slice(-4)}
+                            </span>
+                            <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                          </a>
+                        ) : item.signature ? (
+                          <span className="font-mono text-[11px] text-secondaryText">
+                            {item.signature.startsWith("sim-") ? "Simulated" : item.signature.slice(0, 8)}
+                          </span>
+                        ) : (
+                          <span className="text-mutedText font-mono">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Stacked Rows */}
+          <div className="sm:hidden divide-y divide-borderBase text-xs">
+            {filteredItems.map((item) => {
+              const isTrade = item.type === "TRADE_CONFIRMED";
+              const isBlocked = item.type === "CHECK_BLOCKED";
+              const solscanUrl = item.signature
+                ? item.network === "mainnet"
+                  ? `https://solscan.io/tx/${item.signature}`
+                  : `https://solscan.io/tx/${item.signature}?cluster=devnet`
+                : null;
+
+              return (
+                <div key={item.id} className="p-3 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-primaryText">
+                      {item.asset.symbol} ({item.asset.name})
+                    </span>
+                    <span
+                      className={`font-mono text-[10px] font-semibold px-1.5 py-0.5 rounded-[2px] border ${
+                        isTrade
+                          ? "bg-sieveGreen-soft border-emerald-300 text-sieveGreen"
+                          : isBlocked
+                          ? "bg-sieveRed-soft border-rose-300 text-sieveRed"
+                          : "bg-surface-subtle border-borderBase text-secondaryText"
+                      }`}
+                    >
+                      {item.statusLabel}
                     </span>
                   </div>
-                </div>
 
-                {/* Right side Solscan link */}
-                {solscanUrl && (
-                  <a
-                    href={solscanUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-mono text-sieveBlue hover:underline self-end sm:self-center tabular-nums"
-                  >
-                    <span>View on Solscan</span>
-                    <ExternalLink className="h-3 w-3" aria-hidden="true" />
-                  </a>
-                )}
-              </div>
-            );
-          })}
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-secondaryText font-mono">
+                    <div>
+                      Paid: <span className="text-primaryText font-medium">{item.funding.amount} {item.funding.asset}</span>
+                    </div>
+                    <div className="text-right">
+                      Buy: <span className="text-primaryText font-medium">${item.price.checkedBuyUsd}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 text-[10px] text-mutedText font-mono">
+                    <span>{new Date(item.timestamp).toLocaleString()}</span>
+                    {solscanUrl && (
+                      <a
+                        href={solscanUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sieveBlue hover:underline"
+                      >
+                        <span>Solscan</span>
+                        <ExternalLink className="h-2.5 w-2.5" aria-hidden="true" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

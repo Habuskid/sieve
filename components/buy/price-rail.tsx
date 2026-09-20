@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useId } from "react";
-import { CheckCircle2, AlertTriangle } from "lucide-react";
 
 export interface PriceRailProps {
   referencePriceUsd: number;
@@ -60,7 +59,7 @@ export function PriceRail({
 
   return (
     <div
-      className={`rounded-card bg-surface border border-borderBase p-5 shadow-xs ${className}`}
+      className={`rounded-panel bg-surface border border-borderBase p-5 shadow-xs ${className}`}
       aria-labelledby={`${sliderId}-label`}
     >
       {/* Accessible Text Alternative (SR-only) */}
@@ -68,115 +67,125 @@ export function PriceRail({
         {screenReaderText}
       </div>
 
-      {/* Header Info */}
-      <div className="flex items-center justify-between gap-4 mb-4">
-        <div>
-          <span
-            id={`${sliderId}-label`}
-            className="text-xs font-semibold uppercase tracking-wider text-secondaryText"
-          >
-            Price Boundary Rail
-          </span>
-          <p className="text-sm font-medium text-primaryText mt-0.5">
-            Reference:{" "}
-            <span className="font-mono font-semibold tabular-nums">
-              ${referencePriceUsd.toFixed(2)}
-            </span>
-          </p>
-        </div>
-
-        {/* State Badge */}
-        {currentBuyPriceUsd !== null && (
-          <div
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
-              isGoodToGo
-                ? "bg-sieveGreen-soft text-sieveGreen border border-emerald-200"
-                : "bg-sieveRed-soft text-sieveRed border border-rose-200"
-            }`}
-          >
-            {isGoodToGo ? (
-              <>
-                <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                <span>Good to go</span>
-              </>
-            ) : (
-              <>
-                <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-                <span>Price too high</span>
-              </>
-            )}
-          </div>
-        )}
+      {/* Rail Scale Title */}
+      <div className="flex items-center justify-between gap-4 pb-3 border-b border-borderBase mb-4">
+        <span
+          id={`${sliderId}-label`}
+          className="text-[11px] font-mono uppercase tracking-wider text-secondaryText font-semibold"
+        >
+          Price Boundary Rail
+        </span>
+        <span className="font-mono text-xs text-secondaryText tabular-nums">
+          Reference: ${referencePriceUsd.toFixed(2)}
+        </span>
       </div>
 
-      {/* Horizontal Rail Track */}
-      <div className="relative pt-6 pb-8">
-        {/* Background Track */}
-        <div className="h-3 w-full rounded-full bg-surface-subtle border border-borderBase relative overflow-hidden">
-          {/* Allowed Region (Green shaded area up to user limit) */}
+      {/* Horizontal Precision Scale Track */}
+      <div className="relative pt-6 pb-10">
+        {/* 2px Base Rule */}
+        <div className="h-[2px] w-full bg-borderStrong relative overflow-visible">
+          {/* Allowed Region: Extremely subtle sky-blue tint up to user limit */}
           <div
-            className="absolute left-0 top-0 bottom-0 bg-sieveGreen/20 transition-all duration-300 ease-out"
+            className="absolute left-0 -top-[1px] -bottom-[1px] bg-sieveBlue-soft border-r border-sieveBlue"
             style={{ width: `${userLimitPosition}%` }}
             aria-hidden="true"
           />
         </div>
 
-        {/* Reference Marker (at 0%) */}
+        {/* Reference Marker: Graphite */}
         <div
-          className="absolute top-3 flex flex-col items-center -translate-x-1/2"
+          className="absolute top-2 flex flex-col items-center -translate-x-1/2"
           style={{ left: "0%" }}
           aria-hidden="true"
         >
-          <div className="h-4 w-1 bg-primaryText rounded-full" />
-          <span className="text-[11px] font-medium text-secondaryText mt-1 whitespace-nowrap">
+          <div className="h-4 w-[2px] bg-primaryText" />
+          <span className="text-[10px] font-mono font-semibold text-primaryText mt-1 whitespace-nowrap">
             Ref $0%
           </span>
         </div>
 
-        {/* User Limit Marker */}
+        {/* User Maximum Marker: Blue */}
         <div
-          className="absolute top-2 flex flex-col items-center -translate-x-1/2 transition-all duration-150"
+          className="absolute top-1 flex flex-col items-center -translate-x-1/2 transition-all duration-150"
           style={{ left: `${userLimitPosition}%` }}
           aria-hidden="true"
         >
-          <div className="h-5 w-3 bg-sieveBlue rounded-xs shadow-xs border border-white" />
-          <span className="text-[11px] font-semibold text-sieveBlue mt-1 font-mono tabular-nums whitespace-nowrap">
+          <div className="h-6 w-[2px] bg-sieveBlue" />
+          <span className="text-[10px] font-mono font-bold text-sieveBlue mt-1 tabular-nums whitespace-nowrap">
             Limit +{userLimitPct.toFixed(1)}% (${maxBuyPriceUsd.toFixed(2)})
           </span>
         </div>
 
-        {/* Current Market Price Marker (if known) */}
-        {marketPosition !== null && (
+        {/* Current Executable Marker: Green if inside, Red if outside */}
+        {marketPosition !== null && currentBuyPriceUsd !== null && (
           <div
-            className="absolute top-1 flex flex-col items-center -translate-x-1/2 transition-all duration-300 ease-out z-10"
+            className="absolute top-0 flex flex-col items-center -translate-x-1/2 transition-all duration-300 ease-out z-10"
             style={{ left: `${marketPosition}%` }}
             aria-hidden="true"
           >
             <div
-              className={`h-6 w-3 rounded-xs shadow-md border-2 border-white ${
+              className={`h-8 w-[2px] ${
                 isGoodToGo ? "bg-sieveGreen" : "bg-sieveRed"
               }`}
             />
             <span
-              className={`text-[11px] font-bold mt-1 font-mono tabular-nums whitespace-nowrap px-1.5 py-0.5 rounded-sm ${
+              className={`text-[10px] font-mono font-bold mt-1 tabular-nums whitespace-nowrap px-1.5 py-0.5 rounded-[2px] border ${
                 isGoodToGo
-                  ? "bg-sieveGreen-soft text-sieveGreen"
-                  : "bg-sieveRed-soft text-sieveRed"
+                  ? "bg-sieveGreen-soft text-sieveGreen border-emerald-300"
+                  : "bg-sieveRed-soft text-sieveRed border-rose-300"
               }`}
             >
-              Market {currentPremiumPct! >= 0 ? "+" : ""}
-              {currentPremiumPct!.toFixed(1)}% (${currentBuyPriceUsd!.toFixed(2)})
+              Live {currentPremiumPct! >= 0 ? "+" : ""}
+              {currentPremiumPct!.toFixed(1)}% (${currentBuyPriceUsd.toFixed(2)})
             </span>
           </div>
         )}
       </div>
 
+      {/* Comparison & Status Strip */}
+      {currentBuyPriceUsd !== null && (
+        <div className="pt-3 border-t border-borderBase space-y-2">
+          {/* Concise Comparison */}
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="text-secondaryText">EXECUTION CHECK:</span>
+            <span
+              className={`font-semibold tabular-nums ${
+                isGoodToGo ? "text-sieveGreen" : "text-sieveRed"
+              }`}
+            >
+              {isGoodToGo
+                ? `$${currentBuyPriceUsd.toFixed(2)} live ≤ $${maxBuyPriceUsd.toFixed(2)} maximum`
+                : `$${currentBuyPriceUsd.toFixed(2)} live > $${maxBuyPriceUsd.toFixed(2)} maximum`}
+            </span>
+          </div>
+
+          {/* Thin Status Strip */}
+          <div
+            className={`flex items-center gap-2 py-1.5 px-2.5 rounded-[4px] border text-xs font-mono ${
+              isGoodToGo
+                ? "bg-sieveGreen-soft border-emerald-200 text-sieveGreen"
+                : "bg-sieveRed-soft border-rose-200 text-sieveRed"
+            }`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full shrink-0 ${
+                isGoodToGo ? "bg-sieveGreen" : "bg-sieveRed"
+              }`}
+              aria-hidden="true"
+            />
+            <span className="font-semibold">
+              {isGoodToGo ? "Inside your limit" : "Outside your limit"}
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Interactive Slider Input for Limit */}
       {interactive && onLimitChange && (
-        <div className="mt-4 pt-4 border-t border-borderBase">
-          <div className="flex items-center justify-between text-xs text-secondaryText mb-2">
-            <label htmlFor={sliderId} className="font-medium text-primaryText">
-              Adjust your price limit:
+        <div className="mt-4 pt-3 border-t border-borderBase">
+          <div className="flex items-center justify-between text-xs text-secondaryText mb-1.5">
+            <label htmlFor={sliderId} className="font-mono text-[11px] uppercase tracking-wider text-secondaryText font-medium">
+              Adjust limit:
             </label>
             <span className="font-mono font-bold text-sieveBlue tabular-nums">
               +{userLimitPct.toFixed(1)}% (max ${maxBuyPriceUsd.toFixed(2)})
@@ -190,13 +199,13 @@ export function PriceRail({
             step={step}
             value={userLimitPct}
             onChange={(e) => onLimitChange(parseFloat(e.target.value))}
-            className="w-full h-2 bg-surface-subtle border border-borderBase rounded-lg appearance-none cursor-pointer accent-sieveBlue focus:outline-none focus:ring-2 focus:ring-sieveBlue"
+            className="w-full h-1.5 bg-surface-subtle border border-borderBase rounded-[2px] appearance-none cursor-pointer accent-sieveBlue focus:outline-none focus:ring-1 focus:ring-sieveBlue"
             aria-valuemin={minLimitPct}
             aria-valuemax={maxLimitPct}
             aria-valuenow={userLimitPct}
             aria-valuetext={`+${userLimitPct.toFixed(1)} percent, maximum price $${maxBuyPriceUsd.toFixed(2)}`}
           />
-          <div className="flex justify-between text-[11px] text-mutedText mt-1">
+          <div className="flex justify-between text-[10px] font-mono text-mutedText mt-1">
             <span>+{minLimitPct}% (At reference)</span>
             <span>+{maxLimitPct}%</span>
           </div>

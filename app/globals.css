@@ -3,22 +3,22 @@
 @tailwind utilities;
 
 :root {
-  --bg: #F7F9FC;
+  --bg: #F7FAFD;
   --surface: #FFFFFF;
-  --surface-subtle: #F8FAFC;
-  --text: #0F172A;
-  --text-secondary: #5F6B7A;
-  --text-muted: #8994A3;
-  --border: #E1E7EF;
-  --border-strong: #CBD5E1;
-  --blue: #2563EB;
-  --blue-soft: #EEF6FF;
-  --green: #16794F;
-  --green-soft: #EFF8F3;
-  --red: #B5473E;
-  --red-soft: #FFF4F2;
-  --amber: #8B6508;
-  --amber-soft: #FFF9ED;
+  --surface-subtle: #F1F6FA;
+  --text: #0B1220;
+  --text-secondary: #526173;
+  --text-muted: #7B8796;
+  --border: #DCE5ED;
+  --border-strong: #C4D0DB;
+  --blue: #1473E6;
+  --blue-soft: #EAF4FF;
+  --green: #0E7653;
+  --green-soft: #EDF8F3;
+  --red: #B83A36;
+  --red-soft: #FFF2F1;
+  --amber: #8A6200;
+  --amber-soft: #FFF8E8;
 }
 
 body {
@@ -31,6 +31,24 @@ body {
 /* Tabular numerals for financial numbers */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* Hairline borders */
+.hairline-b {
+  border-bottom: 1px solid var(--border);
+}
+
+.hairline-t {
+  border-top: 1px solid var(--border);
+}
+
+/* Section label */
+.desk-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
 }
 
 /* Reduced motion preference */

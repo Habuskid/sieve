@@ -28,7 +28,6 @@ export function AmountInput({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
-    // Allow numbers and single decimal point
     if (/^\d*\.?\d*$/.test(val)) {
       onChange(val);
     }
@@ -36,15 +35,15 @@ export function AmountInput({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-1.5">
         <label
           htmlFor={inputId}
-          className="text-xs font-semibold uppercase tracking-wider text-secondaryText"
+          className="text-[11px] font-mono uppercase tracking-wider text-secondaryText"
         >
-          How much?
+          Amount
         </label>
-        <span id={helperId} className="text-xs text-mutedText">
-          Amount to spend
+        <span id={helperId} className="text-[11px] text-mutedText">
+          Capital to deploy
         </span>
       </div>
 
@@ -59,28 +58,28 @@ export function AmountInput({
           disabled={disabled}
           aria-invalid={error ? "true" : "false"}
           aria-describedby={error ? errorId : helperId}
-          className={`w-full rounded-btn bg-surface border px-4 py-3.5 pr-20 text-xl font-bold font-mono tabular-nums text-primaryText placeholder:text-mutedText shadow-2xs focus:outline-none focus:ring-2 min-h-[52px] ${
+          className={`w-full rounded-btn bg-surface border px-3.5 py-2.5 pr-20 text-lg font-bold font-mono tabular-nums text-primaryText placeholder:text-mutedText shadow-2xs focus:outline-none focus:ring-1 min-h-[46px] ${
             error
               ? "border-sieveRed focus:ring-sieveRed"
-              : "border-borderBase focus:ring-sieveBlue"
+              : "border-borderBase focus:ring-primaryText"
           } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         />
-        <div className="absolute inset-y-0 right-3 flex items-center pointer-events-none">
-          <span className="rounded-md bg-surface-subtle border border-borderBase px-2.5 py-1 text-xs font-bold text-secondaryText font-mono">
+        <div className="absolute inset-y-0 right-2.5 flex items-center pointer-events-none">
+          <span className="rounded-[4px] bg-surface-subtle border border-borderBase px-2 py-0.5 text-xs font-mono font-bold text-secondaryText">
             {asset}
           </span>
         </div>
       </div>
 
       {/* Preset Amount Chips */}
-      <div className="mt-2.5 flex items-center gap-1.5 flex-wrap" aria-label="Preset amounts">
+      <div className="mt-2 flex items-center gap-1.5 flex-wrap" aria-label="Preset amounts">
         {presets.map((preset) => (
           <button
             key={preset}
             type="button"
             disabled={disabled}
             onClick={() => onChange(preset)}
-            className="rounded-md bg-surface border border-borderBase px-2.5 py-1 text-xs font-medium text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors min-h-[32px] tabular-nums"
+            className="rounded-[4px] bg-surface border border-borderBase px-2 py-0.5 text-[11px] font-mono font-medium text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors min-h-[28px] tabular-nums"
           >
             +{preset} {asset}
           </button>

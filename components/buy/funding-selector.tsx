@@ -16,13 +16,13 @@ export function FundingSelector({
 }: FundingSelectorProps) {
   return (
     <div>
-      <label className="block text-xs font-semibold uppercase tracking-wider text-secondaryText mb-2">
-        Pay with
+      <label className="block text-[11px] font-mono uppercase tracking-wider text-secondaryText mb-1.5">
+        Funding Asset
       </label>
       <div
         role="radiogroup"
         aria-label="Funding Asset"
-        className="grid grid-cols-2 gap-2 p-1 rounded-btn bg-surface-subtle border border-borderBase"
+        className="grid grid-cols-2 gap-1.5 p-1 rounded-btn bg-surface-subtle border border-borderBase"
       >
         <button
           type="button"
@@ -30,15 +30,13 @@ export function FundingSelector({
           aria-checked={selected === "USDC"}
           disabled={disabled}
           onClick={() => onChange("USDC")}
-          className={`flex items-center justify-center gap-2 rounded-lg py-2.5 px-4 text-sm font-medium transition-colors min-h-[44px] ${
+          className={`flex items-center justify-center gap-2 rounded-[4px] py-2 px-3 text-xs font-semibold transition-colors min-h-[38px] ${
             selected === "USDC"
-              ? "bg-surface text-primaryText font-semibold shadow-xs border border-borderBase"
-              : "text-secondaryText hover:text-primaryText hover:bg-surface/50"
+              ? "bg-surface text-primaryText font-bold shadow-2xs border border-borderBase"
+              : "text-secondaryText hover:text-primaryText hover:bg-surface/50 border border-transparent"
           } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         >
-          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-blue-600 font-bold text-xs">
-            $
-          </div>
+          <span className="font-mono text-[11px] text-sieveBlue font-bold">$</span>
           <span>USDC</span>
         </button>
 
@@ -48,15 +46,13 @@ export function FundingSelector({
           aria-checked={selected === "SOL"}
           disabled={disabled}
           onClick={() => onChange("SOL")}
-          className={`flex items-center justify-center gap-2 rounded-lg py-2.5 px-4 text-sm font-medium transition-colors min-h-[44px] ${
+          className={`flex items-center justify-center gap-2 rounded-[4px] py-2 px-3 text-xs font-semibold transition-colors min-h-[38px] ${
             selected === "SOL"
-              ? "bg-surface text-primaryText font-semibold shadow-xs border border-borderBase"
-              : "text-secondaryText hover:text-primaryText hover:bg-surface/50"
+              ? "bg-surface text-primaryText font-bold shadow-2xs border border-borderBase"
+              : "text-secondaryText hover:text-primaryText hover:bg-surface/50 border border-transparent"
           } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         >
-          <div className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-100 text-purple-600 font-bold text-xs">
-            ◎
-          </div>
+          <span className="font-mono text-[11px] text-secondaryText font-bold">◎</span>
           <span>SOL</span>
         </button>
       </div>
