@@ -5,7 +5,7 @@ import { SearchFilter, type MarketFilter } from "./search-filter";
 import { MarketRow, type MarketItem } from "./market-row";
 import type { NetworkMode } from "@/core/domain/types";
 import { AlertCircle } from "lucide-react";
-import { RefreshMark } from "@/components/ui/refresh-mark";
+import { RefreshAction } from "@/components/ui/refresh-action";
 
 interface MarketsViewProps {
   network: NetworkMode;
@@ -74,15 +74,14 @@ export function MarketsView({ network }: MarketsViewProps) {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={fetchMarkets}
-          disabled={loading}
-          className="group inline-flex min-h-8 items-center gap-2 self-start border-b border-borderStrong px-0.5 py-1 text-xs font-medium text-mutedText transition-colors duration-150 hover:border-sieveBlue hover:text-primaryText disabled:cursor-wait disabled:opacity-60 sm:self-auto"
-        >
-          <RefreshMark loading={loading} />
-          <span>{loading ? "Updating prices…" : "Update prices"}</span>
-        </button>
+        <div className="self-start sm:self-auto">
+          <RefreshAction
+            onClick={fetchMarkets}
+            label="Update prices"
+            loadingLabel="Updating prices…"
+            loading={loading}
+          />
+        </div>
       </div>
 
       {/* Search and Filters */}
@@ -107,13 +106,7 @@ export function MarketsView({ network }: MarketsViewProps) {
           <AlertCircle className="mx-auto h-6 w-6 text-sieveRed mb-2" aria-hidden="true" />
           <h3 className="text-sm font-semibold text-primaryText">Unable to load markets</h3>
           <p className="text-xs text-secondaryText mt-0.5 mb-3">{error}</p>
-          <button
-            type="button"
-            onClick={fetchMarkets}
-            className="sieve-control-primary sieve-control-primary-compact"
-          >
-            Try again
-          </button>
+          <RefreshAction onClick={fetchMarkets} label="Try again" />
         </div>
       ) : filteredMarkets.length === 0 ? (
         <div className="rounded-panel bg-surface border border-borderBase p-8 text-center">

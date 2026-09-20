@@ -3,6 +3,7 @@
 import React from "react";
 import { AlertTriangle } from "lucide-react";
 import { RefreshMark } from "@/components/ui/refresh-mark";
+import { RefreshAction } from "@/components/ui/refresh-action";
 
 export type BannerState =
   | "IDLE"
@@ -87,14 +88,9 @@ export function StateBanner({
           </p>
         </div>
         {onRefresh && (
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="group inline-flex min-h-11 shrink-0 items-center gap-2 px-3 py-2 text-sm font-medium text-primaryText transition-colors duration-150 hover:text-sieveBlue focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
-          >
-            <RefreshMark />
-            <span>Check again</span>
-          </button>
+          <div className="shrink-0">
+            <RefreshAction onClick={onRefresh} label="Check again" />
+          </div>
         )}
       </div>
     </div>
