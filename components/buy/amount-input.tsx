@@ -58,13 +58,13 @@ export function AmountInput({
           disabled={disabled}
           aria-invalid={error ? "true" : "false"}
           aria-describedby={error ? errorId : helperId}
-          className={`min-h-14 w-full border bg-background px-4 py-3 pr-20 text-2xl font-medium tabular-nums text-primaryText placeholder:text-mutedText focus:outline-none focus:ring-1 ${
+          className={`min-h-14 w-full border-0 border-b bg-transparent px-0 py-3 pr-16 text-2xl font-medium tabular-nums text-primaryText placeholder:text-mutedText focus:outline-none focus:ring-0 ${
             error
-              ? "border-sieveRed focus:ring-sieveRed"
-              : "border-borderBase focus:ring-sieveBlue focus:border-sieveBlue"
+              ? "border-sieveRed"
+              : "border-borderStrong focus:border-sieveBlue"
           } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         />
-        <div className="absolute inset-y-0 right-2.5 flex items-center pointer-events-none">
+        <div className="absolute inset-y-0 right-0 flex items-center pointer-events-none">
           <span className="font-mono text-xs font-medium text-sieveBlue">
             {asset}
           </span>
@@ -72,7 +72,7 @@ export function AmountInput({
       </div>
 
       {/* Preset Amount Chips */}
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2" aria-label="Preset amounts">
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2" aria-label="Preset amounts">
         {presets.map((preset) => (
           <button
             key={preset}

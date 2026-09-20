@@ -62,7 +62,7 @@ export function PriceRail({
       <p className="sr-only" aria-live="polite">{screenReaderText}</p>
 
       {interactive && onLimitChange && (
-        <div className="border-b border-borderBase pb-8">
+        <div className="pb-8">
           <div className="flex items-baseline justify-between gap-6">
             <div>
               <label id={`${sliderId}-label`} htmlFor={sliderId} className="text-base font-medium text-primaryText">
@@ -93,13 +93,13 @@ export function PriceRail({
         </div>
       )}
 
-      <div className="mt-8 grid grid-cols-3 gap-4 sm:gap-8">
+      <div className="mt-2 grid grid-cols-3 gap-4 border-y border-borderBase py-6 sm:gap-8">
         <PriceDatum label="Reference price" value={formatPrice(referencePriceUsd)} />
         <PriceDatum label="Maximum price" value={formatPrice(maxBuyPriceUsd)} accent />
         <PriceDatum label="Route price" value={formatPrice(currentBuyPriceUsd)} state={passesLimit} />
       </div>
 
-      <div className="relative mt-8 pb-8 pt-7 select-none" aria-hidden="true">
+      <div className="relative mt-8 pb-10 pt-7 select-none" aria-hidden="true">
         <div className="absolute inset-x-0 top-7 flex justify-between">
           {ticks.map((_, index) => (
             <span key={index} className={cn("w-px bg-borderStrong", index % 4 === 0 ? "h-3" : "h-1.5")} />
@@ -116,7 +116,7 @@ export function PriceRail({
         </div>
       </div>
 
-      <div className="border-t border-borderBase pt-6" role={passesLimit === false ? "alert" : "status"} aria-live="polite">
+      <div className="border-t border-borderBase pt-5" role={passesLimit === false ? "alert" : "status"} aria-live="polite">
         {passesLimit === null ? (
           <p className="text-sm leading-6 text-secondaryText">Check the route to compare it with your limit.</p>
         ) : passesLimit ? (

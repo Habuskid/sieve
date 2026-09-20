@@ -22,7 +22,7 @@ export function FundingSelector({
       <div
         role="radiogroup"
         aria-label="Funding Asset"
-        className="grid grid-cols-2 border-b border-borderStrong"
+        className="flex items-center gap-7 border-b border-borderStrong"
       >
         <button
           type="button"
@@ -30,7 +30,7 @@ export function FundingSelector({
           aria-checked={selected === "USDC"}
           disabled={disabled}
           onClick={() => onChange("USDC")}
-          className={`flex min-h-11 items-center justify-center gap-2 border-b py-2 px-3 text-sm font-medium transition-colors duration-150 ${
+          className={`flex min-h-11 items-center justify-start gap-2 border-b px-0 py-2 text-sm font-medium transition-colors duration-150 ${
             selected === "USDC"
               ? "-mb-px border-sieveBlue text-sieveBlue"
               : "border-transparent text-secondaryText hover:text-primaryText"
@@ -46,7 +46,7 @@ export function FundingSelector({
           aria-checked={selected === "SOL"}
           disabled={disabled}
           onClick={() => onChange("SOL")}
-          className={`flex min-h-11 items-center justify-center gap-2 border-b py-2 px-3 text-sm font-medium transition-colors duration-150 ${
+          className={`flex min-h-11 items-center justify-start gap-2 border-b px-0 py-2 text-sm font-medium transition-colors duration-150 ${
             selected === "SOL"
               ? "-mb-px border-sieveBlue text-sieveBlue"
               : "border-transparent text-secondaryText hover:text-primaryText"
