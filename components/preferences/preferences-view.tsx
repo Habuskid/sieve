@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import type { FundingAsset } from "@/core/domain/types";
+import { TokenIcon } from "@/components/ui/token-icon";
 import { Check } from "lucide-react";
 
 export function PreferencesView() {
@@ -119,7 +120,7 @@ export function PreferencesView() {
                   : "bg-surface-subtle text-secondaryText border-borderBase hover:text-primaryText"
               }`}
             >
-              <span className="font-mono text-sieveBlue font-bold">$</span>
+              <TokenIcon asset="USDC" size={17} />
               <span>USDC</span>
             </button>
             <button
@@ -131,7 +132,7 @@ export function PreferencesView() {
                   : "bg-surface-subtle text-secondaryText border-borderBase hover:text-primaryText"
               }`}
             >
-              <span className="font-mono text-secondaryText font-bold">◎</span>
+              <TokenIcon asset="SOL" size={17} />
               <span>SOL</span>
             </button>
           </div>
