@@ -168,18 +168,21 @@ export function HistoryView({ network }: HistoryViewProps) {
                   <th scope="col" className="py-2.5 px-4 text-right">Buy Price</th>
                   <th scope="col" className="py-2.5 px-4 text-right">Limit</th>
                   <th scope="col" className="py-2.5 px-4 text-right">Time</th>
-                  <th scope="col" className="py-2.5 px-4 text-right">Signature</th>
+                  <th scope="col" className="py-2.5 px-4 text-right">Identifier</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-borderBase">
                 {filteredItems.map((item) => {
                   const isTrade = item.type === "TRADE_CONFIRMED";
                   const isBlocked = item.type === "CHECK_BLOCKED";
-                  const solscanUrl = item.signature
-                    ? item.network === "mainnet"
+                  const isPractice = item.network !== "mainnet";
+                  const hasRealSignature = Boolean(
+                    item.signature && !item.signature.startsWith("sim-")
+                  );
+                  const solscanUrl =
+                    !isPractice && hasRealSignature && item.signature
                       ? `https://solscan.io/tx/${item.signature}`
-                      : `https://solscan.io/tx/${item.signature}?cluster=devnet`
-                    : null;
+                      : null;
 
                   return (
                     <tr key={item.id} className="hover:bg-surface-subtle/50 transition-colors">
@@ -231,9 +234,16 @@ export function HistoryView({ network }: HistoryViewProps) {
                         {new Date(item.timestamp).toLocaleString()}
                       </td>
 
-                      {/* Signature */}
+                      {/* Identifier */}
                       <td className="py-2.5 px-4 text-right">
-                        {solscanUrl ? (
+                        {isPractice ? (
+                          <span
+                            className="font-mono text-[11px] text-secondaryText"
+                            title={item.signature || undefined}
+                          >
+                            Simulation ID: {item.signature ? (item.signature.startsWith("sim-") ? item.signature.slice(0, 16) + "..." : item.signature.slice(0, 12) + "...") : "—"}
+                          </span>
+                        ) : solscanUrl && item.signature ? (
                           <a
                             href={solscanUrl}
                             target="_blank"
@@ -241,16 +251,14 @@ export function HistoryView({ network }: HistoryViewProps) {
                             className="inline-flex items-center gap-1 font-mono text-xs text-sieveBlue hover:underline tabular-nums"
                           >
                             <span>
-                              {item.signature?.slice(0, 4)}...{item.signature?.slice(-4)}
+                              {item.signature.slice(0, 4)}...{item.signature.slice(-4)}
                             </span>
                             <ExternalLink className="h-3 w-3" aria-hidden="true" />
                           </a>
-                        ) : item.signature ? (
-                          <span className="font-mono text-[11px] text-secondaryText">
-                            {item.signature.startsWith("sim-") ? "Simulated" : item.signature.slice(0, 8)}
-                          </span>
                         ) : (
-                          <span className="text-mutedText font-mono">—</span>
+                          <span className="font-mono text-[11px] text-mutedText">
+                            Transaction reconciliation unavailable
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -265,11 +273,14 @@ export function HistoryView({ network }: HistoryViewProps) {
             {filteredItems.map((item) => {
               const isTrade = item.type === "TRADE_CONFIRMED";
               const isBlocked = item.type === "CHECK_BLOCKED";
-              const solscanUrl = item.signature
-                ? item.network === "mainnet"
+              const isPractice = item.network !== "mainnet";
+              const hasRealSignature = Boolean(
+                item.signature && !item.signature.startsWith("sim-")
+              );
+              const solscanUrl =
+                !isPractice && hasRealSignature && item.signature
                   ? `https://solscan.io/tx/${item.signature}`
-                  : `https://solscan.io/tx/${item.signature}?cluster=devnet`
-                : null;
+                  : null;
 
               return (
                 <div key={item.id} className="p-3 space-y-1.5">
@@ -301,7 +312,11 @@ export function HistoryView({ network }: HistoryViewProps) {
 
                   <div className="flex items-center justify-between pt-1 text-[10px] text-mutedText font-mono">
                     <span>{new Date(item.timestamp).toLocaleString()}</span>
-                    {solscanUrl && (
+                    {isPractice ? (
+                      <span className="text-secondaryText font-mono">
+                        Simulation ID: {item.signature ? item.signature.slice(0, 12) + "..." : "—"}
+                      </span>
+                    ) : solscanUrl ? (
                       <a
                         href={solscanUrl}
                         target="_blank"
@@ -311,6 +326,10 @@ export function HistoryView({ network }: HistoryViewProps) {
                         <span>Solscan</span>
                         <ExternalLink className="h-2.5 w-2.5" aria-hidden="true" />
                       </a>
+                    ) : (
+                      <span className="text-mutedText">
+                        Reconciliation unavailable
+                      </span>
                     )}
                   </div>
                 </div>

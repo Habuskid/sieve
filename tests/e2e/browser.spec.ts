@@ -97,6 +97,10 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
 
     // Trade Receipt appears
     await expect(page.getByText(/trade complete/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("PRACTICE EXECUTION")).toBeVisible();
+    await expect(page.getByText("Simulation ID")).toBeVisible();
+    await expect(page.getByText("Simulated transaction. No wallet signature or funds were used.")).toBeVisible();
+    await expect(page.getByRole("link", { name: /view on solscan/i })).not.toBeVisible();
 
     // Done button resets
     const doneBtn = page.getByRole("button", { name: /done/i });
@@ -463,5 +467,104 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     // Assert signTransaction was NEVER called
     const signCalls = await page.evaluate(() => (window as any).__signCalls);
     expect(signCalls).toBe(0);
+  });
+
+  test("19. Trade Receipt: distinguishes Practice simulation from Mainnet real/unreconciled transactions", async ({ page }) => {
+    // 1. Verify Mainnet receipt with real signature
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    // Mock confirm with real Mainnet signature
+    const realSig = "5J7x9Z8y1realMainnetSignature111111111111111111111111111111111111111111111111111111111";
+    await page.route("**/api/confirm", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "CONFIRMED",
+          signature: realSig,
+          receipt: {
+            id: "receipt-mainnet-real",
+            orderId: "order-real-1",
+            network: "mainnet",
+            status: "CONFIRMED",
+            signature: realSig,
+            targetSymbol: "OPENAI",
+            targetMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+            fundingAsset: "USDC",
+            fundingAmount: "100",
+            expectedTargetAmount: "0.95",
+            realizedTargetAmount: "0.95",
+            referencePriceUsd: "100.00",
+            checkedBuyPriceUsd: "103.00",
+            premiumBps: 300,
+            failureCode: null,
+            confirmedAt: new Date().toISOString(),
+          },
+        }),
+      });
+    });
+
+    await page.getByPlaceholder("0.00").fill("100");
+    await page.getByRole("button", { name: /check today's price/i }).click();
+    await expect(page.getByRole("button", { name: /review buy/i })).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: /review buy/i }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: /confirm (practice trade|in wallet)/i }).click();
+
+    // Verify Mainnet receipt with real signature
+    await expect(page.getByText("MAINNET EXECUTION")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Transaction", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: /view on solscan/i })).toBeVisible();
+    await expect(page.getByText(/simulated transaction/i)).not.toBeVisible();
+
+    // Click Done to reset
+    await page.getByRole("button", { name: /done/i }).click();
+
+    // 2. Verify Mainnet receipt with unreconciled signature (signature: null)
+    await page.unroute("**/api/confirm");
+    await page.route("**/api/confirm", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: "CONFIRMED",
+          signature: null,
+          receipt: {
+            id: "receipt-mainnet-unreconciled",
+            orderId: "order-unreconciled-1",
+            network: "mainnet",
+            status: "CONFIRMED",
+            signature: null,
+            targetSymbol: "OPENAI",
+            targetMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+            fundingAsset: "USDC",
+            fundingAmount: "100",
+            expectedTargetAmount: "0.95",
+            realizedTargetAmount: "0.95",
+            referencePriceUsd: "100.00",
+            checkedBuyPriceUsd: "103.00",
+            premiumBps: 300,
+            failureCode: null,
+            confirmedAt: new Date().toISOString(),
+          },
+        }),
+      });
+    });
+
+    await page.getByPlaceholder("0.00").fill("100");
+    await page.getByRole("button", { name: /check today's price/i }).click();
+    await expect(page.getByRole("button", { name: /review buy/i })).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: /review buy/i }).click();
+
+    const dialog2 = page.getByRole("dialog");
+    await expect(dialog2).toBeVisible();
+    await dialog2.getByRole("button", { name: /confirm (practice trade|in wallet)/i }).click();
+
+    // Verify Mainnet receipt with unreconciled signature
+    await expect(page.getByText("MAINNET EXECUTION")).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText("Transaction reconciliation unavailable")).toBeVisible();
+    await expect(page.getByRole("link", { name: /view on solscan/i })).not.toBeVisible();
   });
 });
