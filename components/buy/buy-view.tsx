@@ -101,7 +101,10 @@ export function BuyView({ network }: BuyViewProps) {
     setErrorMessage(null);
   }, [selectedMint, fundingAsset, amount, userLimitPct, network]);
 
-  const selectedMarket = markets.find((m) => m.mint === selectedMint) || markets[0];\n  const selectedMarketDisplayName = selectedMarket\n    ? selectedMarket.name.replace(/\\s*\\(Practice\\)\\s*$/i, "")\n    : "Choose an asset";
+  const selectedMarket = markets.find((m) => m.mint === selectedMint) || markets[0];
+  const selectedMarketDisplayName = selectedMarket
+    ? selectedMarket.name.replace(/\s*\(Practice\)\s*$/i, "")
+    : "Choose an asset";
   const parsedReference = selectedMarket
     ? Number.parseFloat(selectedMarket.referencePriceUsd)
     : Number.NaN;
@@ -406,7 +409,7 @@ export function BuyView({ network }: BuyViewProps) {
             >
               {markets.map((market) => (
                 <option key={market.mint} value={market.mint} className="bg-surface text-primaryText">
-                  {market.name.replace(/\\s*\\(Practice\\)\\s*$/i, "")} ({market.symbol})
+                  {market.name.replace(/\s*\(Practice\)\s*$/i, "")} ({market.symbol})
                 </option>
               ))}
             </select>
