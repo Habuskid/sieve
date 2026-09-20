@@ -5,8 +5,6 @@ import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 
-const CANDLES = Array.from({ length: 12 });
-
 export function LandingHero() {
   const reduceMotion = useReducedMotion();
 
@@ -49,22 +47,23 @@ export function LandingHero() {
           className="lg:col-span-5"
         >
           <div
-            className="sieve-chart-stage"
+            className="sieve-execution-stage"
             role="img"
-            aria-label="Decorative candlestick execution animation showing a route checked against the execution boundary."
+            aria-label="Decorative execution animation showing routes checked against a price boundary before signing."
           >
-            <div className="sieve-chart-grid" aria-hidden="true" />
-            <div className="sieve-chart-limit" aria-hidden="true" />
-            <div className="sieve-candles" aria-hidden="true">
-              {CANDLES.map((_, index) => (
-                <span key={index} className="sieve-candle" />
-              ))}
-            </div>
-            <div className="sieve-execution-scan" aria-hidden="true" />
-            <div className="sieve-execution-marker" aria-hidden="true" />
-            <p className="sieve-chart-caption">
-              Route execution
-              <strong>Checked before signing</strong>
+            <div className="sieve-execution-grid" aria-hidden="true" />
+            <div className="sieve-execution-track sieve-execution-track-a" aria-hidden="true" />
+            <div className="sieve-execution-track sieve-execution-track-b" aria-hidden="true" />
+            <div className="sieve-execution-track sieve-execution-track-c" aria-hidden="true" />
+            <div className="sieve-execution-gate" aria-hidden="true" />
+            <div className="sieve-execution-packet sieve-execution-packet-a" aria-hidden="true" />
+            <div className="sieve-execution-packet sieve-execution-packet-b" aria-hidden="true" />
+            <div className="sieve-execution-packet sieve-execution-packet-c" aria-hidden="true" />
+            <div className="sieve-execution-approved" aria-hidden="true" />
+
+            <p className="sieve-execution-caption">
+              Executable route
+              <strong>Protected before signing</strong>
             </p>
           </div>
         </motion.div>
