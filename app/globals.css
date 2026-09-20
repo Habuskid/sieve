@@ -15,6 +15,8 @@
   --sieve-blue: #67c8ff;
   --sieve-blue-hover: #91d8ff;
   --sieve-blue-soft: rgba(103, 200, 255, 0.1);
+  --sieve-refresh-blue: #2f6fe4;
+  --sieve-refresh-blue-hover: #3f7df0;
   --sieve-cyan: #38d0e5;
   --sieve-cyan-soft: rgba(56, 208, 229, 0.1);
   --sieve-green: #35c98a;
@@ -313,7 +315,37 @@ body {
     font-size: 0.75rem;
   }
 
-  .sieve-chart-stage {
+  .sieve-refresh-mark {
+    display: inline-grid;
+    width: 1.5rem;
+    height: 1.5rem;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    background: var(--sieve-refresh-blue);
+    color: #ffffff;
+    transition:
+      background-color var(--sieve-motion-fast) ease,
+      transform var(--sieve-motion-fast) ease;
+  }
+
+  .group:hover .sieve-refresh-mark,
+  button:hover .sieve-refresh-mark {
+    background: var(--sieve-refresh-blue-hover);
+  }
+
+  .sieve-refresh-mark-icon {
+    width: 0.875rem;
+    height: 0.875rem;
+    stroke-width: 2.25;
+  }
+
+  .sieve-refresh-mark[data-loading="true"] .sieve-refresh-mark-icon {
+    animation: sieve-refresh-spin 850ms linear infinite;
+  }
+
+  .sieve-execution-stage {
     position: relative;
     min-height: 25rem;
     overflow: hidden;
@@ -321,112 +353,111 @@ body {
     border-block: 1px solid var(--sieve-border);
   }
 
-  .sieve-chart-grid {
+  .sieve-execution-grid {
     position: absolute;
     inset: 0;
     background-image:
-      linear-gradient(to right, rgba(70, 91, 112, 0.32) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(70, 91, 112, 0.32) 1px, transparent 1px);
-    background-size: 3rem 3rem;
-    mask-image: linear-gradient(to bottom, transparent, black 14%, black 86%, transparent);
+      linear-gradient(to right, rgba(70, 91, 112, 0.24) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(70, 91, 112, 0.24) 1px, transparent 1px);
+    background-size: 3.25rem 3.25rem;
+    mask-image: radial-gradient(circle at 58% 50%, black 18%, rgba(0, 0, 0, 0.74) 56%, transparent 92%);
   }
 
-  .sieve-chart-limit {
+  .sieve-execution-track {
     position: absolute;
-    left: 4%;
-    right: 4%;
-    top: 39%;
+    left: 5%;
+    right: 7%;
     height: 1px;
-    background: linear-gradient(to right, transparent, var(--sieve-blue) 12%, var(--sieve-blue) 88%, transparent);
-    opacity: 0.9;
+    background: linear-gradient(to right, transparent, var(--sieve-border-strong) 10%, var(--sieve-border-strong) 90%, transparent);
   }
 
-  .sieve-chart-limit::after {
-    content: "EXECUTION BOUNDARY";
+  .sieve-execution-track-a { top: 34%; }
+  .sieve-execution-track-b { top: 50%; }
+  .sieve-execution-track-c { top: 66%; }
+
+  .sieve-execution-gate {
     position: absolute;
-    right: 0;
-    top: -1.45rem;
+    top: 18%;
+    bottom: 18%;
+    left: 62%;
+    width: 1px;
+    background: linear-gradient(to bottom, transparent, var(--sieve-blue) 20%, var(--sieve-blue) 80%, transparent);
+  }
+
+  .sieve-execution-gate::before {
+    content: "PRICE BOUNDARY";
+    position: absolute;
+    top: -1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
     color: var(--sieve-blue);
     font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: 0.12em;
   }
 
-  .sieve-candles {
+  .sieve-execution-packet {
     position: absolute;
-    inset: 14% 4% 14%;
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 0.45rem;
+    left: 6%;
+    width: 2rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    transform: translateY(-50%);
   }
 
-  .sieve-candle {
-    position: relative;
-    width: clamp(0.55rem, 2vw, 0.8rem);
-    height: 52%;
-    transform-origin: bottom;
-    animation: sieve-candle-in 680ms var(--sieve-ease) both;
+  .sieve-execution-packet-a {
+    top: 34%;
+    background: var(--sieve-cyan);
+    animation: sieve-route-pass 4.8s var(--sieve-ease) infinite;
   }
 
-  .sieve-candle::before {
+  .sieve-execution-packet-b {
+    top: 50%;
+    background: var(--sieve-red);
+    animation: sieve-route-block 4.8s var(--sieve-ease) 1.4s infinite;
+  }
+
+  .sieve-execution-packet-c {
+    top: 66%;
+    background: var(--sieve-blue);
+    animation: sieve-route-pass 4.8s var(--sieve-ease) 2.7s infinite;
+  }
+
+  .sieve-execution-approved {
+    position: absolute;
+    top: 50%;
+    right: 8%;
+    width: 3.25rem;
+    height: 3.25rem;
+    transform: translateY(-50%);
+    border: 1px solid var(--sieve-blue);
+    border-radius: 999px;
+    animation: sieve-approved-pulse 3.2s ease-in-out infinite;
+  }
+
+  .sieve-execution-approved::before,
+  .sieve-execution-approved::after {
     content: "";
     position: absolute;
     left: 50%;
-    top: -18%;
-    bottom: -18%;
-    width: 1px;
-    transform: translateX(-50%);
-    background: currentColor;
-    opacity: 0.78;
+    top: 50%;
+    height: 2px;
+    transform-origin: left center;
+    background: var(--sieve-blue);
   }
 
-  .sieve-candle::after {
-    content: "";
-    position: absolute;
-    inset: 18% 0;
-    border-radius: 1px;
-    background: currentColor;
+  .sieve-execution-approved::before {
+    width: 0.42rem;
+    transform: translate(-0.35rem, 0.1rem) rotate(45deg);
   }
 
-  .sieve-candle:nth-child(1) { height: 34%; color: var(--sieve-green); animation-delay: 40ms; }
-  .sieve-candle:nth-child(2) { height: 48%; color: var(--sieve-green); animation-delay: 90ms; }
-  .sieve-candle:nth-child(3) { height: 42%; color: var(--sieve-red); animation-delay: 140ms; }
-  .sieve-candle:nth-child(4) { height: 57%; color: var(--sieve-green); animation-delay: 190ms; }
-  .sieve-candle:nth-child(5) { height: 51%; color: var(--sieve-red); animation-delay: 240ms; }
-  .sieve-candle:nth-child(6) { height: 63%; color: var(--sieve-green); animation-delay: 290ms; }
-  .sieve-candle:nth-child(7) { height: 58%; color: var(--sieve-green); animation-delay: 340ms; }
-  .sieve-candle:nth-child(8) { height: 69%; color: var(--sieve-red); animation-delay: 390ms; }
-  .sieve-candle:nth-child(9) { height: 74%; color: var(--sieve-green); animation-delay: 440ms; }
-  .sieve-candle:nth-child(10) { height: 66%; color: var(--sieve-red); animation-delay: 490ms; }
-  .sieve-candle:nth-child(11) { height: 79%; color: var(--sieve-green); animation-delay: 540ms; }
-  .sieve-candle:nth-child(12) { height: 72%; color: var(--sieve-green); animation-delay: 590ms; }
-
-  .sieve-execution-scan {
-    position: absolute;
-    top: 10%;
-    bottom: 10%;
-    left: 8%;
-    width: 1px;
-    background: linear-gradient(to bottom, transparent, var(--sieve-blue), transparent);
-    box-shadow: 0 0 18px rgba(103, 200, 255, 0.3);
-    animation: sieve-execution-scan 4.8s var(--sieve-ease) infinite;
+  .sieve-execution-approved::after {
+    width: 0.8rem;
+    transform: translate(-0.06rem, 0.08rem) rotate(-45deg);
   }
 
-  .sieve-execution-marker {
-    position: absolute;
-    right: 11%;
-    top: 39%;
-    width: 0.7rem;
-    height: 0.7rem;
-    transform: translate(50%, -50%);
-    border: 2px solid var(--sieve-blue);
-    border-radius: 999px;
-    background: var(--sieve-bg);
-    animation: sieve-execution-pulse 2.2s ease-in-out infinite;
-  }
-
-  .sieve-chart-caption {
+  .sieve-execution-caption {
     position: absolute;
     left: 0;
     bottom: 1.6rem;
@@ -436,29 +467,37 @@ body {
     text-transform: uppercase;
   }
 
-  .sieve-chart-caption strong {
+  .sieve-execution-caption strong {
     display: block;
     margin-top: 0.25rem;
     color: var(--sieve-text);
     font-weight: 600;
   }
+
 }
 
-@keyframes sieve-candle-in {
-  from { transform: scaleY(0.06); opacity: 0; }
-  to { transform: scaleY(1); opacity: 1; }
+@keyframes sieve-refresh-spin {
+  to { transform: rotate(-360deg); }
 }
 
-@keyframes sieve-execution-scan {
-  0%, 12% { left: 8%; opacity: 0; }
-  20% { opacity: 1; }
-  74% { opacity: 1; }
-  88%, 100% { left: 89%; opacity: 0; }
+@keyframes sieve-route-pass {
+  0%, 12% { left: 6%; opacity: 0; transform: translateY(-50%) scaleX(0.6); }
+  18% { opacity: 1; }
+  68% { left: 58%; opacity: 1; transform: translateY(-50%) scaleX(1); }
+  76% { left: 67%; opacity: 1; }
+  92%, 100% { left: 84%; opacity: 0; transform: translateY(-50%) scaleX(0.7); }
 }
 
-@keyframes sieve-execution-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(103, 200, 255, 0); }
-  50% { box-shadow: 0 0 0 8px rgba(103, 200, 255, 0.08); }
+@keyframes sieve-route-block {
+  0%, 12% { left: 6%; opacity: 0; }
+  18% { opacity: 1; }
+  72% { left: 58%; opacity: 1; transform: translateY(-50%) scaleX(1); }
+  82%, 100% { left: 58%; opacity: 0; transform: translateY(-50%) scaleX(0.28); }
+}
+
+@keyframes sieve-approved-pulse {
+  0%, 100% { opacity: 0.5; transform: translateY(-50%) scale(0.96); }
+  50% { opacity: 1; transform: translateY(-50%) scale(1); }
 }
 
 .price-range::-webkit-slider-runnable-track {
@@ -564,7 +603,7 @@ body {
 
 @media (max-width: 767px) {
   .sieve-marketing-stage,
-  .sieve-chart-stage {
+  .sieve-execution-stage {
     min-height: 20rem;
   }
 

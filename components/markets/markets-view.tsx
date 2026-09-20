@@ -4,7 +4,8 @@ import React, { useState, useEffect } from "react";
 import { SearchFilter, type MarketFilter } from "./search-filter";
 import { MarketRow, type MarketItem } from "./market-row";
 import type { NetworkMode } from "@/core/domain/types";
-import { ScanLine, AlertCircle } from "lucide-react";
+import { AlertCircle } from "lucide-react";
+import { RefreshMark } from "@/components/ui/refresh-mark";
 
 interface MarketsViewProps {
   network: NetworkMode;
@@ -79,7 +80,7 @@ export function MarketsView({ network }: MarketsViewProps) {
           disabled={loading}
           className="group inline-flex min-h-8 items-center gap-2 self-start border-b border-borderStrong px-0.5 py-1 text-xs font-medium text-mutedText transition-colors duration-150 hover:border-sieveBlue hover:text-primaryText disabled:cursor-wait disabled:opacity-60 sm:self-auto"
         >
-          <ScanLine className={`h-3.5 w-3.5 text-sieveBlue transition-opacity duration-150 ${loading ? "animate-pulse" : "opacity-80 group-hover:opacity-100"}`} aria-hidden="true" />
+          <RefreshMark loading={loading} />
           <span>{loading ? "Updating prices…" : "Update prices"}</span>
         </button>
       </div>
