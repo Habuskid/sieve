@@ -367,34 +367,42 @@ export function BuyView({ network }: BuyViewProps) {
   const showAuxiliaryState = !["IDLE", "GOOD_TO_GO", "PRICE_TOO_HIGH"].includes(bannerState);
 
   return (
-    <div className="mx-auto max-w-7xl px-5 py-6 sm:px-8 sm:py-10 lg:px-10 lg:py-14">
-      {network === "testnet" && (
-        <p className="mb-7 flex items-center gap-2 text-sm text-secondaryText sm:mb-9">
-          <span className="size-1.5 rounded-full bg-sieveAmber" aria-hidden="true" />
-          Practice mode. Simulated data. No wallet signature or funds used.
-        </p>
-      )}
+    <div className="mx-auto max-w-7xl px-5 py-7 sm:px-8 sm:py-10 lg:px-10 lg:py-12">
+      <div className="flex flex-col gap-6 border-b border-borderBase pb-7 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-mutedText">Buy PreStocks</p>
+          <h1 className="mt-2 text-balance text-4xl font-semibold leading-tight text-primaryText sm:text-5xl">
+            {selectedMarket ? selectedMarket.name : "Choose an asset"}
+          </h1>
+          <p className="mt-3 max-w-2xl text-pretty text-sm leading-6 text-secondaryText sm:text-base">
+            Set your amount and limit. Sieve checks the executable route before any transaction is prepared.
+          </p>
+        </div>
 
-      <div className="max-w-3xl">
-        <h1 className="text-balance text-4xl font-semibold leading-tight text-primaryText sm:text-5xl">
-          Buy {selectedMarket ? selectedMarket.name : "a PreStocks asset"}
-        </h1>
-        <p className="mt-3 max-w-2xl text-pretty text-base leading-7 text-secondaryText">
-          Enter an amount, set your price limit, and check the route.
-        </p>
+        {network === "testnet" && (
+          <p className="flex shrink-0 items-center gap-2 text-xs text-mutedText sm:text-sm">
+            <span className="size-1.5 rounded-full bg-sieveAmber" aria-hidden="true" />
+            Practice mode. Simulated data. No wallet signature or funds used.
+          </p>
+        )}
       </div>
 
-      <div className="mt-8 grid grid-cols-1 gap-10 border-t border-borderBase pt-8 sm:mt-10 sm:pt-10 lg:grid-cols-12 lg:gap-0">
-        <section className="space-y-6 sm:space-y-8 lg:col-span-4 lg:pr-10" aria-labelledby="order-heading">
-          <h2 id="order-heading" className="text-lg font-medium text-primaryText">Buy details</h2>
+      <section className="py-8 sm:py-10" aria-labelledby="order-heading">
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <h2 id="order-heading" className="text-lg font-medium text-primaryText">Order</h2>
+          <span className="text-xs uppercase tracking-[0.12em] text-mutedText">{fundingAsset} funding</span>
+        </div>
 
+        <div className="grid gap-7 lg:grid-cols-3 lg:gap-10">
           <div>
-            <label htmlFor="target-asset" className="mb-2 block text-sm font-medium text-secondaryText">Asset to buy</label>
+            <label htmlFor="target-asset" className="mb-2 block text-sm font-medium text-secondaryText">
+              Asset
+            </label>
             <select
               id="target-asset"
               value={selectedMint}
               onChange={(event) => setSelectedMint(event.target.value)}
-              className="min-h-12 w-full border border-borderStrong bg-surface px-4 py-3 text-sm font-medium text-primaryText focus:border-sieveBlue focus:outline-none focus:ring-1 focus:ring-sieveBlue"
+              className="min-h-14 w-full border-0 border-b border-borderStrong bg-transparent px-0 py-3 text-base font-medium text-primaryText focus:border-sieveBlue focus:outline-none focus:ring-0"
             >
               {markets.map((market) => (
                 <option key={market.mint} value={market.mint} className="bg-surface text-primaryText">
@@ -412,55 +420,54 @@ export function BuyView({ network }: BuyViewProps) {
           />
 
           <FundingSelector selected={fundingAsset} onChange={setFundingAsset} />
-        </section>
+        </div>
+      </section>
 
-        <section className="lg:col-span-8 lg:border-l lg:border-borderBase lg:pl-10" aria-label="Price limit and route status">
-          <PriceRail
-            referencePriceUsd={refPrice}
-            currentBuyPriceUsd={currentBuyPrice}
-            userLimitPct={userLimitPct}
-            onLimitChange={setUserLimitPct}
-          />
+      <section className="border-t border-borderBase py-8 sm:py-10" aria-label="Execution boundary">
+        <PriceRail
+          referencePriceUsd={refPrice}
+          currentBuyPriceUsd={currentBuyPrice}
+          userLimitPct={userLimitPct}
+          onLimitChange={setUserLimitPct}
+        />
 
-          {showAuxiliaryState && (
-            <div className="mt-8">
-              <StateBanner
-                state={bannerState}
-                title={checkResult?.display.title}
-                message={checkResult?.display.message}
-                premiumPct={checkResult?.price.premiumPct}
-                limitPct={userLimitPct.toFixed(2)}
-                onRefresh={handleCheckPrice}
-              />
-            </div>
-          )}
-
-          <div className="mt-8 flex justify-end border-t border-borderBase pt-6">
-            {bannerState === "GOOD_TO_GO" && checkResult ? (
-              <button
-                type="button"
-                onClick={handleStartReview}
-                className="inline-flex min-h-11 items-center justify-center gap-2 bg-sieveBlue px-6 py-3 text-sm font-semibold text-slate-950 transition-colors duration-150 hover:bg-sieveBlue-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
-              >
-                Review buy
-                <ArrowRight className="size-4" aria-hidden="true" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleCheckPrice}
-                disabled={checking}
-                className="inline-flex min-h-11 items-center justify-center gap-2 bg-primaryText px-6 py-3 text-sm font-semibold text-background transition-colors duration-150 hover:bg-white disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
-              >
-                {checking && <RefreshCw className="size-4 animate-spin" aria-hidden="true" />}
-                {checking ? "Checking today's price…" : "Check today's price"}
-              </button>
-            )}
+        {showAuxiliaryState && (
+          <div className="mt-7">
+            <StateBanner
+              state={bannerState}
+              title={checkResult?.display.title}
+              message={checkResult?.display.message}
+              premiumPct={checkResult?.price.premiumPct}
+              limitPct={userLimitPct.toFixed(2)}
+              onRefresh={handleCheckPrice}
+            />
           </div>
-        </section>
-      </div>
+        )}
 
-      {/* Review Dialog */}
+        <div className="mt-8 flex justify-end border-t border-borderBase pt-6">
+          {bannerState === "GOOD_TO_GO" && checkResult ? (
+            <button
+              type="button"
+              onClick={handleStartReview}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-btn bg-sieveBlue px-6 py-3 text-sm font-semibold text-slate-950 transition-colors duration-150 hover:bg-sieveBlue-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
+            >
+              Review buy
+              <ArrowRight className="size-4" aria-hidden="true" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={handleCheckPrice}
+              disabled={checking}
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-btn bg-primaryText px-6 py-3 text-sm font-semibold text-background transition-colors duration-150 hover:bg-white disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
+            >
+              {checking && <RefreshCw className="size-4 animate-spin" aria-hidden="true" />}
+              {checking ? "Checking today's price…" : "Check today's price"}
+            </button>
+          )}
+        </div>
+      </section>
+
       {checkResult && (
         <ReviewDialog
           isOpen={isReviewOpen}
@@ -480,7 +487,6 @@ export function BuyView({ network }: BuyViewProps) {
         />
       )}
 
-      {/* Wallet Waiting Modal */}
       {isWaitingForWallet && (
         <WalletWaiting onCancel={() => setIsWaitingForWallet(false)} />
       )}
