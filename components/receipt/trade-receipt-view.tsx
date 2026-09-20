@@ -32,7 +32,7 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
       <div className="pb-4 border-b border-borderBase mb-4">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-secondaryText">
-            {isPractice ? "PRACTICE EXECUTION" : "MAINNET EXECUTION"}
+            {isPractice ? "TESTNET SIMULATION" : "MAINNET EXECUTION"}
           </span>
           <span
             className={`text-xs font-mono font-bold px-2 py-0.5 rounded-[4px] border ${
@@ -50,7 +50,7 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
         <p className="text-xs text-secondaryText mt-0.5">
           {isConfirmed
             ? isPractice
-              ? `Your buy of ${receipt.targetSymbol} was simulated successfully.`
+              ? `Your testnet simulation for ${receipt.targetSymbol} completed successfully.`
               : `Your buy of ${receipt.targetSymbol} was confirmed on Solana.`
             : receipt.failureCode
             ? `Transaction failed (${receipt.failureCode}). The trade did not complete. A network fee may still have been charged.`
@@ -185,7 +185,7 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
         <button
           type="button"
           onClick={onDone}
-          className="inline-flex items-center gap-1.5 rounded-btn bg-primaryText px-5 py-2 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[40px]"
+          className="sieve-control-primary"
         >
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Done</span>
