@@ -35,15 +35,15 @@ export function NetworkToggle({
       <div
         role="group"
         aria-label="Network selection"
-        className="inline-flex items-center overflow-hidden rounded-btn border border-borderStrong bg-surface text-xs"
+        className="inline-flex h-8 items-stretch overflow-hidden rounded-[4px] border border-borderBase bg-background text-[11px] sm:h-8 sm:text-xs"
       >
         <button
           type="button"
           onClick={() => handleToggleClick("mainnet")}
-          className={`flex min-h-9 items-center px-2.5 transition-colors duration-150 sm:min-h-10 sm:px-3 ${
+          className={`relative flex items-center px-2.5 transition-colors duration-150 sm:px-3 ${
             currentNetwork === "mainnet"
-              ? "bg-sieveBlue text-slate-950 font-semibold"
-              : "text-secondaryText hover:bg-surface-subtle hover:text-primaryText"
+              ? "bg-sieveBlue-soft text-sieveBlue font-semibold after:absolute after:inset-x-2 after:bottom-0 after:h-px after:bg-sieveBlue"
+              : "text-mutedText hover:bg-surface-subtle/60 hover:text-secondaryText"
           }`}
           aria-pressed={currentNetwork === "mainnet"}
         >
@@ -54,10 +54,10 @@ export function NetworkToggle({
           type="button"
           aria-label="Testnet"
           onClick={() => handleToggleClick("testnet")}
-          className={`flex min-h-9 items-center border-l border-borderStrong px-2.5 transition-colors duration-150 sm:min-h-10 sm:px-3 ${
+          className={`relative flex items-center border-l border-borderBase px-2.5 transition-colors duration-150 sm:px-3 ${
             currentNetwork === "testnet"
-              ? "bg-sieveBlue text-slate-950 font-semibold"
-              : "text-secondaryText hover:bg-surface-subtle hover:text-primaryText"
+              ? "bg-sieveBlue-soft text-sieveBlue font-semibold after:absolute after:inset-x-2 after:bottom-0 after:h-px after:bg-sieveBlue"
+              : "text-mutedText hover:bg-surface-subtle/60 hover:text-secondaryText"
           }`}
           aria-pressed={currentNetwork === "testnet"}
         >
