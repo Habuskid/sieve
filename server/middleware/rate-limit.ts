@@ -60,15 +60,27 @@ export function checkRateLimit(
   };
 }
 
+/**
+ * Derives a composite client identity key for rate limiting:
+ * composite key = trusted client IP + wallet (where wallet is supplementary, never the sole identity).
+ * 
+ * IMPORTANT: This in-memory limiter is per-process and is therefore NOT a globally
+ * shared production rate limit across distributed/serverless infrastructure.
+ */
 export function getClientIdentifier(request: Request, wallet?: string | null): string {
-  if (wallet) return `wallet:${wallet}`;
   const forwarded = request.headers.get("x-forwarded-for");
+  let ip = "anonymous";
   if (forwarded) {
-    return `ip:${forwarded.split(",")[0].trim()}`;
+    ip = forwarded.split(",")[0].trim();
+  } else {
+    const realIp = request.headers.get("x-real-ip");
+    if (realIp) ip = realIp.trim();
   }
-  const realIp = request.headers.get("x-real-ip");
-  if (realIp) return `ip:${realIp.trim()}`;
-  return "ip:anonymous";
+
+  if (wallet) {
+    return `ip:${ip}:wallet:${wallet}`;
+  }
+  return `ip:${ip}`;
 }
 
 export function clearRateLimitBuckets(): void {

@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import { activeChecksStore, type CheckResponseDto } from "./check-service";
 import { defaultJupiterAdapter, JupiterAdapter } from "../jupiter/adapter";
 import { defaultPracticeAdapter, PracticeAdapter } from "../practice/adapter";
-import { defaultSolanaAdapter, SolanaAdapter, CANONICAL_MINTS } from "../solana/adapter";
+import { defaultSolanaAdapter, SolanaAdapter, CANONICAL_MINTS, calculateNetOutput } from "../solana/adapter";
 import { defaultMarketService, MarketService } from "./market-service";
 import { getRepository } from "../database/db";
 import type { ISieveRepository } from "../database/repository";
@@ -13,7 +13,7 @@ import {
   DEFAULT_CHECK_EXPIRY_MS,
 } from "../../core";
 import { Keypair, PublicKey, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
-import { toDecimal } from "../../core/money/decimal";
+import { toDecimal, rawToDisplay } from "../../core/money/decimal";
 import { SieveAppError } from "./errors";
 import type {
   BuildIntent,
@@ -101,8 +101,8 @@ export class TransactionBuildService {
       throw new SieveAppError("INSUFFICIENT_FUNDS", balanceCheck.error || "Insufficient wallet balance");
     }
 
-    // 5. Server-Side Revalidation: Refetch fresh reference and quote
-    let freshAsset = await this.marketService.getMarketByMint(check.asset.mint, check.network);
+    // 5. Server-Side Revalidation: Refetch fresh reference and quote (force cache bypass)
+    let freshAsset = await this.marketService.getMarketByMint(check.asset.mint, check.network, { bypassCache: true });
     if (!freshAsset) {
       throw new SieveAppError("PRICE_REFERENCE_INVALID", "Market asset no longer available");
     }
@@ -113,9 +113,16 @@ export class TransactionBuildService {
     let lastValidBlockHeight: string | undefined;
     let requestId: string | undefined;
     let freshFundingUsdValue = check.funding.inputUsdValue;
+    let targetMetadata: import("../solana/adapter").ValidatedMintMetadata | null = null;
+    let buildResultFeeInfo: {
+      signatureFeeLamports?: number | null;
+      prioritizationFeeLamports?: number | null;
+      rentFeeLamports?: number | null;
+    } | undefined;
 
     if (check.network === "mainnet") {
-      const targetDecimals = await this.solanaAdapter.resolveMintDecimals(freshAsset.mint, "mainnet");
+      targetMetadata = await this.solanaAdapter.resolveMintMetadata(freshAsset.mint, "mainnet");
+      const targetDecimals = targetMetadata.decimals;
       const inputMint = check.funding.fundingAsset === "USDC"
         ? CANONICAL_MINTS.mainnet.USDC
         : CANONICAL_MINTS.mainnet.WSOL;
@@ -128,17 +135,23 @@ export class TransactionBuildService {
         outputDecimals: targetDecimals,
       });
 
-      revalQuoteExpectedAmount = jupQuote.quote.expectedTargetAmount;
+      // Account for Token-2022 transfer fee withholding on expected target tokens
+      const netRevalRaw = calculateNetOutput(
+        jupQuote.quote.outputRaw,
+        targetMetadata.transferFeeBasisPoints,
+        targetMetadata.maximumFee
+      );
+      revalQuoteExpectedAmount = rawToDisplay(netRevalRaw, targetDecimals).toString();
       revalPriceImpact = jupQuote.quote.priceImpactPct;
 
       // Refresh SOL valuation contemporaneously if funding with SOL
       if (check.funding.fundingAsset === "SOL") {
         if (jupQuote.rawResponse?.inUsdValue != null && jupQuote.rawResponse.inUsdValue > 0) {
-          freshFundingUsdValue = toDecimal(jupQuote.rawResponse.inUsdValue).toFixed(2);
+          freshFundingUsdValue = toDecimal(jupQuote.rawResponse.inUsdValue).toString();
         } else {
           try {
             const solPrice = await this.jupiterAdapter.getSolUsdPrice();
-            freshFundingUsdValue = toDecimal(check.funding.inputDisplay).mul(solPrice).toFixed(2);
+            freshFundingUsdValue = toDecimal(check.funding.inputDisplay).mul(solPrice).toString();
           } catch (err) {
             throw new SieveAppError(
               "DATA_UNAVAILABLE",
@@ -149,12 +162,17 @@ export class TransactionBuildService {
       }
     } else {
       // Practice mode revalidation quote
-      const practiceRevalQuote = await this.practiceAdapter.getRevalidationQuote(input.scenarioId);
-      revalQuoteExpectedAmount = practiceRevalQuote.expectedTargetAmount;
-      revalPriceImpact = practiceRevalQuote.priceImpactPct;
-      const scenario = this.practiceAdapter.getScenario(input.scenarioId);
-      if (scenario && scenario.asset) {
-        freshAsset = scenario.asset;
+      if (input.scenarioId && this.practiceAdapter.getScenario(input.scenarioId).id === input.scenarioId) {
+        const practiceRevalQuote = await this.practiceAdapter.getRevalidationQuote(input.scenarioId);
+        revalQuoteExpectedAmount = practiceRevalQuote.expectedTargetAmount;
+        revalPriceImpact = practiceRevalQuote.priceImpactPct;
+        const scenario = this.practiceAdapter.getScenario(input.scenarioId);
+        if (scenario && scenario.asset) {
+          freshAsset = scenario.asset;
+        }
+      } else {
+        revalQuoteExpectedAmount = check.quote?.expectedTargetAmount ?? "0";
+        revalPriceImpact = check.quote?.priceImpactPct ?? null;
       }
     }
 
@@ -213,8 +231,8 @@ export class TransactionBuildService {
     }
 
     // 8. Decision is GOOD_TO_GO: Derive transaction protection
-    const targetDecimals = check.network === "mainnet"
-      ? await this.solanaAdapter.resolveMintDecimals(freshAsset.mint, "mainnet")
+    const targetDecimals = check.network === "mainnet" && targetMetadata
+      ? targetMetadata.decimals
       : 6;
 
     const protection = deriveAllowedExecutionTolerance({
@@ -251,17 +269,26 @@ export class TransactionBuildService {
           "Final assembled Jupiter order does not expose a verifiable minimum-output protection threshold"
         );
       }
-      const jupMinRaw = BigInt(buildResult.otherAmountThreshold);
-      if (jupMinRaw < protection.minimumAcceptableOutputRaw) {
+      const grossMinRaw = BigInt(buildResult.otherAmountThreshold);
+      const netMinRaw = targetMetadata
+        ? calculateNetOutput(grossMinRaw, targetMetadata.transferFeeBasisPoints, targetMetadata.maximumFee)
+        : grossMinRaw;
+
+      if (netMinRaw < protection.minimumAcceptableOutputRaw) {
         throw new SieveAppError(
           "PRICE_MOVED_OUTSIDE_LIMIT",
-          `Assembled transaction minimum output (${jupMinRaw}) is looser than Sieve price limit (${protection.minimumAcceptableOutputRaw})`
+          `Assembled transaction net minimum output (${netMinRaw}) is looser than Sieve price limit (${protection.minimumAcceptableOutputRaw})`
         );
       }
 
       serializedTx = buildResult.transactionBase64;
       lastValidBlockHeight = buildResult.lastValidBlockHeight;
       requestId = buildResult.requestId;
+      buildResultFeeInfo = {
+        signatureFeeLamports: buildResult.signatureFeeLamports ?? null,
+        prioritizationFeeLamports: buildResult.prioritizationFeeLamports ?? null,
+        rentFeeLamports: buildResult.rentFeeLamports ?? null,
+      };
     } else {
       // Practice mode: construct a valid, deserialize-able minimal VersionedTransaction
       const dummyBlockhash = Keypair.generate().publicKey.toBase58();
@@ -311,6 +338,10 @@ export class TransactionBuildService {
         currentBuyPriceUsd: revalDecision.currentBuyPriceUsd!,
         premiumPct: revalDecision.premiumPct!,
         maxPremiumPct: check.maxPremiumPct,
+        maxBuyPriceUsd: revalDecision.maximumBuyPriceUsd,
+        minimumAcceptableOutput: rawToDisplay(protection.minimumAcceptableOutputRaw, targetDecimals).toString(),
+        premiumBps: revalDecision.premiumBps!,
+        feeInfo: buildResultFeeInfo,
       },
     };
 

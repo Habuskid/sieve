@@ -2,8 +2,11 @@ import { test, expect } from "@playwright/test";
 
 test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to root
+    // Navigate to root and clear localStorage
     await page.goto("/");
+    await page.evaluate(() => {
+      try { localStorage.clear(); } catch {}
+    });
   });
 
   test("1. Disconnected browse: landing page, markets list, and network selector", async ({ page }) => {
@@ -88,8 +91,8 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     await expect(reviewModal).toBeVisible();
     await expect(reviewModal.getByRole("heading", { name: /review buy/i })).toBeVisible();
 
-    // Click Confirm in Wallet
-    const confirmBtn = reviewModal.getByRole("button", { name: /confirm in wallet/i });
+    // Click Confirm practice trade or confirm in wallet
+    const confirmBtn = reviewModal.getByRole("button", { name: /confirm (practice trade|in wallet)/i });
     await confirmBtn.click();
 
     // Trade Receipt appears
@@ -104,10 +107,12 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
   test("5. Boundary Enforcement: BLOCK flow when limit is too low", async ({ page }) => {
     await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
 
-    // Adjust limit slider to 0.0%
+    // Adjust limit slider to 0.0% using keyboard Home
     const slider = page.getByRole("slider");
     await expect(slider).toBeVisible();
-    await slider.fill("0");
+    await slider.focus();
+    await page.keyboard.press("Home");
+    await expect(slider).toHaveValue("0");
 
     // Enter amount
     const amountInput = page.getByPlaceholder("0.00");
@@ -125,9 +130,14 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
   test("6. Exact-boundary PASS: test with exact limit where current buy price equals maximum buy price", async ({ page }) => {
     await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
 
-    // Set slider to 3.0% (fixture is ~2.87% premium)
+    // Set slider to 3% (fixture is ~2.87% premium)
     const slider = page.getByRole("slider");
-    await slider.fill("3.0");
+    await slider.focus();
+    await page.keyboard.press("Home");
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.press("ArrowRight");
+    }
+    await expect(slider).toHaveValue("3");
 
     const amountInput = page.getByPlaceholder("0.00");
     await amountInput.fill("100");
@@ -174,7 +184,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
       });
     });
 
-    const confirmBtn = page.getByRole("button", { name: /confirm in wallet/i });
+    const confirmBtn = page.getByRole("button", { name: /confirm (practice trade|in wallet)/i });
     await confirmBtn.click();
 
     // Review dialog closes, and banner displays the blocked state
@@ -356,15 +366,21 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     await page.keyboard.press("Home");
     expect(parseFloat(await slider.inputValue())).toBe(0);
 
-    // Press End to go to max (20)
+    // Press End to go to max (25)
     await page.keyboard.press("End");
-    expect(parseFloat(await slider.inputValue())).toBe(20);
+    expect(parseFloat(await slider.inputValue())).toBe(25);
   });
 
   test("17. Accessibility & Reduced Motion: respects prefers-reduced-motion and dialog escape key", async ({ page }) => {
     // Emulate reduced motion
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    // Verify window.matchMedia respects reduced motion
+    const matchesReducedMotion = await page.evaluate(() => {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    });
+    expect(matchesReducedMotion).toBe(true);
 
     // Complete a check and open review dialog
     await page.getByPlaceholder("0.00").fill("100");
@@ -375,8 +391,73 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
 
+    // Verify computed animation duration is reduced (0.01ms / 0s)
+    const animationDuration = await dialog.evaluate((el) => {
+      return window.getComputedStyle(el).animationDuration;
+    });
+    expect(
+      animationDuration === "0s" ||
+      animationDuration === "0.00001s" ||
+      animationDuration.includes("0.01ms") ||
+      parseFloat(animationDuration) <= 0.001
+    ).toBe(true);
+
     // Press Escape to dismiss dialog
     await page.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible();
+  });
+
+  test("18. Practice Mode Zero-Signing Guarantee: never calls signTransaction even when wallet is connected", async ({ page }) => {
+    // Inject mock wallet before page loads
+    await page.addInitScript(() => {
+      (window as any).__signCalls = 0;
+      (window as any).solana = {
+        isPhantom: true,
+        publicKey: {
+          toBase58: () => "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+          toString: () => "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        },
+        connect: async () => ({
+          publicKey: {
+            toBase58: () => "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+            toString: () => "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+          },
+        }),
+        signTransaction: async (tx: any) => {
+          (window as any).__signCalls++;
+          return tx;
+        },
+        signAllTransactions: async (txs: any[]) => {
+          (window as any).__signCalls += txs.length;
+          return txs;
+        },
+      };
+    });
+
+    await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
+
+    // Verify practice mode banner is visible
+    await expect(page.getByText(/practice mode/i).first()).toBeVisible();
+
+    // Check price
+    await page.getByPlaceholder("0.00").fill("100");
+    await page.getByRole("button", { name: /check today's price/i }).click();
+    await expect(page.getByRole("button", { name: /review buy/i })).toBeVisible({ timeout: 10000 });
+    await page.getByRole("button", { name: /review buy/i }).click();
+
+    // Review dialog opens with "Confirm practice trade"
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: /confirm practice trade/i })).toBeVisible();
+
+    // Confirm practice trade
+    await dialog.getByRole("button", { name: /confirm practice trade/i }).click();
+
+    // Trade completes
+    await expect(page.getByText(/trade complete/i)).toBeVisible({ timeout: 10000 });
+
+    // Assert signTransaction was NEVER called
+    const signCalls = await page.evaluate(() => (window as any).__signCalls);
+    expect(signCalls).toBe(0);
   });
 });

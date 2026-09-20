@@ -188,7 +188,7 @@ export class ConfirmationService {
       referencePriceUsd: buildIntent.summary.referencePriceUsd,
       checkedBuyPriceUsd: buildIntent.summary.currentBuyPriceUsd,
       maxPremiumBps: check.maxPremiumBps,
-      premiumBps: check.decision.premiumBps ?? 0,
+      premiumBps: buildIntent.summary.premiumBps ?? Math.round(Number(buildIntent.summary.premiumPct) * 100),
       submittedAt: new Date().toISOString(),
       confirmedAt,
       failureCode,
@@ -197,6 +197,18 @@ export class ConfirmationService {
 
     // Store receipt idempotently
     const savedReceipt = await this.repo.saveTradeReceipt(receipt);
+    if (
+      savedReceipt.buildIntentId !== buildIntent.id ||
+      savedReceipt.checkId !== buildIntent.checkId ||
+      savedReceipt.wallet !== buildIntent.wallet ||
+      savedReceipt.network !== buildIntent.network
+    ) {
+      throw new SieveAppError(
+        "IDEMPOTENCY_VIOLATION",
+        "Signature belongs to a different trade receipt or build intent"
+      );
+    }
+
     if (savedReceipt.signature) {
       receiptsBySignatureStore.set(savedReceipt.signature, savedReceipt);
     }

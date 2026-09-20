@@ -108,6 +108,14 @@ export type BuildIntent = {
     currentBuyPriceUsd: string;
     premiumPct: string;
     maxPremiumPct: string;
+    maxBuyPriceUsd?: string;
+    minimumAcceptableOutput?: string;
+    premiumBps?: number;
+    feeInfo?: {
+      signatureFeeLamports?: number | null;
+      prioritizationFeeLamports?: number | null;
+      rentFeeLamports?: number | null;
+    };
   };
 };
 

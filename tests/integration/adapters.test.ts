@@ -243,18 +243,22 @@ describe("Solana Adapter Contracts", () => {
     expect(meta.supported).toBe(true);
   });
 
-  it("fails closed on unsupported Token-2022 mint with TransferFeeConfig extension", async () => {
+  it("fails closed on Token-2022 mint with custom TransferHook extension program", async () => {
     const { TOKEN_2022_PROGRAM_ID, ExtensionType } = await import("@solana/spl-token");
     const { Keypair } = await import("@solana/web3.js");
     const adapter = new SolanaAdapter();
 
-    // Construct Token-2022 buffer with TransferFeeConfig TLV
-    const data = Buffer.alloc(165 + 1 + 4);
+    // Construct Token-2022 buffer with TransferHook TLV pointing to a custom program
+    const hookProgram = Keypair.generate().publicKey;
+    const tlvLen = 64;
+    const data = Buffer.alloc(165 + 1 + 4 + tlvLen);
     data[44] = 6;
     data[45] = 1;
     data[165] = 1; // AccountType.Mint = 1
-    data.writeUInt16LE(ExtensionType.TransferFeeConfig, 166);
-    data.writeUInt16LE(0, 168);
+    data.writeUInt16LE(ExtensionType.TransferHook, 166);
+    data.writeUInt16LE(tlvLen, 168);
+    // authority (32 bytes at 170..202), programId (32 bytes at 202..234)
+    hookProgram.toBuffer().copy(data, 202);
 
     (adapter as any).getConnection = () => ({
       getAccountInfo: async () => ({
@@ -263,11 +267,10 @@ describe("Solana Adapter Contracts", () => {
       }),
     });
 
-    // Random non-PreStocks mint address
-    const unsupportedFeeMint = Keypair.generate().publicKey.toBase58();
+    const customHookMint = Keypair.generate().publicKey.toBase58();
     await expect(
-      adapter.resolveMintMetadata(unsupportedFeeMint, "mainnet")
-    ).rejects.toThrow(/unsupported transfer-fee or transfer-hook extension; Sieve fails closed/);
+      adapter.resolveMintMetadata(customHookMint, "mainnet")
+    ).rejects.toThrow(/has custom TransferHook program/);
   });
 
   it("fails closed on Token-2022 mint with NonTransferable extension", async () => {

@@ -135,6 +135,12 @@ export class JupiterAdapter {
     requestId: string;
     lastValidBlockHeight?: string;
     otherAmountThreshold?: string;
+    signatureFeeLamports?: number | null;
+    prioritizationFeeLamports?: number | null;
+    rentFeeLamports?: number | null;
+    feeMint?: string | null;
+    feeBps?: number | null;
+    platformFee?: { feeMint?: string; feeBps?: number; amount?: string } | null;
     quote: MarketQuote;
     rawResponse: JupiterOrderResponse;
   }> {
@@ -193,6 +199,12 @@ export class JupiterAdapter {
       requestId: data.requestId,
       lastValidBlockHeight: data.lastValidBlockHeight ?? undefined,
       otherAmountThreshold: data.otherAmountThreshold ?? undefined,
+      signatureFeeLamports: data.signatureFeeLamports ?? null,
+      prioritizationFeeLamports: data.prioritizationFeeLamports ?? null,
+      rentFeeLamports: data.rentFeeLamports ?? null,
+      feeMint: data.feeMint ?? null,
+      feeBps: data.feeBps ?? null,
+      platformFee: data.platformFee ?? null,
       quote,
       rawResponse: data,
     };

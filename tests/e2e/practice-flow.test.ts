@@ -47,7 +47,7 @@ describe("Phase 7: Critical Practice/Testnet E2E Flow", () => {
     const checkData = await checkRes.json();
     expect(checkData.decision).toBe("GOOD_TO_GO");
     expect(checkData.price.premiumPct).toBe("3.00");
-    expect(checkData.price.referenceUsd).toBe("100.0000");
+    expect(checkData.price.referenceUsd).toBe("100");
     const checkId = checkData.checkId;
     expect(checkId).toBeDefined();
 

@@ -48,7 +48,7 @@ describe("Server Orchestration Services (Gate D - Server Authority)", () => {
     });
 
     expect(checkRes.decision).toBe("GOOD_TO_GO");
-    expect(checkRes.price.referenceUsd).toBe("100.0000");
+    expect(checkRes.price.referenceUsd).toBe("100");
     expect(parseFloat(checkRes.price.currentBuyUsd!)).toBeCloseTo(103, 1);
     expect(checkRes.price.premiumPct).toBe("3.00");
     expect(checkRes.checkId).toBeDefined();
@@ -409,6 +409,8 @@ describe("Server Orchestration Services (Gate D - Server Authority)", () => {
           outputMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
           inAmount: "10000000",
           outAmount: "970000",
+          inputRaw: 10000000n,
+          outputRaw: 970000n,
           expectedTargetAmount: "0.97",
           priceImpactPct: "0.01",
           slippageBps: 50,
@@ -426,6 +428,14 @@ describe("Server Orchestration Services (Gate D - Server Authority)", () => {
 
     const mockSolana = {
       resolveMintDecimals: async () => 6,
+      resolveMintMetadata: async () => ({
+        mint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+        decimals: 6,
+        isToken2022: false,
+        extensions: [],
+        transferFeeBasisPoints: 0,
+        maximumFee: 0n,
+      }),
       checkBalance: async () => ({ hasSufficient: true }),
       confirmSignature: async () => ({ confirmed: true, err: null }),
     } as any;
@@ -594,5 +604,64 @@ describe("Server Orchestration Services (Gate D - Server Authority)", () => {
     expect(failedConfirm.receipt?.signature).toBeNull();
     expect(failedConfirm.receipt?.internalExecutionId).toBeDefined();
     expect(failedConfirm.receipt?.failureCode).toContain("Slippage tolerance exceeded");
+  });
+
+  it("forces fresh PreStocks reference price at build time with bypassCache: true", async () => {
+    let capturedOptions: any = null;
+    const customMarketService = {
+      getMarketByMint: async (mint: string, network: any, options?: any) => {
+        capturedOptions = options;
+        return {
+          mint,
+          name: "OpenAI",
+          symbol: "OPENAI",
+          referencePriceUsd: "100.00",
+          source: "PRESTOCKS_API",
+          observedAt: new Date().toISOString(),
+          network: "mainnet",
+        };
+      },
+    } as any;
+
+    const mockJupiter = {
+      getOrder: async () => ({
+        inAmount: "10000000",
+        outAmount: "99000",
+        priceImpactPct: "-0.1",
+        otherAmountThreshold: "98000",
+        routeFingerprint: "fp",
+      }),
+      buildTransaction: async () => ({
+        transactionBase64: "dGVzdA==",
+        lastValidBlockHeight: "426500000",
+        requestId: "req-1",
+        otherAmountThreshold: "98000",
+      }),
+    } as any;
+
+    const testBuildService = new TransactionBuildService(
+      customMarketService,
+      mockJupiter,
+      practiceAdapter
+    );
+
+    const checkRes = await checkService.executeCheck({
+      network: "testnet",
+      targetMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+      fundingAsset: "USDC",
+      amount: "10",
+      maxPremiumPct: "5.00",
+      wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      clientIntentVersion: "v1",
+      scenarioId: "PASS_BASIC",
+    });
+
+    await testBuildService.buildTransaction({
+      checkId: checkRes.checkId,
+      wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+      scenarioId: "PASS_BASIC",
+    });
+
+    expect(capturedOptions).toEqual({ bypassCache: true });
   });
 });

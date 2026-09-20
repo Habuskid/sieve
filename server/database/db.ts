@@ -10,6 +10,7 @@ import type {
   TradeReceipt,
 } from "../../core/domain/types";
 import { toDecimal } from "../../core/money/decimal";
+import { SieveAppError } from "../services/errors";
 
 export class PostgresSieveRepository implements ISieveRepository {
   private sql: postgres.Sql;
@@ -37,7 +38,8 @@ export class PostgresSieveRepository implements ISieveRepository {
         route_fingerprint, price_impact_pct,
         current_buy_price_usd, maximum_buy_price_usd, premium_bps, max_premium_bps,
         decision, reason_code, client_intent_version,
-        created_at, expires_at
+        created_at, expires_at,
+        funding_method, quote_output_decimals
       ) VALUES (
         ${check.id}, ${check.network}, ${check.wallet},
         ${check.asset.name}, ${check.asset.symbol}, ${check.asset.mint},
@@ -47,7 +49,8 @@ export class PostgresSieveRepository implements ISieveRepository {
         ${check.quote?.routeFingerprint ?? null}, ${check.quote?.priceImpactPct ?? null},
         ${check.decision.currentBuyPriceUsd}, ${check.decision.maximumBuyPriceUsd}, ${check.decision.premiumBps}, ${check.maxPremiumBps},
         ${check.decision.status}, ${check.decision.status !== "GOOD_TO_GO" ? check.decision.status : null}, ${check.clientIntentVersion},
-        ${check.createdAt}, ${check.expiresAt}
+        ${check.createdAt}, ${check.expiresAt},
+        ${check.funding.method}, ${check.quote?.outputDecimals ?? null}
       )
       ON CONFLICT (id) DO NOTHING
     `;
@@ -180,9 +183,30 @@ export class PostgresSieveRepository implements ISieveRepository {
         ${receipt.referencePriceUsd}, ${receipt.checkedBuyPriceUsd}, ${receipt.maxPremiumBps}, ${receipt.premiumBps},
         ${receipt.submittedAt}, ${receipt.confirmedAt}, ${receipt.failureCode ?? null}, NOW()
       )
-      ON CONFLICT (signature) DO UPDATE SET confirmed_at = EXCLUDED.confirmed_at
+      ON CONFLICT (signature) DO NOTHING
       RETURNING *
     `;
+    if (rows.length === 0) {
+      if (!receipt.signature) {
+        throw new SieveAppError("INTERNAL_ERROR", "Failed to insert trade receipt without signature");
+      }
+      const existing = await this.getTradeReceiptBySignature(receipt.signature);
+      if (!existing) {
+        throw new SieveAppError("INTERNAL_ERROR", "Conflicting trade receipt not found");
+      }
+      if (
+        existing.buildIntentId !== receipt.buildIntentId ||
+        existing.checkId !== receipt.checkId ||
+        existing.wallet !== receipt.wallet ||
+        existing.network !== receipt.network
+      ) {
+        throw new SieveAppError(
+          "IDEMPOTENCY_VIOLATION",
+          "Signature belongs to a different trade receipt or build intent"
+        );
+      }
+      return existing;
+    }
     return this.mapReceiptRow(rows[0]);
   }
 
@@ -257,7 +281,7 @@ export class PostgresSieveRepository implements ISieveRepository {
         inputRaw: BigInt(r.funding_amount_raw),
         inputDisplay: r.funding_amount_display.toString(),
         inputUsdValue: r.funding_usd_value.toString(),
-        method: "USDC_PAR",
+        method: (r.funding_method as any) ?? (r.funding_asset === "USDC" ? "USDC_PAR" : "CURRENT_MARKET_ROUTE"),
         observedAt: r.created_at.toISOString(),
       },
       quote: r.quote_output_raw
@@ -267,7 +291,7 @@ export class PostgresSieveRepository implements ISieveRepository {
             outputMint: r.target_mint,
             inputRaw: BigInt(r.funding_amount_raw),
             outputRaw: BigInt(r.quote_output_raw),
-            outputDecimals: 6,
+            outputDecimals: r.quote_output_decimals != null ? Number(r.quote_output_decimals) : (r.target_mint?.startsWith("Pre") ? 9 : 6),
             expectedTargetAmount: r.quote_output_display.toString(),
             priceImpactPct: r.price_impact_pct?.toString() ?? null,
             observedAt: r.quote_observed_at?.toISOString() ?? r.created_at.toISOString(),

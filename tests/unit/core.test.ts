@@ -138,8 +138,8 @@ describe("Policy Evaluator (BR-005, BR-006, BR-007, BR-008)", () => {
     expect(decision.status).toBe("GOOD_TO_GO");
     expect(decision.isExecutable).toBe(true);
     expect(decision.premiumPct).toBe("3.00");
-    expect(decision.currentBuyPriceUsd).toBe("103.0000");
-    expect(decision.maximumBuyPriceUsd).toBe("105.0000");
+    expect(decision.currentBuyPriceUsd).toBe("103");
+    expect(decision.maximumBuyPriceUsd).toBe("105");
   });
 
   it("PASS_EXACT_BOUNDARY: Reference 100, Current 105, Limit 5% -> GOOD_TO_GO", () => {
@@ -327,5 +327,37 @@ describe("Protection Derivation (BR-017, Audit Repair 3)", () => {
     expect(result.isExecutable).toBe(true);
     expect(result.slippageBps).toBe(500);
   });
+
+  it("regression (Issue 4): preserves full Decimal precision and never rounds USD values downward to weaken boundary", () => {
+    // Test values: 1.234, 1.239, 0.0149
+    const testCases = [
+      { fundingUsd: "1.234", referenceUsd: "10.00", maxPremiumPct: "5.00" },
+      { fundingUsd: "1.239", referenceUsd: "10.00", maxPremiumPct: "5.00" },
+      { fundingUsd: "0.0149", referenceUsd: "1.00", maxPremiumPct: "5.00" },
+    ];
+
+    for (const tc of testCases) {
+      const maxPrice = deriveMaximumBuyPrice(tc.referenceUsd, tc.maxPremiumPct);
+      // Derive minimum target tokens with full precision
+      const minTokensRaw = calculateMinimumTargetTokensRaw(tc.fundingUsd, maxPrice, 6);
+      const minTokens = new Decimal(minTokensRaw.toString()).div(1_000_000);
+
+      // Verify that at minTokens, effective buy price is strictly <= maxPrice
+      const effectivePrice = new Decimal(tc.fundingUsd).div(minTokens);
+      expect(effectivePrice.lessThanOrEqualTo(maxPrice)).toBe(true);
+
+      // Verify that if fundingUsd had been rounded down (e.g. 1.239 -> 1.23),
+      // a lower output would have been allowed that breaches the true limit
+      const roundedDownFunding = new Decimal(tc.fundingUsd).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+      if (roundedDownFunding.lessThan(tc.fundingUsd)) {
+        const weakenedMinTokensRaw = calculateMinimumTargetTokensRaw(roundedDownFunding, maxPrice, 6);
+        const weakenedMinTokens = new Decimal(weakenedMinTokensRaw.toString()).div(1_000_000);
+        // If evaluated against true funding, weakened tokens would exceed max price
+        const breachedPrice = new Decimal(tc.fundingUsd).div(weakenedMinTokens);
+        expect(breachedPrice.greaterThan(maxPrice)).toBe(true);
+      }
+    }
+  });
 });
+
 

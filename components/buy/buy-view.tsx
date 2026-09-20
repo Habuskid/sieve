@@ -9,13 +9,20 @@ import { FundingSelector } from "./funding-selector";
 import { AmountInput } from "./amount-input";
 import { PriceRail } from "./price-rail";
 import { StateBanner, type BannerState } from "./state-banner";
-import { ReviewDialog } from "../receipt/review-dialog";
+import { ReviewDialog, type BuildSummaryDto } from "../receipt/review-dialog";
 import { WalletWaiting } from "../receipt/wallet-waiting";
 import { TradeReceiptView } from "../receipt/trade-receipt-view";
 import type { NetworkMode, FundingAsset, TradeReceipt } from "@/core/domain/types";
 import type { CheckResponseDto } from "@/server/services/check-service";
 import type { MarketItem } from "../markets/market-row";
 import { ArrowRight, ShieldCheck, RefreshCw } from "lucide-react";
+
+interface BuildData {
+  buildIntentId: string;
+  serializedTransaction: string;
+  lastValidBlockHeight?: string;
+  summary: BuildSummaryDto;
+}
 
 interface BuyViewProps {
   network: NetworkMode;
@@ -44,6 +51,7 @@ export function BuyView({ network }: BuyViewProps) {
   const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [isBuilding, setIsBuilding] = useState(false);
   const [isWaitingForWallet, setIsWaitingForWallet] = useState(false);
+  const [buildData, setBuildData] = useState<BuildData | null>(null);
   const [receipt, setReceipt] = useState<TradeReceipt | null>(null);
 
   // Intent Versioning to discard stale async responses
@@ -171,22 +179,21 @@ export function BuyView({ network }: BuyViewProps) {
       setWalletModalVisible(true);
       return;
     }
+    setBuildData(null);
     setIsReviewOpen(true);
   };
 
-  // Confirm in Wallet -> Build, Sign & Submit
-  const handleConfirmInWallet = async () => {
+  // Mainnet Step 1: Prepare Transaction & Fresh Revalidation
+  const handlePrepareTransaction = async () => {
     if (!checkResult) return;
-    const walletAddress = publicKey?.toBase58() || (network === "testnet" ? "PracticeWallet1111111111111111111111111111" : null);
+    const walletAddress = publicKey?.toBase58();
     if (!walletAddress) {
       setWalletModalVisible(true);
       return;
     }
 
     setIsBuilding(true);
-
     try {
-      // 1. Call /api/build
       const buildRes = await fetch("/api/build", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -196,54 +203,64 @@ export function BuyView({ network }: BuyViewProps) {
         }),
       });
 
-      const buildData = await buildRes.json();
+      const data = await buildRes.json();
+      setIsBuilding(false);
 
-      if (!buildRes.ok || buildData.status === "BLOCKED") {
+      if (!buildRes.ok || data.status === "BLOCKED") {
         setIsReviewOpen(false);
-        setIsBuilding(false);
-        if (buildData.status === "BLOCKED") {
+        if (data.status === "BLOCKED") {
           setBannerState("PRICE_TOO_HIGH");
           setErrorMessage("The price moved above your limit before transaction construction.");
-          if (buildData.refreshedCheck) {
-            setCheckResult(buildData.refreshedCheck);
+          if (data.refreshedCheck) {
+            setCheckResult(data.refreshedCheck);
           }
         } else {
           setBannerState("ERROR");
-          setErrorMessage(buildData.error?.message || "Failed to build transaction");
+          setErrorMessage(data.error?.message || "Failed to prepare transaction");
         }
         return;
       }
 
-      setIsReviewOpen(false);
+      setBuildData(data);
+    } catch (err) {
       setIsBuilding(false);
-      setIsWaitingForWallet(true);
+      setIsReviewOpen(false);
+      setBannerState("ERROR");
+      setErrorMessage(err instanceof Error ? err.message : "Failed to prepare transaction");
+    }
+  };
 
-      // 2. Wallet Signature
+  // Mainnet Step 2: Confirm in Wallet -> Sign & Execute
+  const handleConfirmInWallet = async () => {
+    if (!checkResult || !buildData) return;
+    const walletAddress = publicKey?.toBase58();
+    if (!walletAddress) {
+      setWalletModalVisible(true);
+      return;
+    }
+
+    setIsReviewOpen(false);
+    setIsWaitingForWallet(true);
+
+    try {
       let signedTxBase64: string | undefined;
-      let mockSig: string | undefined;
-
-      if (network === "testnet" && (!signTransaction || !connected)) {
-        // Practice mode simulated signature (must be at least 32 characters for Solana signature validation)
-        mockSig = `sim-practice-tx-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
-      } else if (signTransaction) {
+      if (signTransaction) {
         const txBuffer = Buffer.from(buildData.serializedTransaction, "base64");
         const transaction = VersionedTransaction.deserialize(txBuffer);
         const signedTx = await signTransaction(transaction);
         signedTxBase64 = Buffer.from(signedTx.serialize()).toString("base64");
       } else {
-        mockSig = `sim-practice-tx-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
+        throw new Error("Wallet does not support transaction signing");
       }
 
-      // 3. Confirm & execute via /api/confirm
       const confirmRes = await fetch("/api/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           buildIntentId: buildData.buildIntentId,
           signedTransaction: signedTxBase64,
-          signature: mockSig,
           wallet: walletAddress,
-          network,
+          network: "mainnet",
         }),
       });
 
@@ -253,13 +270,80 @@ export function BuyView({ network }: BuyViewProps) {
       if (confirmData.status === "CONFIRMED" && confirmData.receipt) {
         setReceipt(confirmData.receipt);
       } else {
+        setBannerState("ERROR");
         setErrorMessage(confirmData.error?.message || "Transaction could not be confirmed");
       }
     } catch (err) {
-      setIsBuilding(false);
       setIsWaitingForWallet(false);
       const message = err instanceof Error ? err.message : "Wallet rejected transaction";
+      setBannerState("ERROR");
       setErrorMessage(message.includes("User rejected") ? "You cancelled the transaction in your wallet." : message);
+    }
+  };
+
+  // Practice Mode: Direct Simulated Execution (Never calls signTransaction or WalletWaiting)
+  const handleConfirmPractice = async () => {
+    if (!checkResult) return;
+    setIsBuilding(true);
+
+    try {
+      const walletAddress = publicKey?.toBase58() || "PracticeWallet1111111111111111111111111111";
+
+      // 1. Build practice intent
+      const buildRes = await fetch("/api/build", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          checkId: checkResult.checkId,
+          wallet: walletAddress,
+        }),
+      });
+
+      const data = await buildRes.json();
+      if (!buildRes.ok || data.status === "BLOCKED") {
+        setIsReviewOpen(false);
+        setIsBuilding(false);
+        if (data.status === "BLOCKED") {
+          setBannerState("PRICE_TOO_HIGH");
+          setErrorMessage("The price moved above your limit before transaction construction.");
+          if (data.refreshedCheck) {
+            setCheckResult(data.refreshedCheck);
+          }
+        } else {
+          setBannerState("ERROR");
+          setErrorMessage(data.error?.message || "Practice execution failed");
+        }
+        return;
+      }
+
+      // 2. Simulated confirmation (never prompts wallet)
+      const mockSig = `sim-practice-tx-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
+      const confirmRes = await fetch("/api/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          buildIntentId: data.buildIntentId,
+          signature: mockSig,
+          wallet: walletAddress,
+          network: "testnet",
+        }),
+      });
+
+      const confirmData = await confirmRes.json();
+      setIsBuilding(false);
+      setIsReviewOpen(false);
+
+      if (confirmData.status === "CONFIRMED" && confirmData.receipt) {
+        setReceipt(confirmData.receipt);
+      } else {
+        setBannerState("ERROR");
+        setErrorMessage(confirmData.error?.message || "Practice trade failed");
+      }
+    } catch (err) {
+      setIsBuilding(false);
+      setIsReviewOpen(false);
+      setBannerState("ERROR");
+      setErrorMessage(err instanceof Error ? err.message : "Practice trade failed");
     }
   };
 
@@ -323,7 +407,7 @@ export function BuyView({ network }: BuyViewProps) {
         <FundingSelector
           selected={fundingAsset}
           onChange={setFundingAsset}
-          disabled={checking}
+          disabled={false}
         />
 
         {/* 2. How much? */}
@@ -331,7 +415,7 @@ export function BuyView({ network }: BuyViewProps) {
           value={amount}
           onChange={setAmount}
           asset={fundingAsset}
-          disabled={checking}
+          disabled={false}
           error={errorMessage}
         />
 
@@ -403,10 +487,17 @@ export function BuyView({ network }: BuyViewProps) {
       {checkResult && (
         <ReviewDialog
           isOpen={isReviewOpen}
-          onClose={() => setIsReviewOpen(false)}
-          onConfirm={handleConfirmInWallet}
+          onClose={() => {
+            setIsReviewOpen(false);
+            setBuildData(null);
+          }}
+          network={network}
           check={checkResult}
+          buildSummary={buildData?.summary}
           isBuilding={isBuilding}
+          onPrepareTransaction={handlePrepareTransaction}
+          onConfirmInWallet={handleConfirmInWallet}
+          onConfirmPractice={handleConfirmPractice}
         />
       )}
 

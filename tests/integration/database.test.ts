@@ -274,4 +274,93 @@ describe("Database & Persistence Layer (Phase 6)", () => {
       /missing required lifecycle fields; database integrity check failed/
     );
   });
+
+  it("rejects trade receipt with IDEMPOTENCY_VIOLATION if same signature belongs to a different build intent", async () => {
+    await repo.saveTradeReceipt(sampleReceipt);
+
+    // Attempt to save receipt with same signature but different build intent
+    const conflictingReceipt: TradeReceipt = {
+      ...sampleReceipt,
+      id: "receipt-uuid-2",
+      buildIntentId: "different-build-intent-id",
+    };
+
+    await expect(repo.saveTradeReceipt(conflictingReceipt)).rejects.toThrow(
+      /Signature belongs to a different trade receipt or build intent/
+    );
+  });
+
+  it("preserves funding.method and quote.outputDecimals in PriceCheck rehydration", async () => {
+    const { PostgresSieveRepository } = await import("../../server/database/db");
+
+    let savedRow: any = null;
+    const mockSql = ((strings: TemplateStringsArray, ...values: any[]) => {
+      const query = strings.join(" ");
+      if (query.includes("INSERT INTO price_checks")) {
+        // Mock insert: capture inserted values
+        savedRow = {
+          id: values[0],
+          network: values[1],
+          wallet: values[2],
+          target_name: values[3],
+          target_symbol: values[4],
+          target_mint: values[5],
+          funding_asset: values[6],
+          funding_mint: values[7],
+          funding_amount_raw: values[8],
+          funding_amount_display: values[9],
+          funding_usd_value: values[10],
+          reference_price_usd: values[11],
+          reference_observed_at: new Date(values[12]),
+          reference_source: values[13],
+          quote_output_raw: values[14],
+          quote_output_display: values[15],
+          quote_observed_at: values[16] ? new Date(values[16]) : null,
+          quote_expires_at: values[17] ? new Date(values[17]) : null,
+          route_fingerprint: values[18],
+          price_impact_pct: values[19],
+          current_buy_price_usd: values[20],
+          maximum_buy_price_usd: values[21],
+          premium_bps: values[22],
+          max_premium_bps: values[23],
+          decision: values[24],
+          reason_code: values[25],
+          client_intent_version: values[26],
+          created_at: new Date(values[27]),
+          expires_at: values[28] ? new Date(values[28]) : null,
+          funding_method: values[29],
+          quote_output_decimals: values[30],
+        };
+        return Promise.resolve([]);
+      }
+      if (query.includes("SELECT * FROM price_checks WHERE id =")) {
+        return Promise.resolve(savedRow ? [savedRow] : []);
+      }
+      return Promise.resolve([]);
+    }) as any;
+
+    const pgRepo = new PostgresSieveRepository(mockSql);
+
+    // Check with 9 decimals and CURRENT_MARKET_ROUTE (e.g. SOL funding)
+    const solCheck: PriceCheck = {
+      ...sampleCheck,
+      id: "sol-check-9-decimals",
+      funding: {
+        ...sampleCheck.funding,
+        fundingAsset: "SOL",
+        method: "CURRENT_MARKET_ROUTE",
+      },
+      quote: {
+        ...sampleCheck.quote!,
+        outputDecimals: 9,
+      },
+    };
+
+    await pgRepo.savePriceCheck(solCheck);
+    const rehydrated = await pgRepo.getPriceCheck("sol-check-9-decimals");
+
+    expect(rehydrated).toBeDefined();
+    expect(rehydrated?.funding.method).toBe("CURRENT_MARKET_ROUTE");
+    expect(rehydrated?.quote?.outputDecimals).toBe(9);
+  });
 });

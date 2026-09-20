@@ -4,6 +4,7 @@ import type {
   TradeReceipt,
   NetworkMode,
 } from "../../core/domain/types";
+import { SieveAppError } from "../services/errors";
 
 export interface ListFilterParams {
   wallet?: string;
@@ -65,9 +66,21 @@ export class InMemorySieveRepository implements ISieveRepository {
   }
 
   async saveTradeReceipt(receipt: TradeReceipt): Promise<TradeReceipt> {
-    // Idempotency: if signature already exists, return existing receipt
+    // Idempotency: if signature already exists, verify consistency or reject
     if (receipt.signature && this.receipts.has(receipt.signature)) {
-      return { ...this.receipts.get(receipt.signature)! };
+      const existing = this.receipts.get(receipt.signature)!;
+      if (
+        existing.buildIntentId !== receipt.buildIntentId ||
+        existing.checkId !== receipt.checkId ||
+        existing.wallet !== receipt.wallet ||
+        existing.network !== receipt.network
+      ) {
+        throw new SieveAppError(
+          "IDEMPOTENCY_VIOLATION",
+          "Signature belongs to a different trade receipt or build intent"
+        );
+      }
+      return { ...existing };
     }
     const cloned = { ...receipt };
     if (receipt.signature) {

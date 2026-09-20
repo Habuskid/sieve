@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import { defaultMarketService, MarketService } from "./market-service";
 import { defaultJupiterAdapter, JupiterAdapter } from "../jupiter/adapter";
 import { defaultPracticeAdapter, PracticeAdapter } from "../practice/adapter";
-import { defaultSolanaAdapter, SolanaAdapter, CANONICAL_MINTS } from "../solana/adapter";
+import { defaultSolanaAdapter, SolanaAdapter, CANONICAL_MINTS, calculateNetOutput } from "../solana/adapter";
 import { getRepository } from "../database/db";
 import type { ISieveRepository } from "../database/repository";
 import {
@@ -106,12 +106,13 @@ export class PriceCheckService {
 
     if (input.network === "mainnet") {
       // 3. Mainnet flow
-      const targetDecimals = await this.solanaAdapter.resolveMintDecimals(asset.mint, "mainnet");
+      const targetMetadata = await this.solanaAdapter.resolveMintMetadata(asset.mint, "mainnet");
+      const targetDecimals = targetMetadata.decimals;
 
       if (input.fundingAsset === "USDC") {
         const inputMint = CANONICAL_MINTS.mainnet.USDC;
         const inputRaw = displayToRaw(input.amount, CANONICAL_MINTS.mainnet.USDC_DECIMALS);
-        const inputUsdValue = toDecimal(input.amount).toFixed(2);
+        const inputUsdValue = toDecimal(input.amount).toString();
 
         fundingValuation = {
           fundingAsset: "USDC",
@@ -128,7 +129,19 @@ export class PriceCheckService {
           amount: inputRaw,
           outputDecimals: targetDecimals,
         });
-        quote = jupQuote.quote;
+
+        // Guarantee NET output by accounting for Token-2022 transfer fee withholding
+        const netOutputRaw = calculateNetOutput(
+          jupQuote.quote.outputRaw,
+          targetMetadata.transferFeeBasisPoints,
+          targetMetadata.maximumFee
+        );
+        const expectedNetTargetAmount = rawToDisplay(netOutputRaw, targetDecimals).toString();
+        quote = {
+          ...jupQuote.quote,
+          outputRaw: netOutputRaw,
+          expectedTargetAmount: expectedNetTargetAmount,
+        };
       } else {
         // SOL funding asset
         const inputMint = CANONICAL_MINTS.mainnet.WSOL;
@@ -140,16 +153,15 @@ export class PriceCheckService {
           amount: inputRaw,
           outputDecimals: targetDecimals,
         });
-        quote = jupQuote.quote;
 
         // Contemporaneous SOL USD valuation from Jupiter (never a hardcoded constant)
         let usdVal: string;
         if (jupQuote.inUsdValue != null && jupQuote.inUsdValue > 0) {
-          usdVal = jupQuote.inUsdValue.toString();
+          usdVal = toDecimal(jupQuote.inUsdValue).toString();
         } else {
           try {
             const solPrice = await this.jupiterAdapter.getSolUsdPrice();
-            usdVal = toDecimal(input.amount).mul(solPrice).toFixed(2);
+            usdVal = toDecimal(input.amount).mul(solPrice).toString();
           } catch (err) {
             throw new SieveAppError(
               "DATA_UNAVAILABLE",
@@ -162,9 +174,22 @@ export class PriceCheckService {
           fundingAsset: "SOL",
           inputRaw,
           inputDisplay: input.amount,
-          inputUsdValue: toDecimal(usdVal).toFixed(2),
+          inputUsdValue: usdVal,
           method: "CURRENT_MARKET_ROUTE",
           observedAt,
+        };
+
+        // Guarantee NET output by accounting for Token-2022 transfer fee withholding
+        const netOutputRaw = calculateNetOutput(
+          jupQuote.quote.outputRaw,
+          targetMetadata.transferFeeBasisPoints,
+          targetMetadata.maximumFee
+        );
+        const expectedNetTargetAmount = rawToDisplay(netOutputRaw, targetDecimals).toString();
+        quote = {
+          ...jupQuote.quote,
+          outputRaw: netOutputRaw,
+          expectedTargetAmount: expectedNetTargetAmount,
         };
       }
     } else {
@@ -174,6 +199,56 @@ export class PriceCheckService {
       fundingValuation = practiceResult.funding;
       if (practiceResult.asset) {
         asset = practiceResult.asset;
+      }
+
+      // If user customized fundingAsset and amount in Practice mode without a fixed scenario,
+      // dynamically scale the fixture funding valuation and quote:
+      if (!input.scenarioId && input.amount) {
+        const inputAmt = input.amount;
+        if (input.fundingAsset === "SOL") {
+          const solPriceUsd = 150; // $150 / SOL in practice fixture
+          const usdVal = (parseFloat(inputAmt) * solPriceUsd).toString();
+          const targetPrice = parseFloat(asset.referencePriceUsd) * 1.03; // ~3% premium in practice
+          const targetTokens = (parseFloat(usdVal) / targetPrice).toFixed(6);
+          fundingValuation = {
+            fundingAsset: "SOL",
+            inputRaw: BigInt(Math.floor(parseFloat(inputAmt) * 1e9)),
+            inputDisplay: inputAmt,
+            inputUsdValue: usdVal,
+            method: "CURRENT_MARKET_ROUTE",
+            observedAt,
+          };
+          if (quote) {
+            quote = {
+              ...quote,
+              expectedTargetAmount: targetTokens,
+              outputRaw: BigInt(Math.floor(parseFloat(targetTokens) * 1e6)),
+              observedAt: new Date(now - 1000).toISOString(),
+              expiresAt: new Date(now + 30_000).toISOString(),
+            };
+          }
+        } else {
+          const usdVal = inputAmt;
+          const targetPrice = parseFloat(asset.referencePriceUsd) * 1.03; // ~3% premium in practice
+          const targetTokens = (parseFloat(usdVal) / targetPrice).toFixed(6);
+          fundingValuation = {
+            fundingAsset: "USDC",
+            inputRaw: BigInt(Math.floor(parseFloat(inputAmt) * 1e6)),
+            inputDisplay: inputAmt,
+            inputUsdValue: usdVal,
+            method: "USDC_PAR",
+            observedAt,
+          };
+          if (quote) {
+            quote = {
+              ...quote,
+              expectedTargetAmount: targetTokens,
+              outputRaw: BigInt(Math.floor(parseFloat(targetTokens) * 1e6)),
+              observedAt: new Date(now - 1000).toISOString(),
+              expiresAt: new Date(now + 30_000).toISOString(),
+            };
+          }
+        }
       }
     }
 

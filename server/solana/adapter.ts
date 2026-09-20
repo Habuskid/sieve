@@ -5,6 +5,8 @@ import {
   ExtensionType,
   getExtensionTypes,
   unpackMint,
+  getTransferFeeConfig,
+  getTransferHook,
 } from "@solana/spl-token";
 import type { NetworkMode, FundingAsset } from "../../core/domain/types";
 
@@ -23,17 +25,6 @@ export const CANONICAL_MINTS = {
   },
 } as const;
 
-export const PRESTOCKS_OFFICIAL_MINTS = new Set([
-  "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF", // OPENAI
-  "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh", // SPACEX
-  "PreSt7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX2", // STRIPE
-  "PreAn7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX3", // ANTHROPIC
-  "PreDa7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX4", // DATABRICKS
-  "PreBy7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX5", // BYTEDANCE
-  "PreFi7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX6", // FIGURE
-  "PreX7tPQWvnmrKpmP9S5f8c6j5mR9bL3yNq1wZ4vX7",  // XAI
-]);
-
 export interface ValidatedMintMetadata {
   mint: string;
   programOwner: string;
@@ -41,6 +32,34 @@ export interface ValidatedMintMetadata {
   extensions: ExtensionType[];
   supported: boolean;
   validatedAt: number;
+  transferFeeBasisPoints: number;
+  maximumFee: bigint;
+}
+
+/**
+ * Calculates net tokens credited to a wallet after Token-2022 transfer fee withholding.
+ * Follows SPL Token-2022 transfer fee math: fee = min(maximumFee, ceil(grossRaw * feeBps / 10000)).
+ */
+export function calculateNetOutput(grossRaw: bigint, feeBps: number = 0, maxFee: bigint = 0n): bigint {
+  if (feeBps <= 0 || grossRaw <= 0n) return grossRaw;
+  const rawFee = (grossRaw * BigInt(feeBps) + 9999n) / 10000n;
+  const actualFee = maxFee > 0n && rawFee > maxFee ? maxFee : rawFee;
+  return grossRaw > actualFee ? grossRaw - actualFee : 0n;
+}
+
+/**
+ * Calculates gross output required from a swap route to guarantee at least minimumNet
+ * tokens are credited to the wallet after Token-2022 transfer fee withholding.
+ */
+export function calculateGrossRequired(minimumNet: bigint, feeBps: number = 0, maxFee: bigint = 0n): bigint {
+  if (feeBps <= 0 || minimumNet <= 0n) return minimumNet;
+  const divisor = 10000n - BigInt(feeBps);
+  if (divisor <= 0n) throw new Error("Transfer fee basis points cannot be 10000 or greater");
+  let gross = (minimumNet * 10000n + divisor - 1n) / divisor;
+  if (maxFee > 0n && (gross * BigInt(feeBps) + 9999n) / 10000n > maxFee) {
+    gross = minimumNet + maxFee;
+  }
+  return gross;
 }
 
 // In-memory cache for on-chain validated mint metadata (populated only AFTER successful RPC check)
@@ -87,7 +106,7 @@ export class SolanaAdapter {
    * Resolves and validates mint metadata on-chain via RPC.
    * Validates account existence, program ownership (SPL Token or Token-2022),
    * unpacks via unpackMint, and inspects extensions via getExtensionTypes(mint.tlvData).
-   * Rejects fee-bearing or transfer-altering tokens. Never defaults to 6.
+   * Rejects fee-bearing or transfer-altering tokens unless exact fee impact is computed.
    */
   async resolveMintMetadata(mintAddress: string, network: NetworkMode = "mainnet"): Promise<ValidatedMintMetadata> {
     if (validatedMintCache.has(mintAddress)) {
@@ -124,9 +143,19 @@ export class SolanaAdapter {
 
     let decimals: number;
     let extensions: ExtensionType[] = [];
+    let transferFeeBasisPoints = 0;
+    let maximumFee = 0n;
 
     if (isToken2022) {
       const mint = unpackMint(pubkey, sanitizedAccountInfo as unknown as AccountInfo<Buffer>, TOKEN_2022_PROGRAM_ID);
+      if (mint.tlvData && typeof (mint.tlvData as any).readUInt16LE !== "function") {
+        const view = new DataView(
+          mint.tlvData.buffer,
+          mint.tlvData.byteOffset,
+          mint.tlvData.byteLength
+        );
+        (mint.tlvData as any).readUInt16LE = (offset: number) => view.getUint16(offset, true);
+      }
       decimals = mint.decimals;
       extensions = getExtensionTypes(Buffer.from(mint.tlvData));
 
@@ -137,22 +166,43 @@ export class SolanaAdapter {
         );
       }
 
-      // Check for fee-bearing or transfer-altering extensions
-      const transferAlteringExtensions = [
-        ExtensionType.TransferFeeConfig,
-        ExtensionType.TransferFeeAmount,
-        ExtensionType.TransferHook,
-        ExtensionType.TransferHookAccount,
-        ExtensionType.PermanentDelegate,
-      ];
+      // Inspect TransferHook: must be unset/default program. Custom hook programs fail closed.
+      if (extensions.includes(ExtensionType.TransferHook) || extensions.includes(ExtensionType.TransferHookAccount)) {
+        const hook = getTransferHook(mint);
+        if (
+          hook &&
+          hook.programId &&
+          !hook.programId.equals(PublicKey.default) &&
+          hook.programId.toBase58() !== "11111111111111111111111111111111"
+        ) {
+          throw new Error(
+            `Mint ${mintAddress} has custom TransferHook program (${hook.programId.toBase58()}) with non-deterministic output impact; Sieve fails closed`
+          );
+        }
+      }
 
-      const hasTransferAltering = transferAlteringExtensions.some((ext) => extensions.includes(ext));
-      const isExplicitlySupported = PRESTOCKS_OFFICIAL_MINTS.has(mintAddress);
-
-      if (hasTransferAltering && !isExplicitlySupported) {
-        throw new Error(
-          `Mint ${mintAddress} has unsupported transfer-fee or transfer-hook extension; Sieve fails closed`
-        );
+      // Inspect TransferFeeConfig: extract current epoch fee parameters
+      if (extensions.includes(ExtensionType.TransferFeeConfig)) {
+        const feeConfig = getTransferFeeConfig(mint);
+        if (feeConfig) {
+          try {
+            const epochInfo = await conn.getEpochInfo();
+            const currentEpoch = BigInt(epochInfo.epoch);
+            if (currentEpoch >= feeConfig.newerTransferFee.epoch) {
+              transferFeeBasisPoints = feeConfig.newerTransferFee.transferFeeBasisPoints;
+              maximumFee = feeConfig.newerTransferFee.maximumFee;
+            } else {
+              transferFeeBasisPoints = feeConfig.olderTransferFee.transferFeeBasisPoints;
+              maximumFee = feeConfig.olderTransferFee.maximumFee;
+            }
+          } catch {
+            // If RPC getEpochInfo fails, conservatively pick the higher fee bps
+            const olderBps = feeConfig.olderTransferFee.transferFeeBasisPoints;
+            const newerBps = feeConfig.newerTransferFee.transferFeeBasisPoints;
+            transferFeeBasisPoints = Math.max(olderBps, newerBps);
+            maximumFee = feeConfig.newerTransferFee.maximumFee;
+          }
+        }
       }
     } else {
       const mint = unpackMint(pubkey, sanitizedAccountInfo as unknown as AccountInfo<Buffer>, TOKEN_PROGRAM_ID);
@@ -166,6 +216,8 @@ export class SolanaAdapter {
       extensions,
       supported: true,
       validatedAt: Date.now(),
+      transferFeeBasisPoints,
+      maximumFee,
     };
 
     validatedMintCache.set(mintAddress, metadata);
