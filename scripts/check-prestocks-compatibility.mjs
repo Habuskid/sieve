@@ -11,7 +11,7 @@
 
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { ExtensionType } from "@solana/spl-token";
+import { auditPreStocksMarkets } from "./lib/prestocks-compatibility.mjs";
 
 let SolanaAdapter;
 let defaultSolanaAdapter;
@@ -74,65 +74,7 @@ async function checkPreStocksCompatibility() {
     process.exit(1);
   }
 
-  const results = [];
-
-  for (const item of rawMarkets) {
-    const symbol = item.symbol || "UNKNOWN";
-    const name = item.name || "Unknown Asset";
-    const mintStr = item.contract_address;
-
-    if (!mintStr) {
-      results.push({
-        symbol,
-        name,
-        mint: "N/A",
-        decimals: "N/A",
-        program: "N/A",
-        extensions: "None",
-        feeBps: "0",
-        multiplier: "1",
-        status: "BLOCKED_SAFE",
-        reason: "Missing contract_address in API payload",
-      });
-      continue;
-    }
-
-    try {
-      const meta = await adapter.resolveMintMetadata(mintStr, "mainnet", { bypassCache: true });
-      const extNames = meta.extensions.map((t) => ExtensionType[t] || `Type_${t}`).join(", ") || "None";
-      const programLabel = meta.programOwner === "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        ? "Token-2022"
-        : meta.programOwner === "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        ? "SPL-Token"
-        : meta.programOwner;
-
-      results.push({
-        symbol,
-        name,
-        mint: mintStr,
-        decimals: meta.decimals,
-        program: programLabel,
-        extensions: extNames,
-        feeBps: `${meta.transferFeeBasisPoints} bps`,
-        multiplier: meta.scaledUiAmount?.activeMultiplier ?? "1",
-        status: "PASS_SUPPORTED",
-        reason: `Production policy passed (fee: ${meta.transferFeeBasisPoints} bps, mult: ${meta.scaledUiAmount?.activeMultiplier ?? "1"})`,
-      });
-    } catch (err) {
-      results.push({
-        symbol,
-        name,
-        mint: mintStr,
-        decimals: "N/A",
-        program: "N/A",
-        extensions: "N/A",
-        feeBps: "N/A",
-        multiplier: "1",
-        status: "BLOCKED_SAFE",
-        reason: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+  const results = await auditPreStocksMarkets(rawMarkets, adapter);
 
   // Print results table with FULL mint addresses
   console.log("| Symbol | Name | Mint | Dec | Program | Extensions | Fee | Multiplier | Status | Reason |");

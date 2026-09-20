@@ -5,6 +5,7 @@ import type {
   NetworkMode,
 } from "../../core/domain/types";
 import { SieveAppError } from "../services/errors";
+import type { SellBuildIntent, SellPriceCheck, SellTradeReceipt } from "../../core/domain/sell-types";
 
 export interface ListFilterParams {
   wallet?: string;
@@ -13,7 +14,16 @@ export interface ListFilterParams {
   offset?: number;
 }
 
-export interface ISieveRepository {
+export interface ISellRepository {
+  saveSellPriceCheck(check: SellPriceCheck): Promise<void>;
+  getSellPriceCheck(id: string): Promise<SellPriceCheck | null>;
+  saveSellBuildIntent(intent: SellBuildIntent): Promise<void>;
+  getSellBuildIntent(id: string): Promise<SellBuildIntent | null>;
+  saveSellTradeReceipt(receipt: SellTradeReceipt): Promise<SellTradeReceipt>;
+  getSellTradeReceiptBySignature(signature: string): Promise<SellTradeReceipt | null>;
+}
+
+export interface ISieveRepository extends ISellRepository {
   savePriceCheck(check: PriceCheck): Promise<void>;
   getPriceCheck(id: string): Promise<PriceCheck | null>;
   listPriceChecks(params?: ListFilterParams): Promise<PriceCheck[]>;
@@ -32,6 +42,9 @@ export class InMemorySieveRepository implements ISieveRepository {
   private buildIntents = new Map<string, BuildIntent>();
   private receipts = new Map<string, TradeReceipt>(); // Keyed by signature
   private receiptsById = new Map<string, TradeReceipt>();
+  private sellChecks = new Map<string, SellPriceCheck>();
+  private sellBuilds = new Map<string, SellBuildIntent>();
+  private sellReceipts = new Map<string, SellTradeReceipt>();
 
   async savePriceCheck(check: PriceCheck): Promise<void> {
     this.checks.set(check.id, { ...check });
@@ -109,10 +122,26 @@ export class InMemorySieveRepository implements ISieveRepository {
     return list.slice(offset, offset + limit);
   }
 
+  async saveSellPriceCheck(check: SellPriceCheck) { this.sellChecks.set(check.id, { ...check }); }
+  async getSellPriceCheck(id: string) { return this.sellChecks.get(id) ?? null; }
+  async saveSellBuildIntent(intent: SellBuildIntent) { this.sellBuilds.set(intent.id, { ...intent }); }
+  async getSellBuildIntent(id: string) { return this.sellBuilds.get(id) ?? null; }
+  async saveSellTradeReceipt(receipt: SellTradeReceipt) {
+    if (receipt.signature) {
+      const existing = this.sellReceipts.get(receipt.signature);
+      if (existing && existing.buildIntentId !== receipt.buildIntentId) throw new SieveAppError("IDEMPOTENCY_VIOLATION", "Signature belongs to a different Sell build intent");
+      if (existing) return existing;
+      this.sellReceipts.set(receipt.signature, { ...receipt });
+    }
+    return { ...receipt };
+  }
+  async getSellTradeReceiptBySignature(signature: string) { return this.sellReceipts.get(signature) ?? null; }
+
   clear(): void {
     this.checks.clear();
     this.buildIntents.clear();
     this.receipts.clear();
     this.receiptsById.clear();
+    this.sellChecks.clear(); this.sellBuilds.clear(); this.sellReceipts.clear();
   }
 }

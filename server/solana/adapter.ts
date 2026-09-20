@@ -630,6 +630,19 @@ export class SolanaAdapter {
     }
   }
 
+  /** Checks a wallet's raw balance for an arbitrary SPL/Token-2022 mint plus SOL fees. */
+  async checkTokenBalance(walletAddress: string, mintAddress: string, requiredRaw: bigint, network: NetworkMode = "mainnet"): Promise<{ hasSufficient: boolean; error?: string }> {
+    if (network === "testnet") return { hasSufficient: true };
+    try {
+      const wallet = new PublicKey(walletAddress);
+      const conn = this.getConnection("mainnet");
+      if (BigInt(await conn.getBalance(wallet)) < SolanaAdapter.FEE_RESERVE_LAMPORTS) return { hasSufficient:false, error:"Insufficient SOL for transaction fees" };
+      const accounts = await conn.getParsedTokenAccountsByOwner(wallet, { mint: new PublicKey(mintAddress) });
+      let total = 0n; for (const a of accounts.value) total += BigInt(a.account.data.parsed.info.tokenAmount.amount);
+      return total >= requiredRaw ? { hasSufficient:true } : { hasSufficient:false, error:`Insufficient PreStock token balance: raw ${total}, required ${requiredRaw}` };
+    } catch (err) { return { hasSufficient:false, error:`Failed to verify PreStock token balance: ${err instanceof Error ? err.message : String(err)}` }; }
+  }
+
   /**
    * Simulates a base64-encoded VersionedTransaction.
    */
