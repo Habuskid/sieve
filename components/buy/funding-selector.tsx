@@ -2,6 +2,7 @@
 
 import React from "react";
 import type { FundingAsset } from "@/core/domain/types";
+import { TokenIcon } from "@/components/ui/token-icon";
 
 interface FundingSelectorProps {
   selected: FundingAsset;
@@ -36,7 +37,7 @@ export function FundingSelector({
               : "border-transparent text-secondaryText hover:text-primaryText"
           } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         >
-          <span className="font-mono text-xs text-sieveBlue">$</span>
+          <TokenIcon asset="USDC" size={18} />
           <span>USDC</span>
         </button>
 
@@ -52,7 +53,7 @@ export function FundingSelector({
               : "border-transparent text-secondaryText hover:text-primaryText"
           } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         >
-          <span className="font-mono text-[11px] text-sieveBlue font-bold">◎</span>
+          <TokenIcon asset="SOL" size={18} />
           <span>SOL</span>
         </button>
       </div>
