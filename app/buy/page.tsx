@@ -10,9 +10,14 @@ export default function BuyPage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-[1240px] px-4 sm:px-6 lg:px-8 py-12 text-center">
-          <div className="h-8 w-48 mx-auto bg-surface border border-borderBase rounded-[2px] animate-pulse mb-4" />
-          <div className="h-96 w-full bg-surface rounded-panel border border-borderBase animate-pulse" />
+        <div className="mx-auto max-w-7xl px-5 py-12 sm:px-8 lg:px-10">
+          <div className="h-8 w-56 animate-pulse bg-surface-subtle" />
+          <div className="mt-8 h-px w-full bg-borderBase" />
+          <div className="mt-8 grid gap-8 md:grid-cols-3">
+            <div className="h-24 animate-pulse bg-surface-subtle" />
+            <div className="h-24 animate-pulse bg-surface-subtle" />
+            <div className="h-24 animate-pulse bg-surface-subtle" />
+          </div>
         </div>
       }
     >
