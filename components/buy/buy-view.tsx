@@ -21,6 +21,7 @@ interface BuildData {
   buildIntentId: string;
   serializedTransaction: string;
   lastValidBlockHeight?: string;
+  expiresAt: string;
   summary: BuildSummaryDto;
 }
 
@@ -493,7 +494,9 @@ export function BuyView({ network }: BuyViewProps) {
           }}
           network={network}
           check={checkResult}
+          wallet={publicKey?.toBase58()}
           buildSummary={buildData?.summary}
+          expiresAt={buildData?.expiresAt}
           isBuilding={isBuilding}
           onPrepareTransaction={handlePrepareTransaction}
           onConfirmInWallet={handleConfirmInWallet}

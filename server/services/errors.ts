@@ -22,6 +22,7 @@ export type ErrorCode =
   | "CONFIRMATION_FAILED"
   | "RATE_LIMITED"
   | "SOURCE_TIMEOUT"
+  | "DATABASE_INTEGRITY_ERROR"
   | "INTERNAL_ERROR";
 
 export interface SieveErrorDetails {
@@ -217,6 +218,14 @@ export const ERROR_REGISTRY: Record<ErrorCode, SieveErrorDetails> = {
     retryable: true,
     fundsMoved: "no",
     status: 504,
+  },
+  DATABASE_INTEGRITY_ERROR: {
+    code: "DATABASE_INTEGRITY_ERROR",
+    userTitle: "A database record is corrupt or incomplete.",
+    userMessage: "Sieve stopped execution to protect database integrity.",
+    retryable: false,
+    fundsMoved: "no",
+    status: 500,
   },
   INTERNAL_ERROR: {
     code: "INTERNAL_ERROR",

@@ -62,6 +62,30 @@ export function calculateGrossRequired(minimumNet: bigint, feeBps: number = 0, m
   return gross;
 }
 
+// Explicit classification of Token-2022 mint extensions per Sieve security policy
+export const ALLOWED_MINT_EXTENSIONS = new Set<ExtensionType>([
+  ExtensionType.TransferFeeConfig,
+  ExtensionType.MetadataPointer,
+  ExtensionType.TokenMetadata,
+  ExtensionType.GroupPointer,
+  ExtensionType.TokenGroup,
+  ExtensionType.GroupMemberPointer,
+  ExtensionType.TokenGroupMember,
+  ExtensionType.MintCloseAuthority,
+]);
+
+export const BLOCKED_MINT_EXTENSIONS = new Map<ExtensionType, string>([
+  [ExtensionType.NonTransferable, "NonTransferable tokens cannot be traded; Sieve fails closed"],
+  [ExtensionType.ScaledUiAmountConfig, "ScaledUiAmountConfig alters amount/UI quantity multiplier; Sieve fails closed to prevent valuation distortion"],
+  [ExtensionType.InterestBearingConfig, "InterestBearingConfig continuously alters token balances; Sieve fails closed"],
+  [ExtensionType.DefaultAccountState, "DefaultAccountState can freeze accounts by default; Sieve fails closed"],
+  [ExtensionType.PausableConfig, "PausableConfig allows authorities to pause transfers; Sieve fails closed"],
+  [ExtensionType.PermanentDelegate, "PermanentDelegate allows third parties to transfer or burn tokens; Sieve fails closed"],
+  [ExtensionType.ConfidentialTransferMint, "ConfidentialTransferMint hides transfer amounts; Sieve fails closed"],
+  [ExtensionType.ConfidentialTransferAccount, "ConfidentialTransferAccount hides account balances; Sieve fails closed"],
+  [ExtensionType.PermissionedBurn, "PermissionedBurn alters burn authority; Sieve fails closed"],
+]);
+
 // In-memory cache for on-chain validated mint metadata (populated only AFTER successful RPC check)
 const validatedMintCache = new Map<string, ValidatedMintMetadata>();
 
@@ -107,9 +131,14 @@ export class SolanaAdapter {
    * Validates account existence, program ownership (SPL Token or Token-2022),
    * unpacks via unpackMint, and inspects extensions via getExtensionTypes(mint.tlvData).
    * Rejects fee-bearing or transfer-altering tokens unless exact fee impact is computed.
+   * Supports bypassCache option to force fresh on-chain read (mandatory at build time).
    */
-  async resolveMintMetadata(mintAddress: string, network: NetworkMode = "mainnet"): Promise<ValidatedMintMetadata> {
-    if (validatedMintCache.has(mintAddress)) {
+  async resolveMintMetadata(
+    mintAddress: string,
+    network: NetworkMode = "mainnet",
+    options?: { bypassCache?: boolean }
+  ): Promise<ValidatedMintMetadata> {
+    if (!options?.bypassCache && validatedMintCache.has(mintAddress)) {
       return validatedMintCache.get(mintAddress)!;
     }
 
@@ -159,24 +188,33 @@ export class SolanaAdapter {
       decimals = mint.decimals;
       extensions = getExtensionTypes(Buffer.from(mint.tlvData));
 
-      // NonTransferable tokens can never be traded
-      if (extensions.includes(ExtensionType.NonTransferable)) {
-        throw new Error(
-          `Mint ${mintAddress} has NonTransferable extension; Sieve fails closed`
-        );
-      }
+      // Explicit classification check for every extension present
+      for (const ext of extensions) {
+        if (BLOCKED_MINT_EXTENSIONS.has(ext)) {
+          const reason = BLOCKED_MINT_EXTENSIONS.get(ext)!;
+          throw new Error(`Mint ${mintAddress} has blocked extension: ${reason}`);
+        }
 
-      // Inspect TransferHook: must be unset/default program. Custom hook programs fail closed.
-      if (extensions.includes(ExtensionType.TransferHook) || extensions.includes(ExtensionType.TransferHookAccount)) {
-        const hook = getTransferHook(mint);
-        if (
-          hook &&
-          hook.programId &&
-          !hook.programId.equals(PublicKey.default) &&
-          hook.programId.toBase58() !== "11111111111111111111111111111111"
-        ) {
+        // TransferHook requires checking the specific program configured
+        if (ext === ExtensionType.TransferHook || ext === ExtensionType.TransferHookAccount) {
+          const hook = getTransferHook(mint);
+          if (
+            hook &&
+            hook.programId &&
+            !hook.programId.equals(PublicKey.default) &&
+            hook.programId.toBase58() !== "11111111111111111111111111111111"
+          ) {
+            throw new Error(
+              `Mint ${mintAddress} has custom TransferHook program (${hook.programId.toBase58()}) with non-deterministic output impact; Sieve fails closed`
+            );
+          }
+          continue;
+        }
+
+        // Any extension not explicitly allowed must fail closed
+        if (!ALLOWED_MINT_EXTENSIONS.has(ext)) {
           throw new Error(
-            `Mint ${mintAddress} has custom TransferHook program (${hook.programId.toBase58()}) with non-deterministic output impact; Sieve fails closed`
+            `Mint ${mintAddress} has unclassified or unsupported Token-2022 extension (type ${ext}); Sieve fails closed`
           );
         }
       }
@@ -185,22 +223,22 @@ export class SolanaAdapter {
       if (extensions.includes(ExtensionType.TransferFeeConfig)) {
         const feeConfig = getTransferFeeConfig(mint);
         if (feeConfig) {
+          let epochInfo: { epoch: number };
           try {
-            const epochInfo = await conn.getEpochInfo();
-            const currentEpoch = BigInt(epochInfo.epoch);
-            if (currentEpoch >= feeConfig.newerTransferFee.epoch) {
-              transferFeeBasisPoints = feeConfig.newerTransferFee.transferFeeBasisPoints;
-              maximumFee = feeConfig.newerTransferFee.maximumFee;
-            } else {
-              transferFeeBasisPoints = feeConfig.olderTransferFee.transferFeeBasisPoints;
-              maximumFee = feeConfig.olderTransferFee.maximumFee;
-            }
-          } catch {
-            // If RPC getEpochInfo fails, conservatively pick the higher fee bps
-            const olderBps = feeConfig.olderTransferFee.transferFeeBasisPoints;
-            const newerBps = feeConfig.newerTransferFee.transferFeeBasisPoints;
-            transferFeeBasisPoints = Math.max(olderBps, newerBps);
+            epochInfo = await conn.getEpochInfo();
+          } catch (err) {
+            throw new Error(
+              `Failed to retrieve current Solana epoch for TransferFeeConfig verification on ${mintAddress}: ${err instanceof Error ? err.message : String(err)}`
+            );
+          }
+
+          const currentEpoch = BigInt(epochInfo.epoch);
+          if (currentEpoch >= feeConfig.newerTransferFee.epoch) {
+            transferFeeBasisPoints = feeConfig.newerTransferFee.transferFeeBasisPoints;
             maximumFee = feeConfig.newerTransferFee.maximumFee;
+          } else {
+            transferFeeBasisPoints = feeConfig.olderTransferFee.transferFeeBasisPoints;
+            maximumFee = feeConfig.olderTransferFee.maximumFee;
           }
         }
       }
@@ -228,8 +266,12 @@ export class SolanaAdapter {
    * Resolves the token decimals for a given mint address with strict validation.
    * Caches only after successful on-chain RPC validation.
    */
-  async resolveMintDecimals(mintAddress: string, network: NetworkMode = "mainnet"): Promise<number> {
-    const meta = await this.resolveMintMetadata(mintAddress, network);
+  async resolveMintDecimals(
+    mintAddress: string,
+    network: NetworkMode = "mainnet",
+    options?: { bypassCache?: boolean }
+  ): Promise<number> {
+    const meta = await this.resolveMintMetadata(mintAddress, network, options);
     return meta.decimals;
   }
 

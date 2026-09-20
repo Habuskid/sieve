@@ -363,4 +363,82 @@ describe("Database & Persistence Layer (Phase 6)", () => {
     expect(rehydrated?.funding.method).toBe("CURRENT_MARKET_ROUTE");
     expect(rehydrated?.quote?.outputDecimals).toBe(9);
   });
+
+  it("rehydration integrity: fails closed if persisted price check is missing funding_method", async () => {
+    const { PostgresSieveRepository } = await import("../../server/database/db");
+
+    const mockSqlMissingFundingMethod = (async () => [
+      {
+        id: "check-missing-funding-method",
+        network: "testnet",
+        wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        target_name: "OpenAI PreStocks",
+        target_symbol: "OPENAI",
+        target_mint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+        funding_asset: "USDC",
+        funding_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        funding_amount_raw: "10000000",
+        funding_amount_display: "10",
+        funding_usd_value: "10.00",
+        funding_method: null, // MISSING!
+        reference_price_usd: "100.00",
+        reference_observed_at: new Date(),
+        reference_source: "PRESTOCKS",
+        quote_output_raw: "97087",
+        quote_output_display: "0.097087",
+        quote_output_decimals: 6,
+        current_buy_price_usd: "103.00",
+        maximum_buy_price_usd: "105.00",
+        premium_bps: 300,
+        max_premium_bps: 500,
+        decision: "GOOD_TO_GO",
+        client_intent_version: "v1",
+        created_at: new Date(),
+      },
+    ]) as any;
+
+    const pgRepo = new PostgresSieveRepository(mockSqlMissingFundingMethod);
+    await expect(pgRepo.getPriceCheck("check-missing-funding-method")).rejects.toThrow(
+      /Persisted price check is missing required funding_method/
+    );
+  });
+
+  it("rehydration integrity: fails closed if persisted price check has quote output but is missing quote_output_decimals", async () => {
+    const { PostgresSieveRepository } = await import("../../server/database/db");
+
+    const mockSqlMissingDecimals = (async () => [
+      {
+        id: "check-missing-decimals",
+        network: "testnet",
+        wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        target_name: "OpenAI PreStocks",
+        target_symbol: "OPENAI",
+        target_mint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+        funding_asset: "USDC",
+        funding_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        funding_amount_raw: "10000000",
+        funding_amount_display: "10",
+        funding_usd_value: "10.00",
+        funding_method: "USDC_PAR",
+        reference_price_usd: "100.00",
+        reference_observed_at: new Date(),
+        reference_source: "PRESTOCKS",
+        quote_output_raw: "97087",
+        quote_output_display: "0.097087",
+        quote_output_decimals: null, // MISSING!
+        current_buy_price_usd: "103.00",
+        maximum_buy_price_usd: "105.00",
+        premium_bps: 300,
+        max_premium_bps: 500,
+        decision: "GOOD_TO_GO",
+        client_intent_version: "v1",
+        created_at: new Date(),
+      },
+    ]) as any;
+
+    const pgRepo = new PostgresSieveRepository(mockSqlMissingDecimals);
+    await expect(pgRepo.getPriceCheck("check-missing-decimals")).rejects.toThrow(
+      /missing required quote_output_decimals/
+    );
+  });
 });

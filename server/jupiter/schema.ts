@@ -53,6 +53,7 @@ export const JupiterOrderResponseSchema = z.object({
   prioritizationFeePayer: z.string().nullable().optional(),
   rentFeeLamports: z.number().nullable().optional(),
   rentFeePayer: z.string().nullable().optional(),
+  gasless: z.boolean().nullable().optional(),
   errorCode: z.number().optional(),
   errorMessage: z.string().optional(),
   error: z.string().optional(),

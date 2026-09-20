@@ -391,8 +391,12 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
 
-    // Verify computed animation duration is reduced (0.01ms / 0s)
-    const animationDuration = await dialog.evaluate((el) => {
+    // Target the inner animated panel via stable data-testid per Defect 8
+    const panel = page.getByTestId("review-dialog-panel");
+    await expect(panel).toBeVisible();
+
+    // Verify computed animation duration on the animated panel is reduced (0.01ms / 0s)
+    const animationDuration = await panel.evaluate((el) => {
       return window.getComputedStyle(el).animationDuration;
     });
     expect(

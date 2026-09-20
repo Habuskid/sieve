@@ -256,6 +256,13 @@ export class PostgresSieveRepository implements ISieveRepository {
   }
 
   private mapPriceCheckRow(r: Record<string, any>): PriceCheck {
+    if (!r.funding_method) {
+      throw new SieveAppError("DATABASE_INTEGRITY_ERROR", "Persisted price check is missing required funding_method");
+    }
+    if (r.quote_output_raw && r.quote_output_decimals == null) {
+      throw new SieveAppError("DATABASE_INTEGRITY_ERROR", "Persisted price check with quote is missing required quote_output_decimals");
+    }
+
     return {
       id: r.id,
       network: r.network,
@@ -281,7 +288,7 @@ export class PostgresSieveRepository implements ISieveRepository {
         inputRaw: BigInt(r.funding_amount_raw),
         inputDisplay: r.funding_amount_display.toString(),
         inputUsdValue: r.funding_usd_value.toString(),
-        method: (r.funding_method as any) ?? (r.funding_asset === "USDC" ? "USDC_PAR" : "CURRENT_MARKET_ROUTE"),
+        method: r.funding_method,
         observedAt: r.created_at.toISOString(),
       },
       quote: r.quote_output_raw
@@ -291,7 +298,7 @@ export class PostgresSieveRepository implements ISieveRepository {
             outputMint: r.target_mint,
             inputRaw: BigInt(r.funding_amount_raw),
             outputRaw: BigInt(r.quote_output_raw),
-            outputDecimals: r.quote_output_decimals != null ? Number(r.quote_output_decimals) : (r.target_mint?.startsWith("Pre") ? 9 : 6),
+            outputDecimals: Number(r.quote_output_decimals),
             expectedTargetAmount: r.quote_output_display.toString(),
             priceImpactPct: r.price_impact_pct?.toString() ?? null,
             observedAt: r.quote_observed_at?.toISOString() ?? r.created_at.toISOString(),

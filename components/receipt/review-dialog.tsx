@@ -19,8 +19,12 @@ export interface BuildSummaryDto {
   premiumBps?: number;
   feeInfo?: {
     signatureFeeLamports?: number | null;
+    signatureFeePayer?: string | null;
     prioritizationFeeLamports?: number | null;
+    prioritizationFeePayer?: string | null;
     rentFeeLamports?: number | null;
+    rentFeePayer?: string | null;
+    gasless?: boolean | null;
   };
 }
 
@@ -29,7 +33,9 @@ interface ReviewDialogProps {
   onClose: () => void;
   network: NetworkMode;
   check: CheckResponseDto;
+  wallet?: string | null;
   buildSummary?: BuildSummaryDto | null;
+  expiresAt?: string | null;
   isBuilding?: boolean;
   onPrepareTransaction: () => void;
   onConfirmInWallet?: () => void;
@@ -41,7 +47,9 @@ export function ReviewDialog({
   onClose,
   network,
   check,
+  wallet,
   buildSummary,
+  expiresAt,
   isBuilding = false,
   onPrepareTransaction,
   onConfirmInWallet,
@@ -56,24 +64,80 @@ export function ReviewDialog({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
-
   const isMainnet = network === "mainnet";
   const hasFinalBuild = isMainnet && Boolean(buildSummary);
 
-  // Fee calculation / display
+  // Build expiry countdown
+  const [secondsRemaining, setSecondsRemaining] = React.useState<number | null>(null);
+  const isExpired = hasFinalBuild && secondsRemaining !== null && secondsRemaining <= 0;
+
+  React.useEffect(() => {
+    if (!hasFinalBuild || !expiresAt) {
+      setSecondsRemaining(null);
+      return;
+    }
+    const targetTime = new Date(expiresAt).getTime();
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.ceil((targetTime - Date.now()) / 1000));
+      setSecondsRemaining(remaining);
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [hasFinalBuild, expiresAt]);
+
+  if (!isOpen) return null;
+
+  // Fee calculation / display per Defect 6
   let feeDisplay = "Calculated when transaction is prepared";
   if (hasFinalBuild && buildSummary?.feeInfo) {
-    const sigFee = buildSummary.feeInfo.signatureFeeLamports ?? 0;
-    const prioFee = buildSummary.feeInfo.prioritizationFeeLamports ?? 0;
-    const totalLamports = sigFee + prioFee;
-    if (totalLamports > 0) {
-      feeDisplay = `${(totalLamports / 1e9).toFixed(6)} SOL`;
+    const {
+      signatureFeeLamports,
+      signatureFeePayer,
+      prioritizationFeeLamports,
+      prioritizationFeePayer,
+      rentFeeLamports,
+      rentFeePayer,
+      gasless,
+    } = buildSummary.feeInfo;
+
+    if (gasless === true) {
+      feeDisplay = "Sponsored by Jupiter (0 SOL)";
     } else {
-      feeDisplay = "Sponsored / 0 SOL";
+      const walletAddress = wallet || (check as { wallet?: string }).wallet;
+      let userLamports = 0;
+      let hasSufficientPayerInfo = false;
+
+      const isTakerPayer = (payer?: string | null) => {
+        if (!payer) return false;
+        if (payer === "taker" || payer === "user") return true;
+        if (walletAddress && payer === walletAddress) return true;
+        return false;
+      };
+
+      if (signatureFeePayer || prioritizationFeePayer || rentFeePayer) {
+        hasSufficientPayerInfo = true;
+        if (isTakerPayer(signatureFeePayer) && signatureFeeLamports != null) {
+          userLamports += signatureFeeLamports;
+        }
+        if (isTakerPayer(prioritizationFeePayer) && prioritizationFeeLamports != null) {
+          userLamports += prioritizationFeeLamports;
+        }
+        if (isTakerPayer(rentFeePayer) && rentFeeLamports != null) {
+          userLamports += rentFeeLamports;
+        }
+      }
+
+      if (hasSufficientPayerInfo && userLamports > 0) {
+        feeDisplay = `~${(userLamports / 1e9).toFixed(6)} SOL`;
+      } else if (hasSufficientPayerInfo && userLamports === 0 && gasless) {
+        feeDisplay = "Sponsored (0 SOL)";
+      } else {
+        feeDisplay = "Fee details available in wallet";
+      }
     }
   } else if (hasFinalBuild) {
-    feeDisplay = "Estimated by Solana network";
+    feeDisplay = "Fee details available in wallet";
   }
 
   return (
@@ -86,7 +150,10 @@ export function ReviewDialog({
         if (e.key === "Escape") onClose();
       }}
     >
-      <div className="w-full max-w-lg rounded-panel bg-surface p-6 shadow-xl border border-borderBase animate-in fade-in zoom-in-95">
+      <div
+        data-testid="review-dialog-panel"
+        className="w-full max-w-lg rounded-panel bg-surface p-6 shadow-xl border border-borderBase animate-in fade-in zoom-in-95"
+      >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-borderBase">
           <div className="flex items-center gap-2.5">
@@ -115,12 +182,26 @@ export function ReviewDialog({
           </div>
         )}
 
-        {/* Final Revalidation Notice for Mainnet */}
+        {/* Final Revalidation & Expiry Notice for Mainnet */}
         {hasFinalBuild && (
-          <div className="mt-4 p-3 rounded-card bg-emerald-50 border border-emerald-200 text-xs text-emerald-800">
-            <span className="font-semibold block mb-0.5">Fresh Build Verified</span>
-            <span>Authoritative reference price and route revalidated. Price is inside your limit.</span>
-          </div>
+          isExpired ? (
+            <div className="mt-4 p-3 rounded-card bg-rose-50 border border-rose-200 text-xs text-rose-800">
+              <span className="font-semibold block mb-0.5">Transaction Expired</span>
+              <span>This transaction build expired. Please prepare the transaction again for updated market pricing.</span>
+            </div>
+          ) : (
+            <div className="mt-4 p-3 rounded-card bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between">
+              <div>
+                <span className="font-semibold block mb-0.5">Fresh Build Verified</span>
+                <span>Authoritative reference price and route revalidated. Price is inside your limit.</span>
+              </div>
+              {secondsRemaining !== null && (
+                <div className="text-right shrink-0 ml-3 font-mono font-bold text-xs tabular-nums text-emerald-900">
+                  Expires in {secondsRemaining}s
+                </div>
+              )}
+            </div>
+          )
         )}
 
         {/* Trade Summary Grid */}
@@ -239,12 +320,23 @@ export function ReviewDialog({
                 </>
               )}
             </button>
+          ) : isExpired ? (
+            /* Mainnet Step 2: Expired state -> Prompt to prepare again */
+            <button
+              type="button"
+              onClick={onPrepareTransaction}
+              disabled={isBuilding}
+              className="flex items-center gap-2 rounded-btn bg-sieveBlue px-5 py-2.5 text-sm font-semibold text-white hover:bg-sieveBlue-hover transition-colors shadow-xs min-h-[44px] disabled:opacity-50"
+            >
+              {isBuilding ? <span>Preparing transaction...</span> : <span>Prepare again</span>}
+              <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </button>
           ) : (
             /* Mainnet Step 2: Explicit Confirmation in Wallet */
             <button
               type="button"
               onClick={onConfirmInWallet}
-              disabled={isBuilding}
+              disabled={isBuilding || isExpired}
               className="flex items-center gap-2 rounded-btn bg-sieveGreen px-5 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors shadow-xs min-h-[44px] disabled:opacity-50"
             >
               <span>Confirm in wallet</span>

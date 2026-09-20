@@ -34,16 +34,7 @@ export type BuildResult =
       network: NetworkMode;
       serializedTransaction: string;
       expiresAt: string;
-      summary: {
-        fundingAsset: FundingAsset;
-        fundingAmount: string;
-        targetSymbol: string;
-        expectedTargetAmount: string;
-        referencePriceUsd: string;
-        currentBuyPriceUsd: string;
-        premiumPct: string;
-        maxPremiumPct: string;
-      };
+      summary: BuildIntent["summary"];
     }
   | {
       status: "BLOCKED";
@@ -116,12 +107,16 @@ export class TransactionBuildService {
     let targetMetadata: import("../solana/adapter").ValidatedMintMetadata | null = null;
     let buildResultFeeInfo: {
       signatureFeeLamports?: number | null;
+      signatureFeePayer?: string | null;
       prioritizationFeeLamports?: number | null;
+      prioritizationFeePayer?: string | null;
       rentFeeLamports?: number | null;
+      rentFeePayer?: string | null;
+      gasless?: boolean | null;
     } | undefined;
 
     if (check.network === "mainnet") {
-      targetMetadata = await this.solanaAdapter.resolveMintMetadata(freshAsset.mint, "mainnet");
+      targetMetadata = await this.solanaAdapter.resolveMintMetadata(freshAsset.mint, "mainnet", { bypassCache: true });
       const targetDecimals = targetMetadata.decimals;
       const inputMint = check.funding.fundingAsset === "USDC"
         ? CANONICAL_MINTS.mainnet.USDC
@@ -286,8 +281,12 @@ export class TransactionBuildService {
       requestId = buildResult.requestId;
       buildResultFeeInfo = {
         signatureFeeLamports: buildResult.signatureFeeLamports ?? null,
+        signatureFeePayer: buildResult.signatureFeePayer ?? null,
         prioritizationFeeLamports: buildResult.prioritizationFeeLamports ?? null,
+        prioritizationFeePayer: buildResult.prioritizationFeePayer ?? null,
         rentFeeLamports: buildResult.rentFeeLamports ?? null,
+        rentFeePayer: buildResult.rentFeePayer ?? null,
+        gasless: buildResult.gasless ?? null,
       };
     } else {
       // Practice mode: construct a valid, deserialize-able minimal VersionedTransaction

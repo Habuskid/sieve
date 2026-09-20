@@ -19,25 +19,33 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
     expect(openAi!.mint).toBe("PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
     expect(parseFloat(openAi!.referencePriceUsd)).toBeGreaterThan(0);
 
-    // 2. Fetch live Jupiter V2 quote for USDC -> OPENAI
+    // 2. Authoritative on-chain Token-2022 safety check:
+    // On Mainnet, PreStocks tokens have PermanentDelegate and other unsafe extensions.
+    // Verify that Sieve fails closed and refuses to allow transactions for unsafe tokens.
+    await expect(
+      defaultSolanaAdapter.resolveMintMetadata(openAi!.mint, "mainnet")
+    ).rejects.toThrow(/PermanentDelegate/);
+
+    // 3. Query live Jupiter V2 quote for canonical USDC -> WSOL in read-only mode
     const usdcAmount = "10"; // 10 USDC
     const usdcRaw = displayToRaw(usdcAmount, CANONICAL_MINTS.mainnet.USDC_DECIMALS);
-    const openAiDecimals = await defaultSolanaAdapter.resolveMintDecimals(openAi!.mint, "mainnet");
+    const wsolDecimals = CANONICAL_MINTS.mainnet.SOL_DECIMALS;
 
     const usdcQuoteResult = await defaultJupiterAdapter.getQuote({
       inputMint: CANONICAL_MINTS.mainnet.USDC,
-      outputMint: openAi!.mint,
+      outputMint: CANONICAL_MINTS.mainnet.WSOL,
       amount: usdcRaw,
-      outputDecimals: openAiDecimals,
+      outputDecimals: wsolDecimals,
     });
 
-    expect(usdcQuoteResult.quote.outputMint).toBe(openAi!.mint);
+    expect(usdcQuoteResult.quote.outputMint).toBe(CANONICAL_MINTS.mainnet.WSOL);
     expect(toDecimal(usdcQuoteResult.quote.expectedTargetAmount).toNumber()).toBeGreaterThan(0);
 
-    // 3. Evaluate boundary with live data
+    // 4. Evaluate boundary with live data
+    const solUsdPrice = await defaultJupiterAdapter.getSolUsdPrice();
     const decision = evaluatePriceBoundary({
-      referencePriceUsd: openAi!.referencePriceUsd,
-      referenceObservedAt: openAi!.observedAt,
+      referencePriceUsd: solUsdPrice.toString(),
+      referenceObservedAt: new Date().toISOString(),
       fundingUsdValue: usdcAmount,
       expectedTargetTokens: usdcQuoteResult.quote.expectedTargetAmount,
       maxPremiumPct: "10.0", // 10% tolerance for live test
@@ -48,21 +56,20 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
     expect(decision.referencePriceUsd).toBeDefined();
     expect(decision.currentBuyPriceUsd).toBeDefined();
 
-    // 4. Build unsigned transaction via Jupiter V2 order API
+    // 5. Build unsigned transaction via Jupiter V2 order API
     const unsignedOrder = await defaultJupiterAdapter.buildTransaction({
       inputMint: CANONICAL_MINTS.mainnet.USDC,
-      outputMint: openAi!.mint,
+      outputMint: CANONICAL_MINTS.mainnet.WSOL,
       amount: usdcRaw,
       taker: readOnlyTakerWallet,
-      outputDecimals: openAiDecimals,
+      outputDecimals: wsolDecimals,
       slippageBps: 500,
     });
 
     expect(unsignedOrder.transactionBase64).toBeDefined();
     expect(unsignedOrder.transactionBase64.length).toBeGreaterThan(50);
-    expect(unsignedOrder.lastValidBlockHeight).toBeDefined();
+    expect(unsignedOrder.requestId).toBeDefined();
 
-    // 5. Verify no funds were moved
-    // Zero private keys, zero signature, zero broadcast
+    // 6. Verify no funds were moved: zero private keys, zero signature, zero broadcast
   }, 20000); // Allow 20s for live network calls
 });

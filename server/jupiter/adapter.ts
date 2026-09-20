@@ -136,8 +136,12 @@ export class JupiterAdapter {
     lastValidBlockHeight?: string;
     otherAmountThreshold?: string;
     signatureFeeLamports?: number | null;
+    signatureFeePayer?: string | null;
     prioritizationFeeLamports?: number | null;
+    prioritizationFeePayer?: string | null;
     rentFeeLamports?: number | null;
+    rentFeePayer?: string | null;
+    gasless?: boolean | null;
     feeMint?: string | null;
     feeBps?: number | null;
     platformFee?: { feeMint?: string; feeBps?: number; amount?: string } | null;
@@ -200,8 +204,12 @@ export class JupiterAdapter {
       lastValidBlockHeight: data.lastValidBlockHeight ?? undefined,
       otherAmountThreshold: data.otherAmountThreshold ?? undefined,
       signatureFeeLamports: data.signatureFeeLamports ?? null,
+      signatureFeePayer: data.signatureFeePayer ?? null,
       prioritizationFeeLamports: data.prioritizationFeeLamports ?? null,
+      prioritizationFeePayer: data.prioritizationFeePayer ?? null,
       rentFeeLamports: data.rentFeeLamports ?? null,
+      rentFeePayer: data.rentFeePayer ?? null,
+      gasless: data.gasless ?? null,
       feeMint: data.feeMint ?? null,
       feeBps: data.feeBps ?? null,
       platformFee: data.platformFee ?? null,

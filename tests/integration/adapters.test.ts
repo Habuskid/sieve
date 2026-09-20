@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { ExtensionType } from "@solana/spl-token";
 import { PreStocksAdapter } from "../../server/prestocks/adapter";
 import { JupiterAdapter } from "../../server/jupiter/adapter";
 import { SolanaAdapter, CANONICAL_MINTS } from "../../server/solana/adapter";
@@ -295,7 +296,7 @@ describe("Solana Adapter Contracts", () => {
     const nonTransferableMint = Keypair.generate().publicKey.toBase58();
     await expect(
       adapter.resolveMintMetadata(nonTransferableMint, "mainnet")
-    ).rejects.toThrow(/NonTransferable extension; Sieve fails closed/);
+    ).rejects.toThrow(/NonTransferable/);
   });
 
   it("fails closed if mint account is not owned by SPL Token or Token-2022", async () => {
@@ -313,6 +314,269 @@ describe("Solana Adapter Contracts", () => {
     await expect(
       adapter.resolveMintMetadata(rogueMint, "mainnet")
     ).rejects.toThrow(/not owned by SPL Token or Token-2022/);
+  });
+
+  it("Defect 1: resolves fresh Token-2022 metadata when bypassCache: true, proving build uses fresh on-chain state", async () => {
+    const { TOKEN_2022_PROGRAM_ID, ExtensionType } = await import("@solana/spl-token");
+    const { Keypair } = await import("@solana/web3.js");
+    const adapter = new SolanaAdapter();
+    const mintPubkey = Keypair.generate().publicKey;
+    const mintAddress = mintPubkey.toBase58();
+
+    function createFeeBuffer(bps: number, maxFee: bigint) {
+      const tlvLen = 108;
+      const data = Buffer.alloc(165 + 1 + 4 + tlvLen);
+      data[44] = 6;
+      data[45] = 1;
+      data[165] = 1;
+      data.writeUInt16LE(ExtensionType.TransferFeeConfig, 166);
+      data.writeUInt16LE(tlvLen, 168);
+      const payloadOffset = 170;
+      data.writeBigUInt64LE(0n, payloadOffset + 72);
+      data.writeBigUInt64LE(maxFee, payloadOffset + 80);
+      data.writeUInt16LE(bps, payloadOffset + 88);
+      data.writeBigUInt64LE(1000n, payloadOffset + 90);
+      data.writeBigUInt64LE(maxFee, payloadOffset + 98);
+      data.writeUInt16LE(bps, payloadOffset + 106);
+      return data;
+    }
+
+    let currentAccountData = createFeeBuffer(100, 1_000_000n);
+
+    (adapter as any).getConnection = () => ({
+      getAccountInfo: async () => ({
+        owner: TOKEN_2022_PROGRAM_ID,
+        data: currentAccountData,
+      }),
+      getEpochInfo: async () => ({ epoch: 50 }),
+    });
+
+    // 1. Initial resolution (populates cache with 100 bps)
+    const initial = await adapter.resolveMintMetadata(mintAddress, "mainnet");
+    expect(initial.transferFeeBasisPoints).toBe(100);
+
+    // 2. On-chain state changes: fee increases to 500 bps
+    currentAccountData = createFeeBuffer(500, 5_000_000n);
+
+    // 3. Normal resolution without bypass returns cached 100 bps
+    const cached = await adapter.resolveMintMetadata(mintAddress, "mainnet");
+    expect(cached.transferFeeBasisPoints).toBe(100);
+
+    // 4. Build-time resolution with bypassCache: true returns fresh 500 bps
+    const fresh = await adapter.resolveMintMetadata(mintAddress, "mainnet", { bypassCache: true });
+    expect(fresh.transferFeeBasisPoints).toBe(500);
+  });
+
+  describe("Defect 2: TransferFeeConfig epoch verification and fail-closed behavior", () => {
+    function createFeeMintBuffer(params: {
+      olderEpoch: bigint;
+      olderMaxFee: bigint;
+      olderBps: number;
+      newerEpoch: bigint;
+      newerMaxFee: bigint;
+      newerBps: number;
+    }) {
+      const tlvLen = 108;
+      const data = Buffer.alloc(165 + 1 + 4 + tlvLen);
+      data[44] = 6;
+      data[45] = 1;
+      data[165] = 1;
+      data.writeUInt16LE(1, 166); // ExtensionType.TransferFeeConfig
+      data.writeUInt16LE(tlvLen, 168);
+      const payloadOffset = 170;
+      data.writeBigUInt64LE(params.olderEpoch, payloadOffset + 72);
+      data.writeBigUInt64LE(params.olderMaxFee, payloadOffset + 80);
+      data.writeUInt16LE(params.olderBps, payloadOffset + 88);
+      data.writeBigUInt64LE(params.newerEpoch, payloadOffset + 90);
+      data.writeBigUInt64LE(params.newerMaxFee, payloadOffset + 98);
+      data.writeUInt16LE(params.newerBps, payloadOffset + 106);
+      return data;
+    }
+
+    const scheduleData = createFeeMintBuffer({
+      olderEpoch: 100n,
+      olderMaxFee: 10_000_000n,
+      olderBps: 50,
+      newerEpoch: 200n,
+      newerMaxFee: 1_000_000n,
+      newerBps: 300,
+    });
+
+    it("uses older schedule when current epoch is before newer schedule epoch", async () => {
+      const { TOKEN_2022_PROGRAM_ID } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: scheduleData }),
+        getEpochInfo: async () => ({ epoch: 150 }),
+      });
+
+      const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
+      expect(meta.transferFeeBasisPoints).toBe(50);
+      expect(meta.maximumFee).toBe(10_000_000n);
+    });
+
+    it("uses newer schedule when current epoch is after newer schedule epoch", async () => {
+      const { TOKEN_2022_PROGRAM_ID } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: scheduleData }),
+        getEpochInfo: async () => ({ epoch: 250 }),
+      });
+
+      const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
+      expect(meta.transferFeeBasisPoints).toBe(300);
+      expect(meta.maximumFee).toBe(1_000_000n);
+    });
+
+    it("uses newer schedule at exact boundary when current epoch equals newer schedule epoch", async () => {
+      const { TOKEN_2022_PROGRAM_ID } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: scheduleData }),
+        getEpochInfo: async () => ({ epoch: 200 }),
+      });
+
+      const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
+      expect(meta.transferFeeBasisPoints).toBe(300);
+      expect(meta.maximumFee).toBe(1_000_000n);
+    });
+
+    it("fails closed when getEpochInfo fails", async () => {
+      const { TOKEN_2022_PROGRAM_ID } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: scheduleData }),
+        getEpochInfo: async () => {
+          throw new Error("Solana RPC getEpochInfo timed out");
+        },
+      });
+
+      await expect(
+        adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true })
+      ).rejects.toThrow(/Failed to retrieve current Solana epoch for TransferFeeConfig verification/);
+    });
+
+    it("correctly handles older schedule with high max fee and lower BPS", async () => {
+      const { TOKEN_2022_PROGRAM_ID } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: scheduleData }),
+        getEpochInfo: async () => ({ epoch: 100 }),
+      });
+
+      const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
+      expect(meta.transferFeeBasisPoints).toBe(50);
+      expect(meta.maximumFee).toBe(10_000_000n);
+    });
+
+    it("correctly handles newer schedule with high BPS and low max fee", async () => {
+      const { TOKEN_2022_PROGRAM_ID } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({ owner: TOKEN_2022_PROGRAM_ID, data: scheduleData }),
+        getEpochInfo: async () => ({ epoch: 201 }),
+      });
+
+      const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
+      expect(meta.transferFeeBasisPoints).toBe(300);
+      expect(meta.maximumFee).toBe(1_000_000n);
+    });
+  });
+
+  describe("Defect 4: Explicit Token-2022 extension policy tests", () => {
+    function createExtensionMintBuffer(extType: number, payloadLen: number = 0) {
+      const data = Buffer.alloc(165 + 1 + 4 + payloadLen);
+      data[44] = 6;
+      data[45] = 1;
+      data[165] = 1;
+      data.writeUInt16LE(extType, 166);
+      data.writeUInt16LE(payloadLen, 168);
+      return data;
+    }
+
+    it.each([
+      ["ScaledUiAmountConfig", ExtensionType.ScaledUiAmountConfig],
+      ["InterestBearingConfig", ExtensionType.InterestBearingConfig],
+      ["DefaultAccountState", ExtensionType.DefaultAccountState],
+      ["PausableConfig", ExtensionType.PausableConfig],
+      ["PermanentDelegate", ExtensionType.PermanentDelegate],
+      ["ConfidentialTransferMint", ExtensionType.ConfidentialTransferMint],
+    ])("rejects blocked extension %s", async (name, extType) => {
+      const { TOKEN_2022_PROGRAM_ID } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+      const buffer = createExtensionMintBuffer(extType, 64);
+
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({
+          owner: TOKEN_2022_PROGRAM_ID,
+          data: buffer,
+        }),
+      });
+
+      await expect(
+        adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true })
+      ).rejects.toThrow(/has blocked extension/);
+    });
+
+    it("rejects unknown or unclassified Token-2022 extension", async () => {
+      const { TOKEN_2022_PROGRAM_ID } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+      const unknownExtType = 999;
+      const buffer = createExtensionMintBuffer(unknownExtType, 32);
+
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({
+          owner: TOKEN_2022_PROGRAM_ID,
+          data: buffer,
+        }),
+      });
+
+      await expect(
+        adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true })
+      ).rejects.toThrow(/has unclassified or unsupported Token-2022 extension \(type 999\)/);
+    });
+
+    it("allows understood harmless extensions like MetadataPointer", async () => {
+      const { TOKEN_2022_PROGRAM_ID, ExtensionType } = await import("@solana/spl-token");
+      const { Keypair } = await import("@solana/web3.js");
+      const adapter = new SolanaAdapter();
+      const mint = Keypair.generate().publicKey.toBase58();
+
+      const tlvLen = 64;
+      const data = Buffer.alloc(165 + 1 + 4 + tlvLen);
+      data[44] = 6;
+      data[45] = 1;
+      data[165] = 1;
+      data.writeUInt16LE(ExtensionType.MetadataPointer, 166);
+      data.writeUInt16LE(tlvLen, 168);
+
+      (adapter as any).getConnection = () => ({
+        getAccountInfo: async () => ({
+          owner: TOKEN_2022_PROGRAM_ID,
+          data,
+        }),
+      });
+
+      const meta = await adapter.resolveMintMetadata(mint, "mainnet", { bypassCache: true });
+      expect(meta.supported).toBe(true);
+      expect(meta.extensions).toContain(ExtensionType.MetadataPointer);
+    });
   });
 });
 

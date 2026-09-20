@@ -113,8 +113,12 @@ export type BuildIntent = {
     premiumBps?: number;
     feeInfo?: {
       signatureFeeLamports?: number | null;
+      signatureFeePayer?: string | null;
       prioritizationFeeLamports?: number | null;
+      prioritizationFeePayer?: string | null;
       rentFeeLamports?: number | null;
+      rentFeePayer?: string | null;
+      gasless?: boolean | null;
     };
   };
 };
