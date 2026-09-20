@@ -35,24 +35,18 @@ export function NetworkToggle({
       <div
         role="group"
         aria-label="Network selection"
-        className="inline-flex items-center gap-1 border-r border-borderBase pr-2 text-xs sm:pr-4"
+        className="inline-flex items-center overflow-hidden rounded-btn border border-borderStrong bg-surface text-xs"
       >
         <button
           type="button"
           onClick={() => handleToggleClick("mainnet")}
-          className={`min-h-11 items-center gap-2 px-2 transition-colors duration-150 ${
+          className={`flex min-h-9 items-center px-2.5 transition-colors duration-150 sm:min-h-10 sm:px-3 ${
             currentNetwork === "mainnet"
-              ? "flex text-primaryText font-medium"
-              : "hidden text-mutedText hover:text-secondaryText sm:flex"
+              ? "bg-sieveBlue text-slate-950 font-semibold"
+              : "text-secondaryText hover:bg-surface-subtle hover:text-primaryText"
           }`}
           aria-pressed={currentNetwork === "mainnet"}
         >
-          <span
-            className={`size-1.5 rounded-full ${
-              currentNetwork === "mainnet" ? "bg-sieveBlue" : "bg-mutedText"
-            }`}
-            aria-hidden="true"
-          />
           <span>Mainnet</span>
         </button>
 
@@ -60,19 +54,13 @@ export function NetworkToggle({
           type="button"
           aria-label="Testnet"
           onClick={() => handleToggleClick("testnet")}
-          className={`min-h-11 items-center gap-2 px-2 transition-colors duration-150 ${
+          className={`flex min-h-9 items-center border-l border-borderStrong px-2.5 transition-colors duration-150 sm:min-h-10 sm:px-3 ${
             currentNetwork === "testnet"
-              ? "flex text-primaryText font-medium"
-              : "hidden text-mutedText hover:text-secondaryText sm:flex"
+              ? "bg-sieveBlue text-slate-950 font-semibold"
+              : "text-secondaryText hover:bg-surface-subtle hover:text-primaryText"
           }`}
           aria-pressed={currentNetwork === "testnet"}
         >
-          <span
-            className={`size-1.5 rounded-full ${
-              currentNetwork === "testnet" ? "bg-amber-400" : "bg-mutedText"
-            }`}
-            aria-hidden="true"
-          />
           <span>Testnet</span>
         </button>
       </div>
