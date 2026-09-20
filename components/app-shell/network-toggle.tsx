@@ -58,7 +58,7 @@ export function NetworkToggle({
 
         <button
           type="button"
-          aria-label="Practice mode"
+          aria-label="Testnet"
           onClick={() => handleToggleClick("testnet")}
           className={`min-h-11 items-center gap-2 px-2 transition-colors duration-150 ${
             currentNetwork === "testnet"
@@ -73,7 +73,7 @@ export function NetworkToggle({
             }`}
             aria-hidden="true"
           />
-          <span>Practice</span>
+          <span>Testnet</span>
         </button>
       </div>
 
@@ -98,12 +98,12 @@ export function NetworkToggle({
               </div>
               <div className="space-y-1">
                 <h3 id="dialog-title" className="text-base font-semibold text-primaryText">
-                  Switch to {pendingNetwork === "mainnet" ? "Mainnet" : "Practice mode"}?
+                  Switch to {pendingNetwork === "mainnet" ? "Mainnet" : "Testnet"}?
                 </h3>
                 <p className="text-xs text-secondaryText leading-relaxed pt-1">
                   {pendingNetwork === "mainnet"
-                    ? "Mainnet connects to live Solana market liquidity and real PreStocks assets. Any active practice check will be cleared."
-                    : "Practice mode uses deterministic test data so you can test price checks and limits without using real funds."}
+                    ? "Mainnet connects to live Solana market liquidity and real PreStocks assets. Any active testnet check will be cleared."
+                    : "Testnet uses simulated data so you can test price checks and limits without using real funds."}
                 </p>
               </div>
             </div>
