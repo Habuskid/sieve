@@ -6,7 +6,7 @@ import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import type { NetworkMode } from "@/core/domain/types";
 import type { HistoryItem } from "@/server/services/history-service";
 import { ExternalLink } from "lucide-react";
-import { RefreshMark } from "@/components/ui/refresh-mark";
+import { RefreshAction } from "@/components/ui/refresh-action";
 
 interface HistoryViewProps {
   network: NetworkMode;
@@ -86,15 +86,14 @@ export function HistoryView({ network }: HistoryViewProps) {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={fetchHistory}
-          disabled={loading}
-          className="group inline-flex min-h-8 items-center gap-2 self-start border-b border-borderStrong px-0.5 py-1 text-xs font-medium text-mutedText transition-colors duration-150 hover:border-sieveBlue hover:text-primaryText disabled:cursor-wait disabled:opacity-60 sm:self-auto"
-        >
-          <RefreshMark loading={loading} />
-          <span>Refresh</span>
-        </button>
+        <div className="self-start sm:self-auto">
+          <RefreshAction
+            onClick={fetchHistory}
+            label="Refresh"
+            loadingLabel="Refreshing…"
+            loading={loading}
+          />
+        </div>
       </div>
 
       {/* Filter Tabs */}
