@@ -24,23 +24,25 @@ export function Header({ network, onNetworkChange }: HeaderProps) {
   ];
 
   return (
-    <header className="sticky top-0 z-30 w-full border-b border-borderBase bg-surface">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-30 w-full border-b border-borderBase bg-background/95">
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-5 sm:px-8 lg:px-10">
         {/* Brand & Main Nav */}
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-10">
           <Link
             href="/"
-            className="flex items-center gap-2.5 text-primaryText hover:text-sieveBlue transition-colors"
+            className="flex items-center gap-2.5 text-primaryText transition-colors duration-150 hover:text-sieveBlue"
             aria-label="Sieve Home"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-[4px] bg-primaryText text-surface">
-              <SieveLogo size={16} color="#FFFFFF" />
+            <div className="flex size-7 items-center justify-center text-sieveBlue">
+              <SieveLogo size={16} color="#38BDF8" />
             </div>
-            <span className="text-base font-bold tracking-wider font-mono">SIEVE</span>
+            <span className="text-sm font-semibold text-primaryText">
+              SIEVE
+            </span>
           </Link>
 
-          {/* Desktop Navigation - Clean text with underline for active state */}
-          <nav className="hidden md:flex items-center gap-6" aria-label="Main Navigation">
+          {/* Desktop Navigation - Precision hairline active indicator */}
+          <nav className="hidden items-center gap-7 md:flex" aria-label="Main Navigation">
             {navLinks.map((link) => {
               const isActive =
                 link.href === "/"
@@ -50,9 +52,9 @@ export function Header({ network, onNetworkChange }: HeaderProps) {
                 <Link
                   key={link.href}
                   href={link.href}
-                  className={`py-4 text-xs font-medium transition-colors border-b-2 -mb-[1px] ${
+                  className={`-mb-px border-b py-4 text-sm transition-colors duration-150 ${
                     isActive
-                      ? "border-primaryText text-primaryText font-semibold"
+                      ? "border-sieveBlue text-primaryText font-medium"
                       : "border-transparent text-secondaryText hover:text-primaryText"
                   }`}
                   aria-current={isActive ? "page" : undefined}
@@ -65,7 +67,7 @@ export function Header({ network, onNetworkChange }: HeaderProps) {
         </div>
 
         {/* Right Controls: Network Toggle + Wallet */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-4">
           <NetworkToggle
             currentNetwork={network}
             onNetworkChange={onNetworkChange}

@@ -11,7 +11,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
 
   test("1. Disconnected browse: landing page, markets list, and network selector", async ({ page }) => {
     await expect(page).toHaveTitle(/Sieve/i);
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(/without overpaying/i);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/set the price/i);
 
     // Verify network selector has Mainnet and Practice mode
     const networkGroup = page.getByRole("group", { name: /network selection/i });
@@ -19,8 +19,12 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     await expect(networkGroup.getByRole("button", { name: /mainnet/i })).toBeVisible();
     await expect(networkGroup.getByRole("button", { name: /practice mode/i })).toBeVisible();
 
-    // Verify markets table
-    await expect(page.getByText(/OpenAI/i).first()).toBeVisible();
+    // Verify disconnected navigation reaches the actual markets screen. API market
+    // payload coverage remains in the deterministic Practice flow tests.
+    await page.getByRole("link", { name: /view markets/i }).click();
+    await expect(page).toHaveURL(/\/markets$/);
+    await expect(page.getByRole("heading", { name: /private market assets/i })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: /search companies/i })).toBeVisible();
   });
 
   test("2. Network switch to Practice Mode shows confirmation dialog and labeled test data", async ({ page }) => {
@@ -55,7 +59,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     await page.goto("/buy?mint=PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
 
     // Verify practice mode banner is visible
-    await expect(page.getByText(/Practice mode — Test data \/ Simulated transaction/i)).toBeVisible();
+    await expect(page.getByText(/Practice mode\. Simulated data\. No wallet signature or funds used\./i)).toBeVisible();
 
     // Verify inputs: Pay with USDC / SOL radio buttons, Amount input, Check button
     await expect(page.getByRole("radio", { name: /usdc/i })).toBeVisible();
@@ -79,7 +83,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     await expect(page.getByText(/the price is inside your limit/i)).toBeVisible({ timeout: 10000 });
 
     // Verify Price Rail is visible
-    await expect(page.getByText(/price boundary rail/i).first()).toBeVisible();
+    await expect(page.getByText(/maximum premium/i).first()).toBeVisible();
 
     // Verify Review button is enabled
     const reviewBtn = page.getByRole("button", { name: /review buy/i });
@@ -126,8 +130,8 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
     await page.getByRole("button", { name: /check today's price/i }).click();
 
     // In practice fixture, price is ~2.8% above reference, so with 0% limit it blocks!
-    await expect(page.getByText(/this buy is outside your limit/i)).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText(/no trade would be created/i)).toBeVisible();
+    await expect(page.getByText(/price exceeds your limit/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/no transaction was created/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /review buy/i })).not.toBeVisible();
   });
 
@@ -283,7 +287,7 @@ test.describe("Sieve Browser E2E - UI, Accessibility & Security Flows", () => {
 
     // In Mainnet, practice check is cleared
     await expect(page.getByRole("button", { name: /review buy/i })).not.toBeVisible();
-    await expect(page.getByText(/Practice mode — Test data/i)).not.toBeVisible();
+    await expect(page.getByText(/Practice mode\. Simulated data/i)).not.toBeVisible();
   });
 
   test("13. Stale async check response is discarded when inputs change in flight", async ({ page }) => {

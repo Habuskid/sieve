@@ -24,7 +24,6 @@ interface BuildData {
   expiresAt: string;
   summary: BuildSummaryDto;
 }
-
 interface BuyViewProps {
   network: NetworkMode;
 }
@@ -40,7 +39,7 @@ export function BuyView({ network }: BuyViewProps) {
   const [markets, setMarkets] = useState<MarketItem[]>([]);
   const [selectedMint, setSelectedMint] = useState<string>(mintFromUrl || "");
   const [fundingAsset, setFundingAsset] = useState<FundingAsset>("USDC");
-  const [amount, setAmount] = useState<string>("100");
+  const [amount, setAmount] = useState<string>("");
   const [userLimitPct, setUserLimitPct] = useState<number>(5.0);
 
   const [checking, setChecking] = useState<boolean>(false);
@@ -103,11 +102,12 @@ export function BuyView({ network }: BuyViewProps) {
   }, [selectedMint, fundingAsset, amount, userLimitPct, network]);
 
   const selectedMarket = markets.find((m) => m.mint === selectedMint) || markets[0];
-  const refPrice = selectedMarket ? parseFloat(selectedMarket.referencePriceUsd) : 100;
+  const parsedReference = selectedMarket
+    ? Number.parseFloat(selectedMarket.referencePriceUsd)
+    : Number.NaN;
+  const refPrice = Number.isFinite(parsedReference) ? parsedReference : null;
   const currentBuyPrice = checkResult?.price.currentBuyUsd
     ? parseFloat(checkResult.price.currentBuyUsd)
-    : selectedMarket?.sourceTokenPriceUsd
-    ? parseFloat(selectedMarket.sourceTokenPriceUsd)
     : null;
 
   // Execute Price Check
@@ -282,7 +282,7 @@ export function BuyView({ network }: BuyViewProps) {
     }
   };
 
-  // Practice Mode: Direct Simulated Execution (Never calls signTransaction or WalletWaiting)
+  // Practice Mode: Direct Simulated Execution (Never prompts wallet signing)
   const handleConfirmPractice = async () => {
     if (!checkResult) return;
     setIsBuilding(true);
@@ -348,7 +348,7 @@ export function BuyView({ network }: BuyViewProps) {
     }
   };
 
-  // If receipt is active, show the completed view
+  // If receipt is active, show the completed receipt view
   if (receipt) {
     return (
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
@@ -364,193 +364,100 @@ export function BuyView({ network }: BuyViewProps) {
     );
   }
 
+  const showAuxiliaryState = !["IDLE", "GOOD_TO_GO", "PRICE_TOO_HIGH"].includes(bannerState);
+
   return (
-    <div className="mx-auto max-w-[1240px] px-4 sm:px-6 lg:px-8 py-6">
-      {/* Environment Notice for Practice Mode */}
+    <div className="mx-auto max-w-7xl px-5 py-6 sm:px-8 sm:py-10 lg:px-10 lg:py-14">
       {network === "testnet" && (
-        <div className="mb-4 rounded-[4px] border border-amber-300 bg-sieveAmber-soft px-3.5 py-1.5 text-xs text-amber-900 flex items-center justify-between">
-          <span className="font-mono text-[11px] font-semibold tracking-wider">
-            Practice mode — Test data / Simulated transaction
-          </span>
-          <span className="text-[11px] text-amber-800 hidden sm:inline">
-            Zero real funds or wallet signatures required.
-          </span>
-        </div>
+        <p className="mb-7 flex items-center gap-2 text-sm text-secondaryText sm:mb-9">
+          <span className="size-1.5 rounded-full bg-sieveAmber" aria-hidden="true" />
+          Practice mode. Simulated data. No wallet signature or funds used.
+        </p>
       )}
 
-      {/* Page Title Toolbar */}
-      <div className="flex items-center justify-between pb-3 mb-6 border-b border-borderBase">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-primaryText">
-            Execution Workstation — {selectedMarket ? selectedMarket.name : "Asset"}
-          </h1>
-          <p className="text-xs text-secondaryText mt-0.5">
-            Configure order parameters on the left. Sieve validates the live Solana execution route on the right.
-          </p>
-        </div>
-        <div className="hidden sm:flex items-center gap-2 font-mono text-xs text-secondaryText">
-          <span>STATUS:</span>
-          <span className="font-bold text-primaryText uppercase">{bannerState}</span>
-        </div>
+      <div className="max-w-3xl">
+        <h1 className="text-balance text-4xl font-semibold leading-tight text-primaryText sm:text-5xl">
+          Buy {selectedMarket ? selectedMarket.name : "a PreStocks asset"}
+        </h1>
+        <p className="mt-3 max-w-2xl text-pretty text-base leading-7 text-secondaryText">
+          Enter an amount, set your price limit, and check the route.
+        </p>
       </div>
 
-      {/* Split Workstation Layout: 42% Left (Config) / 58% Right (Protection Rail) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* LEFT COLUMN: Order Configuration (5 of 12 cols = ~42%) */}
-        <div className="lg:col-span-5 rounded-panel bg-surface border border-borderBase p-5 sm:p-6 shadow-xs space-y-5">
-          <div className="pb-3 border-b border-borderBase">
-            <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-secondaryText">
-              ORDER CONFIGURATION
-            </span>
-          </div>
+      <div className="mt-8 grid grid-cols-1 gap-10 border-t border-borderBase pt-8 sm:mt-10 sm:pt-10 lg:grid-cols-12 lg:gap-0">
+        <section className="space-y-6 sm:space-y-8 lg:col-span-4 lg:pr-10" aria-labelledby="order-heading">
+          <h2 id="order-heading" className="text-lg font-medium text-primaryText">Buy details</h2>
 
-          {/* Asset Selector */}
           <div>
-            <label className="block text-[11px] font-mono uppercase tracking-wider text-secondaryText mb-1.5">
-              Asset
-            </label>
+            <label htmlFor="target-asset" className="mb-2 block text-sm font-medium text-secondaryText">Asset to buy</label>
             <select
+              id="target-asset"
               value={selectedMint}
-              onChange={(e) => setSelectedMint(e.target.value)}
-              className="w-full rounded-btn bg-surface border border-borderBase px-3 py-2 text-xs font-semibold text-primaryText shadow-2xs focus:outline-none focus:ring-1 focus:ring-primaryText min-h-[40px]"
+              onChange={(event) => setSelectedMint(event.target.value)}
+              className="min-h-12 w-full border border-borderStrong bg-surface px-4 py-3 text-sm font-medium text-primaryText focus:border-sieveBlue focus:outline-none focus:ring-1 focus:ring-sieveBlue"
             >
-              {markets.map((m) => (
-                <option key={m.mint} value={m.mint}>
-                  {m.name} ({m.symbol}) — Ref: ${parseFloat(m.referencePriceUsd).toFixed(2)}
+              {markets.map((market) => (
+                <option key={market.mint} value={market.mint} className="bg-surface text-primaryText">
+                  {market.name} ({market.symbol})
                 </option>
               ))}
             </select>
           </div>
 
-          {/* Funding Asset */}
-          <FundingSelector
-            selected={fundingAsset}
-            onChange={setFundingAsset}
-            disabled={false}
-          />
-
-          {/* Amount */}
           <AmountInput
             value={amount}
             onChange={setAmount}
             asset={fundingAsset}
-            disabled={false}
             error={errorMessage}
           />
 
-          {/* Action Trigger in Configuration Surface */}
-          <div className="pt-2 border-t border-borderBase space-y-2">
+          <FundingSelector selected={fundingAsset} onChange={setFundingAsset} />
+        </section>
+
+        <section className="lg:col-span-8 lg:border-l lg:border-borderBase lg:pl-10" aria-label="Price limit and route status">
+          <PriceRail
+            referencePriceUsd={refPrice}
+            currentBuyPriceUsd={currentBuyPrice}
+            userLimitPct={userLimitPct}
+            onLimitChange={setUserLimitPct}
+          />
+
+          {showAuxiliaryState && (
+            <div className="mt-8">
+              <StateBanner
+                state={bannerState}
+                title={checkResult?.display.title}
+                message={checkResult?.display.message}
+                premiumPct={checkResult?.price.premiumPct}
+                limitPct={userLimitPct.toFixed(2)}
+                onRefresh={handleCheckPrice}
+              />
+            </div>
+          )}
+
+          <div className="mt-8 flex justify-end border-t border-borderBase pt-6">
             {bannerState === "GOOD_TO_GO" && checkResult ? (
               <button
                 type="button"
                 onClick={handleStartReview}
-                className="flex w-full items-center justify-center gap-2 rounded-btn bg-sieveBlue py-3 px-5 text-xs font-bold text-white hover:bg-sieveBlue-hover transition-colors shadow-xs min-h-[44px]"
+                className="inline-flex min-h-11 items-center justify-center gap-2 bg-sieveBlue px-6 py-3 text-sm font-semibold text-slate-950 transition-colors duration-150 hover:bg-sieveBlue-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
               >
-                <span>Review buy</span>
-                <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                Review buy
+                <ArrowRight className="size-4" aria-hidden="true" />
               </button>
             ) : (
               <button
                 type="button"
                 onClick={handleCheckPrice}
                 disabled={checking}
-                className="flex w-full items-center justify-center gap-2 rounded-btn bg-primaryText py-3 px-5 text-xs font-bold text-white hover:bg-primaryText/90 transition-colors shadow-xs min-h-[44px] disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center gap-2 bg-primaryText px-6 py-3 text-sm font-semibold text-background transition-colors duration-150 hover:bg-white disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
               >
-                {checking ? (
-                  <>
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-                    <span>Checking today&apos;s price...</span>
-                  </>
-                ) : (
-                  <span>Check today&apos;s price</span>
-                )}
+                {checking && <RefreshCw className="size-4 animate-spin" aria-hidden="true" />}
+                {checking ? "Checking today's price…" : "Check today's price"}
               </button>
             )}
-            <p className="text-center text-[11px] text-mutedText">
-              Zero transaction signing on this step.
-            </p>
           </div>
-        </div>
-
-        {/* RIGHT COLUMN: Sieve Protection / Signature Panel (7 of 12 cols = ~58%) */}
-        <div className="lg:col-span-7 space-y-5">
-          {/* Dominant Numerical Hierarchy */}
-          <div className="grid grid-cols-3 gap-3">
-            {/* Reference */}
-            <div className="p-3.5 rounded-panel border border-borderBase bg-surface shadow-2xs">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-secondaryText block mb-1">
-                REFERENCE
-              </span>
-              <span className="text-base sm:text-lg font-bold font-mono text-primaryText tabular-nums block">
-                {checkResult?.price.referenceUsd
-                  ? `$${checkResult.price.referenceUsd}`
-                  : selectedMarket
-                  ? `$${parseFloat(selectedMarket.referencePriceUsd).toFixed(2)}`
-                  : "—"}
-              </span>
-              <span className="text-[10px] text-mutedText mt-0.5 block">Official valuation</span>
-            </div>
-
-            {/* Max Allowed */}
-            <div className="p-3.5 rounded-panel border border-borderBase bg-surface shadow-2xs">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-sieveBlue block mb-1">
-                MAX ALLOWED
-              </span>
-              <span className="text-base sm:text-lg font-bold font-mono text-sieveBlue tabular-nums block">
-                {checkResult?.price.maxBuyUsd
-                  ? `$${checkResult.price.maxBuyUsd}`
-                  : refPrice
-                  ? `$${(refPrice * (1 + userLimitPct / 100)).toFixed(2)}`
-                  : "—"}
-              </span>
-              <span className="text-[10px] text-sieveBlue/80 mt-0.5 block">+{userLimitPct.toFixed(1)}% ceiling</span>
-            </div>
-
-            {/* Live Buy Price */}
-            <div className="p-3.5 rounded-panel border border-borderBase bg-surface shadow-2xs">
-              <span className="text-[10px] font-mono uppercase tracking-wider text-secondaryText block mb-1">
-                LIVE BUY PRICE
-              </span>
-              <span
-                className={`text-base sm:text-lg font-bold font-mono tabular-nums block ${
-                  checkResult?.price.currentBuyUsd
-                    ? bannerState === "GOOD_TO_GO"
-                      ? "text-sieveGreen"
-                      : "text-sieveRed"
-                    : "text-secondaryText"
-                }`}
-              >
-                {checkResult?.price.currentBuyUsd
-                  ? `$${checkResult.price.currentBuyUsd}`
-                  : "—"}
-              </span>
-              <span className="text-[10px] text-mutedText mt-0.5 block">
-                {checkResult?.price.premiumPct
-                  ? `${parseFloat(checkResult.price.premiumPct) >= 0 ? "+" : ""}${checkResult.price.premiumPct}% premium`
-                  : "Awaiting check"}
-              </span>
-            </div>
-          </div>
-
-          {/* Sieve Core Signature: Price Boundary Rail */}
-          <PriceRail
-            referencePriceUsd={refPrice}
-            currentBuyPriceUsd={currentBuyPrice}
-            userLimitPct={userLimitPct}
-            onLimitChange={setUserLimitPct}
-            interactive={true}
-          />
-
-          {/* Analytical Decision State Banner */}
-          <StateBanner
-            state={bannerState}
-            title={checkResult?.display.title}
-            message={checkResult?.display.message}
-            premiumPct={checkResult?.price.premiumPct}
-            limitPct={userLimitPct.toFixed(2)}
-            onRefresh={handleCheckPrice}
-          />
-        </div>
+        </section>
       </div>
 
       {/* Review Dialog */}

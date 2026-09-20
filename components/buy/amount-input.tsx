@@ -35,15 +35,15 @@ export function AmountInput({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-1.5">
+      <div className="mb-2 flex items-center justify-between">
         <label
           htmlFor={inputId}
-          className="text-[11px] font-mono uppercase tracking-wider text-secondaryText"
+          className="text-sm font-medium text-secondaryText"
         >
           Amount
         </label>
-        <span id={helperId} className="text-[11px] text-mutedText">
-          Capital to deploy
+        <span id={helperId} className="text-xs text-mutedText">
+          Amount to spend
         </span>
       </div>
 
@@ -58,28 +58,28 @@ export function AmountInput({
           disabled={disabled}
           aria-invalid={error ? "true" : "false"}
           aria-describedby={error ? errorId : helperId}
-          className={`w-full rounded-btn bg-surface border px-3.5 py-2.5 pr-20 text-lg font-bold font-mono tabular-nums text-primaryText placeholder:text-mutedText shadow-2xs focus:outline-none focus:ring-1 min-h-[46px] ${
+          className={`min-h-14 w-full border bg-background px-4 py-3 pr-20 text-2xl font-medium tabular-nums text-primaryText placeholder:text-mutedText focus:outline-none focus:ring-1 ${
             error
               ? "border-sieveRed focus:ring-sieveRed"
-              : "border-borderBase focus:ring-primaryText"
+              : "border-borderBase focus:ring-sieveBlue focus:border-sieveBlue"
           } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         />
         <div className="absolute inset-y-0 right-2.5 flex items-center pointer-events-none">
-          <span className="rounded-[4px] bg-surface-subtle border border-borderBase px-2 py-0.5 text-xs font-mono font-bold text-secondaryText">
+          <span className="font-mono text-xs font-medium text-sieveBlue">
             {asset}
           </span>
         </div>
       </div>
 
       {/* Preset Amount Chips */}
-      <div className="mt-2 flex items-center gap-1.5 flex-wrap" aria-label="Preset amounts">
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2" aria-label="Preset amounts">
         {presets.map((preset) => (
           <button
             key={preset}
             type="button"
             disabled={disabled}
             onClick={() => onChange(preset)}
-            className="rounded-[4px] bg-surface border border-borderBase px-2 py-0.5 text-[11px] font-mono font-medium text-secondaryText hover:text-primaryText hover:bg-surface-subtle transition-colors min-h-[28px] tabular-nums"
+            className="min-h-11 border-b border-transparent px-0 text-xs font-medium text-secondaryText tabular-nums transition-colors duration-150 hover:border-sieveBlue hover:text-primaryText"
           >
             +{preset} {asset}
           </button>
@@ -88,7 +88,7 @@ export function AmountInput({
 
       {/* Error Message */}
       {error && (
-        <p id={errorId} className="mt-1.5 text-xs text-sieveRed font-medium" role="alert">
+        <p id={errorId} className="mt-2 text-sm font-medium text-sieveRed" role="alert">
           {error}
         </p>
       )}

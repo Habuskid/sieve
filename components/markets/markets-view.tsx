@@ -64,14 +64,10 @@ export function MarketsView({ network }: MarketsViewProps) {
     <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
       {/* Practice mode environment strip */}
       {network === "testnet" && (
-        <div className="mb-4 rounded-[4px] border border-amber-300 bg-sieveAmber-soft px-3.5 py-1.5 text-xs text-amber-900 flex items-center justify-between">
-          <span className="font-mono text-[11px] font-semibold tracking-wider">
-            ENVIRONMENT: PRACTICE MODE (TEST FIXTURES — ZERO FUNDS REQUIRED)
-          </span>
-          <span className="text-[11px] text-amber-800 hidden sm:inline">
-            Switch to Mainnet in the top navigation for live PreStocks data
-          </span>
-        </div>
+        <p className="mb-5 flex items-center gap-2 text-sm text-secondaryText">
+          <span className="size-1.5 rounded-full bg-sieveAmber" aria-hidden="true" />
+          Practice mode. Simulated data.
+        </p>
       )}
 
       {/* Page Header Toolbar */}

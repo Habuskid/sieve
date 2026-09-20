@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useId } from "react";
+import { cn } from "@/lib/utils";
 
 export interface PriceRailProps {
-  referencePriceUsd: number;
+  referencePriceUsd: number | null;
   currentBuyPriceUsd: number | null;
-  userLimitPct: number; // e.g. 5.0 for +5%
+  userLimitPct: number;
   onLimitChange?: (newLimitPct: number) => void;
   interactive?: boolean;
   minLimitPct?: number;
@@ -13,6 +14,8 @@ export interface PriceRailProps {
   step?: number;
   className?: string;
 }
+
+const ticks = Array.from({ length: 17 });
 
 export function PriceRail({
   referencePriceUsd,
@@ -26,170 +29,48 @@ export function PriceRail({
   className = "",
 }: PriceRailProps) {
   const sliderId = useId();
-
-  // Calculate prices
-  const maxBuyPriceUsd = referencePriceUsd * (1 + userLimitPct / 100);
+  const hasReference = referencePriceUsd !== null && referencePriceUsd > 0;
+  const maxBuyPriceUsd = hasReference
+    ? referencePriceUsd * (1 + userLimitPct / 100)
+    : null;
   const currentPremiumPct =
-    currentBuyPriceUsd && referencePriceUsd > 0
+    currentBuyPriceUsd !== null && hasReference
       ? ((currentBuyPriceUsd - referencePriceUsd) / referencePriceUsd) * 100
       : null;
+  const passesLimit = currentPremiumPct === null ? null : currentPremiumPct <= userLimitPct;
 
-  const isGoodToGo =
-    currentPremiumPct !== null ? currentPremiumPct <= userLimitPct : true;
+  const visualMax = Math.max(10, userLimitPct * 1.75, (currentPremiumPct ?? 0) + 2);
+  const startPosition = 4;
+  const mapPremium = (premium: number) =>
+    Math.min(96, Math.max(startPosition, startPosition + (premium / visualMax) * 92));
+  const limitPosition = mapPremium(userLimitPct);
+  const routePosition = currentPremiumPct === null ? null : mapPremium(currentPremiumPct);
 
-  // Rail mapping scale: 0% to maxLimitPct (or higher if market price exceeds maxLimitPct)
-  const railMaxPct = Math.max(maxLimitPct, (currentPremiumPct ?? 0) + 2);
-  const userLimitPosition = Math.min(
-    100,
-    Math.max(0, (userLimitPct / railMaxPct) * 100)
-  );
-  const marketPosition =
-    currentPremiumPct !== null
-      ? Math.min(100, Math.max(0, (currentPremiumPct / railMaxPct) * 100))
-      : null;
+  const formatPrice = (price: number | null) =>
+    price === null ? "—" : `$${price.toFixed(2)}`;
 
-  // Text alternative for screen readers per ACCESSIBILITY.md
-  const screenReaderText = currentBuyPriceUsd
-    ? `Reference $${referencePriceUsd.toFixed(2)}. Your maximum price $${maxBuyPriceUsd.toFixed(
-        2
-      )}. Current buy price $${currentBuyPriceUsd.toFixed(2)}. ${
-        isGoodToGo ? "Current price is inside your limit." : "Current price is outside your limit."
+  const screenReaderText = hasReference
+    ? `Reference price ${formatPrice(referencePriceUsd)}. Maximum price ${formatPrice(maxBuyPriceUsd)}. ${
+        currentBuyPriceUsd === null
+          ? "Route price has not been checked."
+          : `Route price ${formatPrice(currentBuyPriceUsd)}. The route ${passesLimit ? "passes" : "exceeds"} your limit.`
       }`
-    : `Reference $${referencePriceUsd.toFixed(2)}. Your maximum price $${maxBuyPriceUsd.toFixed(2)}.`;
+    : "Price data is unavailable. Route price has not been checked.";
 
   return (
-    <div
-      className={`rounded-panel bg-surface border border-borderBase p-5 shadow-xs ${className}`}
-      aria-labelledby={`${sliderId}-label`}
-    >
-      {/* Accessible Text Alternative (SR-only) */}
-      <div className="sr-only" aria-live="polite">
-        {screenReaderText}
-      </div>
+    <section className={cn("relative", className)} aria-labelledby={`${sliderId}-label`}>
+      <p className="sr-only" aria-live="polite">{screenReaderText}</p>
 
-      {/* Rail Scale Title */}
-      <div className="flex items-center justify-between gap-4 pb-3 border-b border-borderBase mb-4">
-        <span
-          id={`${sliderId}-label`}
-          className="text-[11px] font-mono uppercase tracking-wider text-secondaryText font-semibold"
-        >
-          Price Boundary Rail
-        </span>
-        <span className="font-mono text-xs text-secondaryText tabular-nums">
-          Reference: ${referencePriceUsd.toFixed(2)}
-        </span>
-      </div>
-
-      {/* Horizontal Precision Scale Track */}
-      <div className="relative pt-6 pb-10">
-        {/* 2px Base Rule */}
-        <div className="h-[2px] w-full bg-borderStrong relative overflow-visible">
-          {/* Allowed Region: Extremely subtle sky-blue tint up to user limit */}
-          <div
-            className="absolute left-0 -top-[1px] -bottom-[1px] bg-sieveBlue-soft border-r border-sieveBlue"
-            style={{ width: `${userLimitPosition}%` }}
-            aria-hidden="true"
-          />
-        </div>
-
-        {/* Reference Marker: Graphite */}
-        <div
-          className="absolute top-2 flex flex-col items-center -translate-x-1/2"
-          style={{ left: "0%" }}
-          aria-hidden="true"
-        >
-          <div className="h-4 w-[2px] bg-primaryText" />
-          <span className="text-[10px] font-mono font-semibold text-primaryText mt-1 whitespace-nowrap">
-            Ref $0%
-          </span>
-        </div>
-
-        {/* User Maximum Marker: Blue */}
-        <div
-          className="absolute top-1 flex flex-col items-center -translate-x-1/2 transition-all duration-150"
-          style={{ left: `${userLimitPosition}%` }}
-          aria-hidden="true"
-        >
-          <div className="h-6 w-[2px] bg-sieveBlue" />
-          <span className="text-[10px] font-mono font-bold text-sieveBlue mt-1 tabular-nums whitespace-nowrap">
-            Limit +{userLimitPct.toFixed(1)}% (${maxBuyPriceUsd.toFixed(2)})
-          </span>
-        </div>
-
-        {/* Current Executable Marker: Green if inside, Red if outside */}
-        {marketPosition !== null && currentBuyPriceUsd !== null && (
-          <div
-            className="absolute top-0 flex flex-col items-center -translate-x-1/2 transition-all duration-300 ease-out z-10"
-            style={{ left: `${marketPosition}%` }}
-            aria-hidden="true"
-          >
-            <div
-              className={`h-8 w-[2px] ${
-                isGoodToGo ? "bg-sieveGreen" : "bg-sieveRed"
-              }`}
-            />
-            <span
-              className={`text-[10px] font-mono font-bold mt-1 tabular-nums whitespace-nowrap px-1.5 py-0.5 rounded-[2px] border ${
-                isGoodToGo
-                  ? "bg-sieveGreen-soft text-sieveGreen border-emerald-300"
-                  : "bg-sieveRed-soft text-sieveRed border-rose-300"
-              }`}
-            >
-              Live {currentPremiumPct! >= 0 ? "+" : ""}
-              {currentPremiumPct!.toFixed(1)}% (${currentBuyPriceUsd.toFixed(2)})
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Comparison & Status Strip */}
-      {currentBuyPriceUsd !== null && (
-        <div className="pt-3 border-t border-borderBase space-y-2">
-          {/* Concise Comparison */}
-          <div className="flex items-center justify-between text-xs font-mono">
-            <span className="text-secondaryText">EXECUTION CHECK:</span>
-            <span
-              className={`font-semibold tabular-nums ${
-                isGoodToGo ? "text-sieveGreen" : "text-sieveRed"
-              }`}
-            >
-              {isGoodToGo
-                ? `$${currentBuyPriceUsd.toFixed(2)} live ≤ $${maxBuyPriceUsd.toFixed(2)} maximum`
-                : `$${currentBuyPriceUsd.toFixed(2)} live > $${maxBuyPriceUsd.toFixed(2)} maximum`}
-            </span>
-          </div>
-
-          {/* Thin Status Strip */}
-          <div
-            className={`flex items-center gap-2 py-1.5 px-2.5 rounded-[4px] border text-xs font-mono ${
-              isGoodToGo
-                ? "bg-sieveGreen-soft border-emerald-200 text-sieveGreen"
-                : "bg-sieveRed-soft border-rose-200 text-sieveRed"
-            }`}
-          >
-            <span
-              className={`h-2 w-2 rounded-full shrink-0 ${
-                isGoodToGo ? "bg-sieveGreen" : "bg-sieveRed"
-              }`}
-              aria-hidden="true"
-            />
-            <span className="font-semibold">
-              {isGoodToGo ? "Inside your limit" : "Outside your limit"}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Interactive Slider Input for Limit */}
       {interactive && onLimitChange && (
-        <div className="mt-4 pt-3 border-t border-borderBase">
-          <div className="flex items-center justify-between text-xs text-secondaryText mb-1.5">
-            <label htmlFor={sliderId} className="font-mono text-[11px] uppercase tracking-wider text-secondaryText font-medium">
-              Adjust limit:
-            </label>
-            <span className="font-mono font-bold text-sieveBlue tabular-nums">
-              +{userLimitPct.toFixed(1)}% (max ${maxBuyPriceUsd.toFixed(2)})
-            </span>
+        <div className="border-b border-borderBase pb-8">
+          <div className="flex items-baseline justify-between gap-6">
+            <div>
+              <label id={`${sliderId}-label`} htmlFor={sliderId} className="text-base font-medium text-primaryText">
+                Maximum premium
+              </label>
+              <p className="mt-1 text-sm text-mutedText">The most you&apos;ll accept above the reference price.</p>
+            </div>
+            <span className="text-xl font-medium text-sieveBlue tabular-nums">+{userLimitPct.toFixed(1)}%</span>
           </div>
           <input
             id={sliderId}
@@ -198,19 +79,87 @@ export function PriceRail({
             max={maxLimitPct}
             step={step}
             value={userLimitPct}
-            onChange={(e) => onLimitChange(parseFloat(e.target.value))}
-            className="w-full h-1.5 bg-surface-subtle border border-borderBase rounded-[2px] appearance-none cursor-pointer accent-sieveBlue focus:outline-none focus:ring-1 focus:ring-sieveBlue"
+            onChange={(event) => onLimitChange(Number.parseFloat(event.target.value))}
+            className="price-range mt-5 h-11 w-full cursor-pointer appearance-none bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
             aria-valuemin={minLimitPct}
             aria-valuemax={maxLimitPct}
             aria-valuenow={userLimitPct}
-            aria-valuetext={`+${userLimitPct.toFixed(1)} percent, maximum price $${maxBuyPriceUsd.toFixed(2)}`}
+            aria-valuetext={`+${userLimitPct.toFixed(1)} percent${maxBuyPriceUsd === null ? "" : `, maximum price ${formatPrice(maxBuyPriceUsd)}`}`}
           />
-          <div className="flex justify-between text-[10px] font-mono text-mutedText mt-1">
-            <span>+{minLimitPct}% (At reference)</span>
-            <span>+{maxLimitPct}%</span>
+          <div className="flex justify-between text-xs text-mutedText tabular-nums">
+            <span>0%</span>
+            <span>{maxLimitPct}%</span>
           </div>
         </div>
       )}
+
+      <div className="mt-8 grid grid-cols-3 gap-4 sm:gap-8">
+        <PriceDatum label="Reference price" value={formatPrice(referencePriceUsd)} />
+        <PriceDatum label="Maximum price" value={formatPrice(maxBuyPriceUsd)} accent />
+        <PriceDatum label="Route price" value={formatPrice(currentBuyPriceUsd)} state={passesLimit} />
+      </div>
+
+      <div className="relative mt-8 pb-8 pt-7 select-none" aria-hidden="true">
+        <div className="absolute inset-x-0 top-7 flex justify-between">
+          {ticks.map((_, index) => (
+            <span key={index} className={cn("w-px bg-borderStrong", index % 4 === 0 ? "h-3" : "h-1.5")} />
+          ))}
+        </div>
+        <div className="relative mt-3 h-px bg-borderStrong">
+          <div className="absolute inset-y-0 left-0 bg-sieveBlue" style={{ width: `${limitPosition}%` }} />
+          <div className="absolute top-1/2 h-12 w-px -translate-y-1/2 bg-sieveBlue" style={{ left: `${limitPosition}%` }} />
+          {routePosition !== null && (
+            <div className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2" style={{ left: `${routePosition}%` }}>
+              <span className={cn("block size-3 rounded-full border-2 border-surface", passesLimit ? "bg-sieveGreen" : "bg-sieveRed")} />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="border-t border-borderBase pt-6" role={passesLimit === false ? "alert" : "status"} aria-live="polite">
+        {passesLimit === null ? (
+          <p className="text-sm leading-6 text-secondaryText">Check the route to compare it with your limit.</p>
+        ) : passesLimit ? (
+          <p className="flex items-center gap-2 text-sm font-medium text-primaryText">
+            <span className="size-2 rounded-full bg-sieveGreen" aria-hidden="true" />
+            The price is inside your limit.
+          </p>
+        ) : (
+          <div>
+            <p className="flex items-center gap-2 text-sm font-medium text-primaryText">
+              <span className="size-2 rounded-full bg-sieveRed" aria-hidden="true" />
+              Price exceeds your limit.
+            </p>
+            <p className="mt-1 pl-4 text-sm text-secondaryText">No transaction was created.</p>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PriceDatum({
+  label,
+  value,
+  accent = false,
+  state = null,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  state?: boolean | null;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs text-mutedText">{label}</p>
+      <p
+        className={cn(
+          "mt-2 truncate text-xl font-medium tabular-nums sm:text-2xl",
+          accent ? "text-sieveBlue" : state === true ? "text-sieveGreen" : state === false ? "text-sieveRed" : "text-primaryText"
+        )}
+      >
+        {value}
+      </p>
     </div>
   );
 }

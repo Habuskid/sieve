@@ -35,44 +35,45 @@ export function NetworkToggle({
       <div
         role="group"
         aria-label="Network selection"
-        className="inline-flex items-center rounded-btn bg-surface border border-borderBase p-0.5 text-xs font-mono"
+        className="inline-flex items-center gap-1 border-r border-borderBase pr-2 text-xs sm:pr-4"
       >
         <button
           type="button"
           onClick={() => handleToggleClick("mainnet")}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] transition-colors min-h-[32px] ${
+          className={`min-h-11 items-center gap-2 px-2 transition-colors duration-150 ${
             currentNetwork === "mainnet"
-              ? "bg-primaryText text-white font-semibold"
-              : "text-secondaryText hover:text-primaryText hover:bg-surface-subtle"
+              ? "flex text-primaryText font-medium"
+              : "hidden text-mutedText hover:text-secondaryText sm:flex"
           }`}
           aria-pressed={currentNetwork === "mainnet"}
         >
           <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              currentNetwork === "mainnet" ? "bg-emerald-400" : "bg-mutedText"
+            className={`size-1.5 rounded-full ${
+              currentNetwork === "mainnet" ? "bg-sieveBlue" : "bg-mutedText"
             }`}
             aria-hidden="true"
           />
-          <span className="tracking-wider">Mainnet</span>
+          <span>Mainnet</span>
         </button>
 
         <button
           type="button"
+          aria-label="Practice mode"
           onClick={() => handleToggleClick("testnet")}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-[4px] transition-colors min-h-[32px] ${
+          className={`min-h-11 items-center gap-2 px-2 transition-colors duration-150 ${
             currentNetwork === "testnet"
-              ? "bg-sieveAmber text-white font-semibold"
-              : "text-secondaryText hover:text-primaryText hover:bg-surface-subtle"
+              ? "flex text-primaryText font-medium"
+              : "hidden text-mutedText hover:text-secondaryText sm:flex"
           }`}
           aria-pressed={currentNetwork === "testnet"}
         >
           <span
-            className={`h-1.5 w-1.5 rounded-full ${
-              currentNetwork === "testnet" ? "bg-amber-300" : "bg-mutedText"
+            className={`size-1.5 rounded-full ${
+              currentNetwork === "testnet" ? "bg-amber-400" : "bg-mutedText"
             }`}
             aria-hidden="true"
           />
-          <span className="tracking-wider">Practice mode</span>
+          <span>Practice</span>
         </button>
       </div>
 
@@ -82,7 +83,7 @@ export function NetworkToggle({
           role="dialog"
           aria-modal="true"
           aria-labelledby="dialog-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setIsDialogOpen(false);
@@ -90,16 +91,16 @@ export function NetworkToggle({
             }
           }}
         >
-          <div className="w-full max-w-md rounded-panel bg-surface p-6 shadow-xl border border-borderBase animate-in fade-in zoom-in-95">
+          <div className="w-full max-w-md rounded-panel bg-surface p-6 shadow-2xl border border-borderStrong animate-in fade-in zoom-in-95">
             <div className="flex items-start gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[6px] bg-sieveBlue-soft text-sieveBlue">
+              <div className="flex size-10 shrink-0 items-center justify-center text-sieveBlue">
                 <AlertCircle className="h-5 w-5" aria-hidden="true" />
               </div>
               <div className="space-y-1">
-                <h3 id="dialog-title" className="text-base font-bold text-primaryText">
+                <h3 id="dialog-title" className="text-base font-semibold text-primaryText">
                   Switch to {pendingNetwork === "mainnet" ? "Mainnet" : "Practice mode"}?
                 </h3>
-                <p className="text-xs text-secondaryText leading-relaxed">
+                <p className="text-xs text-secondaryText leading-relaxed pt-1">
                   {pendingNetwork === "mainnet"
                     ? "Mainnet connects to live Solana market liquidity and real PreStocks assets. Any active practice check will be cleared."
                     : "Practice mode uses deterministic test data so you can test price checks and limits without using real funds."}
@@ -114,14 +115,14 @@ export function NetworkToggle({
                   setIsDialogOpen(false);
                   setPendingNetwork(null);
                 }}
-                className="rounded-btn border border-borderBase px-3.5 py-2 text-xs font-semibold text-secondaryText hover:bg-surface-subtle hover:text-primaryText transition-colors min-h-[38px]"
+                className="min-h-11 border border-borderStrong px-4 py-2 text-sm font-medium text-secondaryText transition-colors duration-150 hover:text-primaryText"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={confirmSwitch}
-                className="rounded-btn bg-primaryText px-4 py-2 text-xs font-semibold text-white hover:bg-primaryText/90 transition-colors min-h-[38px]"
+                className="min-h-11 bg-sieveBlue px-4 py-2 text-sm font-semibold text-slate-950 transition-colors duration-150 hover:bg-sieveBlue-hover"
               >
                 Switch Network
               </button>

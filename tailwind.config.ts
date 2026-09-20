@@ -10,38 +10,46 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "#F7FAFD",
+        background: "#101722",
         surface: {
-          DEFAULT: "#FFFFFF",
-          subtle: "#F1F6FA",
+          DEFAULT: "#151E2B",
+          subtle: "#1A2635",
+          elevated: "#202E40",
         },
-        primaryText: "#0B1220",
-        secondaryText: "#526173",
-        mutedText: "#7B8796",
-        borderBase: "#DCE5ED",
-        borderStrong: "#C4D0DB",
+        primaryText: "#F1F5F9",
+        secondaryText: "#B3C0CE",
+        mutedText: "#7F90A3",
+        borderBase: "#263446",
+        borderStrong: "#35475D",
         sieveBlue: {
-          DEFAULT: "#1473E6",
-          soft: "#EAF4FF",
-          hover: "#0D5CBF",
+          DEFAULT: "#55BFF4",
+          soft: "rgba(85, 191, 244, 0.1)",
+          hover: "#7CCCF5",
+        },
+        sieveCyan: {
+          DEFAULT: "#06B6D4",
+          soft: "rgba(6, 182, 212, 0.1)",
+          hover: "#0891B2",
         },
         sieveGreen: {
-          DEFAULT: "#0E7653",
-          soft: "#EDF8F3",
+          DEFAULT: "#10B981",
+          soft: "rgba(16, 185, 129, 0.12)",
+          hover: "#059669",
         },
         sieveRed: {
-          DEFAULT: "#B83A36",
-          soft: "#FFF2F1",
+          DEFAULT: "#F43F5E",
+          soft: "rgba(244, 63, 94, 0.12)",
+          hover: "#E11D48",
         },
         sieveAmber: {
-          DEFAULT: "#8A6200",
-          soft: "#FFF8E8",
+          DEFAULT: "#F59E0B",
+          soft: "rgba(245, 158, 11, 0.12)",
         },
       },
       borderRadius: {
-        panel: "0.5rem", // 8px
-        card: "0.375rem", // 6px
-        btn: "0.375rem", // 6px
+        panel: "2px",
+        card: "2px",
+        btn: "2px",
       },
     },
   },
