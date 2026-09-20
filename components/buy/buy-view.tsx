@@ -15,7 +15,8 @@ import { TradeReceiptView } from "../receipt/trade-receipt-view";
 import type { NetworkMode, FundingAsset, TradeReceipt } from "@/core/domain/types";
 import type { CheckResponseDto } from "@/server/services/check-service";
 import type { MarketItem } from "../markets/market-row";
-import { ArrowRight, RefreshCw } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import { RefreshMark } from "@/components/ui/refresh-mark";
 
 interface BuildData {
   buildIntentId: string;
@@ -457,7 +458,7 @@ export function BuyView({ network }: BuyViewProps) {
               disabled={checking}
               className="sieve-control-primary min-h-11 px-6 py-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sieveBlue"
             >
-              {checking && <RefreshCw className="size-4 animate-spin" aria-hidden="true" />}
+              {checking && <RefreshMark loading />}
               {checking ? "Checking today's price…" : "Check today's price"}
             </button>
           )}
