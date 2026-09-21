@@ -7,9 +7,12 @@ import { TokenIcon } from "@/components/ui/token-icon";
 interface AmountInputProps {
   value: string;
   onChange: (value: string) => void;
-  asset: FundingAsset;
+  asset: string;
   disabled?: boolean;
   error?: string | null;
+  side?: "BUY" | "SELL";
+  helperText?: string;
+  presets?: string[];
 }
 
 export function AmountInput({
@@ -18,6 +21,9 @@ export function AmountInput({
   asset,
   disabled = false,
   error = null,
+  side = "BUY",
+  helperText,
+  presets: customPresets,
 }: AmountInputProps) {
   const inputId = useId();
   const errorId = `${inputId}-error`;
@@ -25,7 +31,9 @@ export function AmountInput({
 
   const usdcPresets = ["50", "100", "250", "500"];
   const solPresets = ["0.5", "1", "2.5", "5"];
-  const presets = asset === "USDC" ? usdcPresets : solPresets;
+  const defaultPresets =
+    side === "SELL" ? [] : asset === "USDC" ? usdcPresets : asset === "SOL" ? solPresets : [];
+  const presets = customPresets !== undefined ? customPresets : defaultPresets;
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
@@ -33,6 +41,8 @@ export function AmountInput({
       onChange(val);
     }
   };
+
+  const isFunding = asset === "USDC" || asset === "SOL";
 
   return (
     <div>
@@ -44,7 +54,7 @@ export function AmountInput({
           Amount
         </label>
         <span id={helperId} className="text-xs text-mutedText">
-          Amount to spend
+          {helperText || (side === "SELL" ? "Amount to sell" : "Amount to spend")}
         </span>
       </div>
 
@@ -66,27 +76,29 @@ export function AmountInput({
           } ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}
         />
         <div className="absolute inset-y-0 right-0 flex items-center gap-1.5 pointer-events-none">
-          <TokenIcon asset={asset} size={16} />
+          {isFunding && <TokenIcon asset={asset as FundingAsset} size={16} />}
           <span className="font-mono text-xs font-medium text-sieveBlue">
             {asset}
           </span>
         </div>
       </div>
 
-      {/* Preset Amount Chips */}
-      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2" aria-label="Preset amounts">
-        {presets.map((preset) => (
-          <button
-            key={preset}
-            type="button"
-            disabled={disabled}
-            onClick={() => onChange(preset)}
-            className="min-h-11 border-b border-transparent px-0 text-xs font-medium text-secondaryText tabular-nums transition-colors duration-150 hover:border-sieveBlue hover:text-primaryText"
-          >
-            +{preset} {asset}
-          </button>
-        ))}
-      </div>
+      {/* Preset Amount Chips (Buy only or when explicit) */}
+      {presets.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2" aria-label="Preset amounts">
+          {presets.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              disabled={disabled}
+              onClick={() => onChange(preset)}
+              className="min-h-11 border-b border-transparent px-0 text-xs font-medium text-secondaryText tabular-nums transition-colors duration-150 hover:border-sieveBlue hover:text-primaryText"
+            >
+              +{preset} {asset}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Error Message */}
       {error && (

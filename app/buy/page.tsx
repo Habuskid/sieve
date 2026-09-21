@@ -2,11 +2,8 @@
 
 import React, { Suspense } from "react";
 import { BuyView } from "@/components/buy/buy-view";
-import { useNetwork } from "@/components/app-shell/network-context";
 
 export default function BuyPage() {
-  const { network } = useNetwork();
-
   return (
     <Suspense
       fallback={
@@ -21,7 +18,7 @@ export default function BuyPage() {
         </div>
       }
     >
-      <BuyView network={network} />
+      <BuyView />
     </Suspense>
   );
 }

@@ -10,21 +10,10 @@ const ConfirmRequestSchema = z
   .object({
     buildIntentId: z.string().uuid("buildIntentId must be a valid UUID"),
     signature: z.string().min(32).max(128, "Signature must be a valid Solana transaction signature").optional(),
-    signedTransaction: z.string().min(10, "signedTransaction must be a valid base64 string").optional(),
+    signedTransaction: z.string().min(10, "signedTransaction must be a valid base64 string"),
     wallet: z.string().min(32).max(44).optional(),
-    network: z.enum(["mainnet", "testnet"]).optional(),
   })
-  .refine((data) => data.signature || data.signedTransaction, {
-    message: "Either signature or signedTransaction must be provided",
-  })
-  .refine((data) => {
-    if (data.network === "mainnet" && !data.signedTransaction) {
-      return false;
-    }
-    return true;
-  }, {
-    message: "Mainnet confirmation requires signedTransaction",
-  });
+  .strict();
 
 export async function POST(request: NextRequest) {
   try {
@@ -71,7 +60,6 @@ export async function POST(request: NextRequest) {
       signature: data.signature,
       signedTransaction: data.signedTransaction,
       wallet: data.wallet,
-      network: data.network,
     });
 
     return NextResponse.json(response);

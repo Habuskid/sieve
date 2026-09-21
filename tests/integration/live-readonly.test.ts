@@ -7,67 +7,7 @@ import { evaluatePriceBoundary } from "../../core/policy/evaluator";
 import { displayToRaw, toDecimal, rawToEconomicDisplay } from "../../core/money/decimal";
 import { deriveAllowedExecutionTolerance } from "../../core/protection/slippage";
 import { JupiterOrderResponseSchema } from "../../server/jupiter/schema";
-
-/**
- * Strict external outcome classification per Sieve audit contract:
- * BLOCKED_EXTERNAL may ONLY cover clearly external conditions:
- * - missing JUPITER_API_KEY
- * - missing READONLY_TAKER_WALLET
- * - documented Jupiter NO_ROUTE / COULD_NOT_FIND_ANY_ROUTE
- * - HTTP 429
- * - RPC/network timeout/unavailability
- * - documented upstream 5xx
- * Schema errors, math errors, assertion failures, invalid public keys, policy failures,
- * unexpected 4xx responses, and programming exceptions must FAIL the test.
- */
-function classifyExternalError(err: unknown): { isExternal: boolean; reason: string } {
-  if (!err) return { isExternal: false, reason: "Unknown error" };
-  const msg = err instanceof Error ? err.message : String(err);
-
-  // Missing credentials or wallet in environment
-  if (msg.includes("READONLY_TAKER_WALLET") || msg.includes("JUPITER_API_KEY")) {
-    return { isExternal: true, reason: msg };
-  }
-
-  // Documented Jupiter NO_ROUTE / COULD_NOT_FIND_ANY_ROUTE
-  if (
-    msg.includes("NO_ROUTE") ||
-    msg.includes("COULD_NOT_FIND_ANY_ROUTE") ||
-    msg.includes("No routes found")
-  ) {
-    return { isExternal: true, reason: `Jupiter route unavailable: ${msg}` };
-  }
-
-  // HTTP 429 Rate Limit
-  if (msg.includes("429") || msg.toLowerCase().includes("rate limit")) {
-    return { isExternal: true, reason: `Rate limit encountered: ${msg}` };
-  }
-
-  // RPC/network timeout / network drop / unavailability
-  if (
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("ENOTFOUND") ||
-    msg.includes("ECONNREFUSED") ||
-    msg.includes("ECONNRESET") ||
-    msg.includes("timed out") ||
-    msg.includes("timeout") ||
-    msg.includes("fetch failed")
-  ) {
-    return { isExternal: true, reason: `Network/RPC timeout or connection drop: ${msg}` };
-  }
-
-  // Documented upstream 5xx (500, 502, 503, 504)
-  if (
-    msg.includes("500") ||
-    msg.includes("502") ||
-    msg.includes("503") ||
-    msg.includes("504")
-  ) {
-    return { isExternal: true, reason: `Upstream service 5xx response: ${msg}` };
-  }
-
-  return { isExternal: false, reason: msg };
-}
+import { classifyUnsignedOrderWalletBlocker } from "../helpers/live-wallet-blockers";
 
 describe("Phase 9: Mainnet Read-Only Live Integration", () => {
   it("queries real PreStocks markets and Jupiter V2 routes in read-only mode", async () => {
@@ -81,6 +21,7 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
       expect(openAi).toBeDefined();
       expect(openAi!.mint).toBe("PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF");
       expect(parseFloat(openAi!.referencePriceUsd)).toBeGreaterThan(0);
+      console.log("[PreStocks Live Probe] Outcome: PASS - current registry fetched and validated");
 
       // 2. Authoritative on-chain Token-2022 inspection:
       // Verify that Sieve correctly supports and parses all parameters using dynamic on-chain state.
@@ -90,6 +31,7 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
       expect(openAiMetadata.transferFeeBasisPoints).toBeGreaterThanOrEqual(0);
       expect(openAiMetadata.scaledUiAmount?.activeMultiplier).toBeDefined();
       expect(toDecimal(openAiMetadata.scaledUiAmount!.activeMultiplier).gt(0)).toBe(true);
+      console.log("[Solana Mainnet RPC Probe] Outcome: PASS - Token-2022 mint metadata resolved");
 
       // 3. Query live Jupiter V2 quote for canonical USDC -> WSOL in read-only mode
       const usdcAmount = "10"; // 10 USDC
@@ -105,6 +47,7 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
 
       expect(usdcQuoteResult.quote.outputMint).toBe(CANONICAL_MINTS.mainnet.WSOL);
       expect(toDecimal(usdcQuoteResult.quote.expectedTargetAmount).toNumber()).toBeGreaterThan(0);
+      console.log("[Jupiter Live Quote Probe] Outcome: PASS - USDC to WSOL route discovered");
 
       // 4. Evaluate boundary with live data
       const solUsdPrice = await defaultJupiterAdapter.getSolUsdPrice();
@@ -124,38 +67,36 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
       // 5. Build unsigned transaction via Jupiter V2 order API
       const rawTaker = process.env.READONLY_TAKER_WALLET;
       if (!rawTaker || rawTaker.trim() === "") {
-        console.log("[USDC -> WSOL Route Test] Outcome: BLOCKED_EXTERNAL - Missing READONLY_TAKER_WALLET in environment");
-        return;
+        throw new Error("READONLY_TAKER_WALLET is required for the live unsigned-order probe");
       }
       const takerPubkey = new PublicKey(rawTaker.trim());
-      const unsignedOrder = await defaultJupiterAdapter.buildTransaction({
-        inputMint: CANONICAL_MINTS.mainnet.USDC,
-        outputMint: CANONICAL_MINTS.mainnet.WSOL,
-        amount: usdcRaw,
-        taker: takerPubkey.toBase58(),
-        outputDecimals: wsolDecimals,
-        slippageBps: 500,
-      });
+      try {
+        const unsignedOrder = await defaultJupiterAdapter.buildTransaction({
+          inputMint: CANONICAL_MINTS.mainnet.USDC,
+          outputMint: CANONICAL_MINTS.mainnet.WSOL,
+          amount: usdcRaw,
+          taker: takerPubkey.toBase58(),
+          outputDecimals: wsolDecimals,
+          slippageBps: 500,
+        });
 
-      expect(unsignedOrder.transactionBase64).toBeDefined();
-      expect(unsignedOrder.transactionBase64.length).toBeGreaterThan(50);
-      expect(unsignedOrder.requestId).toBeDefined();
+        expect(unsignedOrder.transactionBase64).toBeDefined();
+        expect(unsignedOrder.transactionBase64.length).toBeGreaterThan(50);
+        expect(unsignedOrder.requestId).toBeDefined();
+        console.log("[Jupiter Unsigned Order Probe] Outcome: PASS - unsigned order assembled without broadcast");
+      } catch (error) {
+        const blocker = classifyUnsignedOrderWalletBlocker(error);
+        if (!blocker.blocked) throw error;
+        console.log(`[Jupiter Unsigned Order Probe] Outcome: BLOCKED_EXTERNAL - ${blocker.reason}`);
+      }
 
       // 6. Verify no funds were moved: zero private keys, zero signature, zero broadcast
-    } catch (err) {
-      const { isExternal, reason } = classifyExternalError(err);
-      if (isExternal) {
-        console.log(`[USDC -> WSOL Route Test] Outcome: BLOCKED_EXTERNAL - ${reason}`);
-      } else {
-        throw err;
-      }
+    } catch (error) {
+      throw error;
     }
   }, 20000); // Allow 20s for live network calls
 
   it("queries real Jupiter Swap V2 route for USDC -> PreStocks mint in read-only mode", async () => {
-    let outcome: "PASS" | "BLOCKED_EXTERNAL" | "FAIL" = "FAIL";
-    let outcomeReason = "";
-
     try {
       // 1. Fetch live PreStocks markets
       const markets = await defaultPreStocksAdapter.fetchMarkets();
@@ -178,11 +119,7 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
       // 3. Validate READONLY_TAKER_WALLET
       const rawTaker = process.env.READONLY_TAKER_WALLET;
       if (!rawTaker || rawTaker.trim() === "") {
-        outcome = "BLOCKED_EXTERNAL";
-        outcomeReason = "Missing READONLY_TAKER_WALLET in environment";
-        console.log(`[PreStocks Route Test] Outcome: ${outcome} - ${outcomeReason}`);
-        expect(["PASS", "BLOCKED_EXTERNAL"]).toContain(outcome);
-        return;
+        throw new Error("READONLY_TAKER_WALLET is required for the live PreStock unsigned-order probe");
       }
 
       // Validate as a Solana public key before calling Jupiter (throws if invalid)
@@ -224,13 +161,14 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
       });
 
       if (!protection.isExecutable) {
-        // If route is outside configured limit, assert Sieve returns blocked outcome
-        expect(protection.isExecutable).toBe(false);
-        expect(protection.slippageBps).toBe(0);
-        outcome = "PASS";
-        outcomeReason = `Sieve protection correctly blocked route outside price limit: expected ${netEconomicTokens.toString()} tokens vs minimum ${protection.minimumAcceptableOutputDisplay}`;
-      } else {
-        // 8. Assemble unsigned transaction via Jupiter V2 order API with derived slippage
+        throw new Error(
+          `PreStock unsigned-order probe invariant blocked before assembly: expected ${netEconomicTokens.toString()} tokens vs minimum ${protection.minimumAcceptableOutputDisplay}`
+        );
+      }
+
+      try {
+        // 8. Assemble unsigned transaction via Jupiter V2 order API with derived slippage.
+        // This is read-only: the returned transaction is never signed, submitted, or executed.
         const unsignedOrder = await defaultJupiterAdapter.buildTransaction({
           inputMint: CANONICAL_MINTS.mainnet.USDC,
           outputMint: targetAsset.mint,
@@ -279,24 +217,18 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
         expect(worstCaseNetThreshold).toBeLessThanOrEqual(grossThreshold);
         expect(worstCaseNetThreshold >= protection.minimumAcceptableOutputRaw).toBe(true);
 
-        outcome = "PASS";
-        outcomeReason = `Live quote and unsigned order verified with Sieve protection (worstCaseNetThreshold: ${worstCaseNetThreshold} >= minimumAcceptableOutputRaw: ${protection.minimumAcceptableOutputRaw})`;
+        console.log(
+          `[PreStock Unsigned Order Probe] Outcome: PASS - Sieve protection verified (${worstCaseNetThreshold} >= ${protection.minimumAcceptableOutputRaw})`
+        );
+      } catch (error) {
+        const blocker = classifyUnsignedOrderWalletBlocker(error);
+        if (!blocker.blocked) throw error;
+        console.log(`[PreStock Unsigned Order Probe] Outcome: BLOCKED_EXTERNAL - ${blocker.reason}`);
       }
       // Verify no signatures, no broadcasts, no fund movement
-    } catch (err: any) {
-      const { isExternal, reason } = classifyExternalError(err);
-      if (isExternal) {
-        outcome = "BLOCKED_EXTERNAL";
-        outcomeReason = reason;
-      } else {
-        outcome = "FAIL";
-        outcomeReason = reason;
-        throw err; // Re-throw unexpected schema / math / coding failure
-      }
+    } catch (error) {
+      throw error;
     }
-
-    console.log(`[PreStocks Route Test] Outcome: ${outcome} - ${outcomeReason}`);
-    expect(["PASS", "BLOCKED_EXTERNAL"]).toContain(outcome);
   }, 20000);
 });
 

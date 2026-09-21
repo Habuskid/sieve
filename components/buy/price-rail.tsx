@@ -4,8 +4,11 @@ import React, { useId } from "react";
 import { cn } from "@/lib/utils";
 
 export interface PriceRailProps {
+  side?: "BUY" | "SELL";
   referencePriceUsd: number | null;
-  currentBuyPriceUsd: number | null;
+  boundaryPriceUsd?: number | null;
+  currentPriceUsd?: number | null;
+  currentBuyPriceUsd?: number | null;
   userLimitPct: number;
   onLimitChange?: (newLimitPct: number) => void;
   interactive?: boolean;
@@ -13,10 +16,14 @@ export interface PriceRailProps {
   maxLimitPct?: number;
   step?: number;
   className?: string;
+  userLimitLabel?: string;
 }
 
 export function PriceRail({
+  side = "BUY",
   referencePriceUsd,
+  boundaryPriceUsd,
+  currentPriceUsd,
   currentBuyPriceUsd,
   userLimitPct,
   onLimitChange,
@@ -25,43 +32,57 @@ export function PriceRail({
   maxLimitPct = 25,
   step = 0.5,
   className = "",
+  userLimitLabel,
 }: PriceRailProps) {
   const sliderId = useId();
   const hasReference = referencePriceUsd !== null && referencePriceUsd > 0;
-  const maxBuyPriceUsd = hasReference
-    ? referencePriceUsd * (1 + userLimitPct / 100)
-    : null;
-  const currentPremiumPct =
-    currentBuyPriceUsd !== null && hasReference
-      ? ((currentBuyPriceUsd - referencePriceUsd) / referencePriceUsd) * 100
+  const routePrice = currentPriceUsd ?? currentBuyPriceUsd ?? null;
+
+  const effectiveBoundaryPrice =
+    boundaryPriceUsd !== undefined && boundaryPriceUsd !== null && !Number.isNaN(boundaryPriceUsd)
+      ? boundaryPriceUsd
       : null;
+
+  const currentDiffPct =
+    routePrice !== null && hasReference
+      ? side === "SELL"
+        ? ((referencePriceUsd - routePrice) / referencePriceUsd) * 100
+        : ((routePrice - referencePriceUsd) / referencePriceUsd) * 100
+      : null;
+
   const passesLimit =
-    currentPremiumPct === null ? null : currentPremiumPct <= userLimitPct;
+    currentDiffPct === null ? null : currentDiffPct <= userLimitPct;
 
   const visualMax = Math.max(
     maxLimitPct,
     userLimitPct + 2,
-    (currentPremiumPct ?? 0) + 2
+    (currentDiffPct ?? 0) + 2
   );
 
-  const mapPremium = (premium: number) =>
-    Math.min(100, Math.max(0, (premium / visualMax) * 100));
+  const mapDiff = (diff: number) =>
+    Math.min(100, Math.max(0, (diff / visualMax) * 100));
 
-  const limitPosition = mapPremium(userLimitPct);
+  const limitPosition = mapDiff(userLimitPct);
   const routePosition =
-    currentPremiumPct === null ? null : mapPremium(currentPremiumPct);
+    currentDiffPct === null ? null : mapDiff(currentDiffPct);
 
   const sliderFill =
     ((userLimitPct - minLimitPct) / (maxLimitPct - minLimitPct)) * 100;
 
-  const formatPrice = (price: number | null) =>
-    price === null ? "—" : `$${price.toFixed(2)}`;
+  const formatPrice = (price: number | null | undefined) =>
+    price === null || price === undefined || Number.isNaN(price)
+      ? "—"
+      : `$${price.toFixed(2)}`;
+
+  const boundaryLabel =
+    userLimitLabel || (side === "SELL" ? "Maximum discount" : "Maximum premium");
+  const priceTypeLabel = side === "SELL" ? "Minimum price" : "Maximum price";
 
   const screenReaderText = hasReference
-    ? `Reference price ${formatPrice(referencePriceUsd)}. Maximum price ${formatPrice(maxBuyPriceUsd)}. ${
-        currentBuyPriceUsd === null
+    ? `Reference price ${formatPrice(referencePriceUsd)}. ${priceTypeLabel} ${formatPrice(effectiveBoundaryPrice)}. ${
+        routePrice === null
           ? "Route price has not been checked."
-          : `Route price ${formatPrice(currentBuyPriceUsd)}. The route ${
+          : `Route price ${formatPrice(routePrice)}. The route ${
               passesLimit ? "passes" : "exceeds"
             } your limit.`
       }`
@@ -81,13 +102,13 @@ export function PriceRail({
           <div className="sieve-limit-heading">
             <div>
               <label id={`${sliderId}-label`} htmlFor={sliderId}>
-                Maximum premium
+                {boundaryLabel}
               </label>
-              <p>Your transaction stops if execution moves above this limit.</p>
+              <p>You set this execution boundary.</p>
             </div>
 
             <output htmlFor={sliderId} className="sieve-limit-value">
-              +{userLimitPct.toFixed(1)}%
+              {side === "SELL" ? `-${userLimitPct.toFixed(1)}%` : `+${userLimitPct.toFixed(1)}%`}
             </output>
           </div>
 
@@ -109,10 +130,10 @@ export function PriceRail({
               aria-valuemin={minLimitPct}
               aria-valuemax={maxLimitPct}
               aria-valuenow={userLimitPct}
-              aria-valuetext={`+${userLimitPct.toFixed(1)} percent${
-                maxBuyPriceUsd === null
+              aria-valuetext={`${side === "SELL" ? `-${userLimitPct.toFixed(1)}` : `+${userLimitPct.toFixed(1)}`} percent${
+                effectiveBoundaryPrice === null
                   ? ""
-                  : `, maximum price ${formatPrice(maxBuyPriceUsd)}`
+                  : `, ${priceTypeLabel.toLowerCase()} ${formatPrice(effectiveBoundaryPrice)}`
               }`}
             />
 
@@ -130,13 +151,13 @@ export function PriceRail({
           value={formatPrice(referencePriceUsd)}
         />
         <PriceDatum
-          label="Maximum price"
-          value={formatPrice(maxBuyPriceUsd)}
+          label={priceTypeLabel}
+          value={formatPrice(effectiveBoundaryPrice)}
           accent
         />
         <PriceDatum
           label="Route price"
-          value={formatPrice(currentBuyPriceUsd)}
+          value={formatPrice(routePrice)}
           state={passesLimit}
         />
       </div>
@@ -194,10 +215,18 @@ export function PriceRail({
         {passesLimit === null ? (
           <p>Check the route to compare it with your limit.</p>
         ) : passesLimit ? (
-          <p className="is-safe">Execution is inside your maximum price.</p>
+          <p className="is-safe">
+            {side === "SELL"
+              ? "Execution is inside your minimum price."
+              : "Execution is inside your maximum price."}
+          </p>
         ) : (
           <div>
-            <p className="is-blocked">Execution exceeds your maximum price.</p>
+            <p className="is-blocked">
+              {side === "SELL"
+                ? "Execution is below your minimum price."
+                : "Execution exceeds your maximum price."}
+            </p>
             <span>No transaction was created.</span>
           </div>
         )}

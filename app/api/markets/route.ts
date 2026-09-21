@@ -1,22 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { defaultMarketService } from "@/server/services/market-service";
-import type { NetworkMode } from "@/core/domain/types";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
-    const searchParams = request.nextUrl.searchParams;
-    const network = (searchParams.get("network") || "testnet") as NetworkMode;
-
-    if (network !== "mainnet" && network !== "testnet") {
-      return NextResponse.json(
-        { error: { code: "INVALID_NETWORK", message: "Network must be 'mainnet' or 'testnet'" } },
-        { status: 400 }
-      );
-    }
-
-    const markets = await defaultMarketService.getMarkets(network);
+    const markets = await defaultMarketService.getMarkets();
     const observedAt = new Date().toISOString();
 
     const responseMarkets = markets.map((m) => {
@@ -41,8 +30,8 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.json({
-      network,
-      source: network === "mainnet" ? "PRESTOCKS" : "PRACTICE_FIXTURE",
+      network: "mainnet",
+      source: "PRESTOCKS",
       observedAt,
       markets: responseMarkets,
     });

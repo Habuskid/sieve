@@ -7,15 +7,13 @@ import { z } from "zod";
 export const dynamic = "force-dynamic";
 
 const CheckRequestSchema = z.object({
-  network: z.enum(["mainnet", "testnet"]),
   targetMint: z.string().min(32).max(44),
   fundingAsset: z.enum(["SOL", "USDC"]),
   amount: z.string().regex(/^\d+(\.\d+)?$/, "Amount must be a positive number"),
   maxPremiumPct: z.string().regex(/^-?\d+(\.\d+)?$/, "Max premium must be a valid number"),
   wallet: z.string().min(32).max(44).optional().nullable(),
   clientIntentVersion: z.string().default("v1"),
-  scenarioId: z.string().optional(),
-});
+}).strict();
 
 export async function POST(request: NextRequest) {
   try {
@@ -58,14 +56,12 @@ export async function POST(request: NextRequest) {
 
     const data = parseResult.data;
     const response = await defaultPriceCheckService.executeCheck({
-      network: data.network,
       targetMint: data.targetMint,
       fundingAsset: data.fundingAsset,
       amount: data.amount,
       maxPremiumPct: data.maxPremiumPct,
       wallet: data.wallet,
       clientIntentVersion: data.clientIntentVersion,
-      scenarioId: data.scenarioId,
     });
 
     return NextResponse.json(response);

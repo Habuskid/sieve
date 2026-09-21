@@ -9,6 +9,12 @@ import {
   deriveCurrentBuyPrice,
   derivePremiumPct,
   deriveDifferenceUsd,
+  deriveMinimumSellPrice,
+  deriveCurrentSellPrice,
+  deriveDiscountPct,
+  evaluateSellPriceBoundary,
+  deriveAllowedSellExecutionTolerance,
+  calculateMinimumSellProceedsRaw,
   isFresh,
   isExpired,
   evaluatePriceBoundary,
@@ -415,3 +421,169 @@ describe("Protection Derivation (BR-017, Audit Repair 3)", () => {
 
 
 
+
+
+describe("Sell Pricing Calculator", () => {
+  it("derives minimum sell price: M = R * (1 - D)", () => {
+    expect(deriveMinimumSellPrice("100", "5").toString()).toBe("95");
+    expect(deriveMinimumSellPrice("987.88", "10").toString()).toBe("889.092");
+  });
+
+  it("derives current sell price from net proceeds per economic token sold", () => {
+    expect(deriveCurrentSellPrice("97", "1").toString()).toBe("97");
+    expect(deriveCurrentSellPrice("48.5", "0.5").toString()).toBe("97");
+  });
+
+  it("derives positive discount below reference and negative discount above reference", () => {
+    expect(deriveDiscountPct("97", "100").toString()).toBe("3");
+    expect(deriveDiscountPct("105", "100").toString()).toBe("-5");
+  });
+
+  it("rejects a 100% or greater maximum discount", () => {
+    expect(() => deriveMinimumSellPrice("100", "100")).toThrow();
+    expect(() => deriveMinimumSellPrice("100", "101")).toThrow();
+  });
+});
+
+describe("Sell Policy Evaluator", () => {
+  const now = 1700000000000;
+
+  it("passes when sell price is above the minimum floor", () => {
+    const decision = evaluateSellPriceBoundary({
+      referencePriceUsd: "100",
+      referenceObservedAt: now - 5_000,
+      economicTokensSold: "1",
+      netProceedsUsd: "97",
+      maxDiscountPct: "5",
+      quoteObservedAt: now - 2_000,
+      now,
+    });
+
+    expect(decision.status).toBe("GOOD_TO_GO");
+    expect(decision.isExecutable).toBe(true);
+    expect(decision.currentSellPriceUsd).toBe("97");
+    expect(decision.minimumSellPriceUsd).toBe("95");
+    expect(decision.discountPct).toBe("3.00");
+  });
+
+  it("passes exactly at the sell boundary", () => {
+    const decision = evaluateSellPriceBoundary({
+      referencePriceUsd: "100",
+      referenceObservedAt: now - 5_000,
+      economicTokensSold: "1",
+      netProceedsUsd: "95",
+      maxDiscountPct: "5",
+      quoteObservedAt: now - 2_000,
+      now,
+    });
+
+    expect(decision.status).toBe("GOOD_TO_GO");
+    expect(decision.isExecutable).toBe(true);
+    expect(decision.discountPct).toBe("5.00");
+  });
+
+  it("blocks one cent below the sell boundary", () => {
+    const decision = evaluateSellPriceBoundary({
+      referencePriceUsd: "100",
+      referenceObservedAt: now - 5_000,
+      economicTokensSold: "1",
+      netProceedsUsd: "94.99",
+      maxDiscountPct: "5",
+      quoteObservedAt: now - 2_000,
+      now,
+    });
+
+    expect(decision.status).toBe("PRICE_TOO_LOW");
+    expect(decision.isExecutable).toBe(false);
+    expect(decision.discountPct).toBe("5.01");
+  });
+
+  it("accepts a route selling above reference", () => {
+    const decision = evaluateSellPriceBoundary({
+      referencePriceUsd: "100",
+      referenceObservedAt: now - 5_000,
+      economicTokensSold: "1",
+      netProceedsUsd: "105",
+      maxDiscountPct: "5",
+      quoteObservedAt: now - 2_000,
+      now,
+    });
+
+    expect(decision.status).toBe("GOOD_TO_GO");
+    expect(decision.discountPct).toBe("-5.00");
+  });
+
+  it("fails closed on zero proceeds and excessive price impact", () => {
+    const noRoute = evaluateSellPriceBoundary({
+      referencePriceUsd: "100",
+      referenceObservedAt: now - 5_000,
+      economicTokensSold: "1",
+      netProceedsUsd: "0",
+      maxDiscountPct: "5",
+      quoteObservedAt: now - 2_000,
+      now,
+    });
+    expect(noRoute.status).toBe("NO_ROUTE");
+
+    const routeRisk = evaluateSellPriceBoundary({
+      referencePriceUsd: "100",
+      referenceObservedAt: now - 5_000,
+      economicTokensSold: "1",
+      netProceedsUsd: "97",
+      maxDiscountPct: "5",
+      quoteObservedAt: now - 2_000,
+      priceImpactPct: "12",
+      now,
+    });
+    expect(routeRisk.status).toBe("ROUTE_RISK");
+  });
+});
+
+describe("Sell Protection Derivation", () => {
+  it("ceil-rounds minimum USDC output so one raw unit cannot weaken the sell floor", () => {
+    const minimumRaw = calculateMinimumSellProceedsRaw(
+      "0.333333333333",
+      "95",
+      6
+    );
+
+    expect(minimumRaw).toBe(31_666_667n);
+
+    const minimumDisplay = new Decimal(minimumRaw.toString()).div(1_000_000);
+    const effectiveSellPrice = minimumDisplay.div("0.333333333333");
+    expect(effectiveSellPrice.greaterThanOrEqualTo(95)).toBe(true);
+
+    const oneRawLower = new Decimal((minimumRaw - 1n).toString()).div(1_000_000);
+    const weakenedPrice = oneRawLower.div("0.333333333333");
+    expect(weakenedPrice.lessThan(95)).toBe(true);
+  });
+
+  it("derives a minimum USDC output and policy-compatible slippage", () => {
+    const result = deriveAllowedSellExecutionTolerance({
+      economicTokensSold: "1",
+      referencePriceUsd: "100",
+      maxDiscountPct: "5",
+      expectedNetProceedsUsd: "100",
+      outputDecimals: 6,
+    });
+
+    expect(result.isExecutable).toBe(true);
+    expect(result.minimumAcceptableOutputRaw).toBe(95_000_000n);
+    expect(result.minimumAcceptableOutputDisplay).toBe("95");
+    expect(result.slippageBps).toBe(500);
+  });
+
+  it("blocks when the quoted sell proceeds are already below the user's floor", () => {
+    const result = deriveAllowedSellExecutionTolerance({
+      economicTokensSold: "1",
+      referencePriceUsd: "100",
+      maxDiscountPct: "5",
+      expectedNetProceedsUsd: "94.99",
+      outputDecimals: 6,
+    });
+
+    expect(result.isExecutable).toBe(false);
+    expect(result.slippageBps).toBe(0);
+    expect(result.minimumAcceptableOutputRaw).toBe(95_000_000n);
+  });
+});

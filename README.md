@@ -27,20 +27,11 @@ That is the entire wedge.
 
 No arbitrary token input in the MVP.
 
-## Networks
+## Network
 
-One application supports:
+Sieve is a Solana Mainnet-only application. Production routes use current PreStocks data, Solana Mainnet mint state, and Jupiter Mainnet liquidity. There is no user-selectable network or simulated execution mode.
 
-* Testnet / Practice mode
-* Mainnet
-
-The deterministic rule is shared.
-
-Network adapters differ.
-
-Mainnet uses real PreStocks and Jupiter data.
-
-Testnet may use deterministic fixtures only when the sponsor-critical market does not exist on devnet. Fixtures must always be visibly labeled as test data.
+Automated tests use isolated deterministic adapters and fixtures. Those fixtures are test-only dependencies and are never reachable from application routes.
 
 ## Primary screens
 
@@ -67,7 +58,7 @@ Testnet may use deterministic fixtures only when the sponsor-critical market doe
 * current Solana wallet integration
 * Jupiter Swap API V2
 * PreStocks public API
-* Solana Mainnet / devnet
+* Solana Mainnet
 * Postgres persistence
 * responsive UI
 * Motion/CSS based interaction system
@@ -75,4 +66,3 @@ Testnet may use deterministic fixtures only when the sponsor-critical market doe
 Exact library versions must be chosen from current official documentation during the build.
 
 ## 
-

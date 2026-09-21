@@ -3,16 +3,11 @@
 import React, { useState, useEffect } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
-import type { NetworkMode } from "@/core/domain/types";
 import type { HistoryItem } from "@/server/services/history-service";
 import { ExternalLink } from "lucide-react";
 import { RefreshAction } from "@/components/ui/refresh-action";
 
-interface HistoryViewProps {
-  network: NetworkMode;
-}
-
-export function HistoryView({ network }: HistoryViewProps) {
+export function HistoryView() {
   const { publicKey, connected } = useWallet();
   const { setVisible: setWalletModalVisible } = useWalletModal();
 
@@ -24,7 +19,7 @@ export function HistoryView({ network }: HistoryViewProps) {
     if (!publicKey) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/history?wallet=${publicKey.toBase58()}&network=${network}`);
+      const res = await fetch(`/api/history?wallet=${publicKey.toBase58()}`);
       if (res.ok) {
         const data = await res.json();
         setItems(data.items || []);
@@ -34,7 +29,7 @@ export function HistoryView({ network }: HistoryViewProps) {
     } finally {
       setLoading(false);
     }
-  }, [publicKey, network]);
+  }, [publicKey]);
 
   useEffect(() => {
     if (connected && publicKey) {
@@ -49,6 +44,7 @@ export function HistoryView({ network }: HistoryViewProps) {
     if (filter === "BLOCKED") return item.type === "CHECK_BLOCKED";
     return true;
   });
+  const displayItems = filteredItems.map((item) => ({ ...item, signature: item.signature ?? "" }));
 
   if (!connected) {
     return (
@@ -172,15 +168,14 @@ export function HistoryView({ network }: HistoryViewProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-borderBase">
-                {filteredItems.map((item) => {
+                {displayItems.map((item) => {
                   const isTrade = item.type === "TRADE_CONFIRMED";
                   const isBlocked = item.type === "CHECK_BLOCKED";
-                  const isPractice = item.network !== "mainnet";
                   const hasRealSignature = Boolean(
                     item.signature && !item.signature.startsWith("sim-")
                   );
                   const solscanUrl =
-                    !isPractice && hasRealSignature && item.signature
+                    hasRealSignature && item.signature
                       ? `https://solscan.io/tx/${item.signature}`
                       : null;
 
@@ -236,14 +231,7 @@ export function HistoryView({ network }: HistoryViewProps) {
 
                       {/* Identifier */}
                       <td className="py-2.5 px-4 text-right">
-                        {isPractice ? (
-                          <span
-                            className="font-mono text-[11px] text-secondaryText"
-                            title={item.signature || undefined}
-                          >
-                            Simulation ID: {item.signature ? (item.signature.startsWith("sim-") ? item.signature.slice(0, 16) + "..." : item.signature.slice(0, 12) + "...") : "—"}
-                          </span>
-                        ) : solscanUrl && item.signature ? (
+                        {solscanUrl && item.signature ? (
                           <a
                             href={solscanUrl}
                             target="_blank"
@@ -270,15 +258,14 @@ export function HistoryView({ network }: HistoryViewProps) {
 
           {/* Mobile Stacked Rows */}
           <div className="sm:hidden divide-y divide-borderBase text-xs">
-            {filteredItems.map((item) => {
+            {displayItems.map((item) => {
               const isTrade = item.type === "TRADE_CONFIRMED";
               const isBlocked = item.type === "CHECK_BLOCKED";
-              const isPractice = item.network !== "mainnet";
               const hasRealSignature = Boolean(
                 item.signature && !item.signature.startsWith("sim-")
               );
               const solscanUrl =
-                !isPractice && hasRealSignature && item.signature
+                hasRealSignature && item.signature
                   ? `https://solscan.io/tx/${item.signature}`
                   : null;
 
@@ -312,11 +299,7 @@ export function HistoryView({ network }: HistoryViewProps) {
 
                   <div className="flex items-center justify-between pt-1 text-[10px] text-mutedText font-mono">
                     <span>{new Date(item.timestamp).toLocaleString()}</span>
-                    {isPractice ? (
-                      <span className="text-secondaryText font-mono">
-                        Simulation ID: {item.signature ? item.signature.slice(0, 12) + "..." : "—"}
-                      </span>
-                    ) : solscanUrl ? (
+                    {solscanUrl ? (
                       <a
                         href={solscanUrl}
                         target="_blank"

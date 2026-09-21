@@ -4,6 +4,9 @@ import {
   deriveCurrentBuyPrice,
   derivePremiumPct,
   deriveDifferenceUsd,
+  deriveMinimumSellPrice,
+  deriveCurrentSellPrice,
+  deriveDiscountPct,
 } from "../pricing/calculator";
 import {
   isFresh,
@@ -11,7 +14,12 @@ import {
   DEFAULT_REFERENCE_MAX_AGE_MS,
   DEFAULT_QUOTE_MAX_AGE_MS,
 } from "../freshness/freshness";
-import type { PriceDecision, DecisionStatus } from "../domain/types";
+import type {
+  PriceDecision,
+  DecisionStatus,
+  SellPriceDecision,
+  SellDecisionStatus,
+} from "../domain/types";
 
 export interface PriceBoundaryInput {
   referencePriceUsd: string | number | Decimal;
@@ -112,8 +120,8 @@ export function evaluatePriceBoundary(input: PriceBoundaryInput): PriceDecision 
     if (impact.greaterThan(maxImpact)) {
       return createUnavailableDecision(
         "ROUTE_RISK",
-        "Price impact too high",
-        `This order would move the market price by ${impact.toFixed(2)}%, which exceeds safety thresholds.`,
+        "Price impact exceeds allowable threshold",
+        `This order would move the market price by ${impact.toFixed(2)}%, which exceeds allowable execution thresholds.`,
         maxPremiumPctDec.toString(),
         maxPremiumBps,
         R.toString()
@@ -143,8 +151,8 @@ export function evaluatePriceBoundary(input: PriceBoundaryInput): PriceDecision 
       premiumBps,
       maxPremiumBps,
       differenceUsd: differenceUsd.toString(),
-      displayTitle: "The price is inside your limit.",
-      displayMessage: `You're paying about ${premiumPct.toFixed(2)}% above the reference price. Your limit is ${maxPremiumPctDec.toFixed(2)}%.`,
+      displayTitle: "Within boundary",
+      displayMessage: `Current execution is ${premiumPct.toFixed(2)}% relative to reference price. Your configured maximum premium is ${maxPremiumPctDec.toFixed(2)}%.`,
     };
   } else {
     return {
@@ -158,8 +166,8 @@ export function evaluatePriceBoundary(input: PriceBoundaryInput): PriceDecision 
       premiumBps,
       maxPremiumBps,
       differenceUsd: differenceUsd.toString(),
-      displayTitle: "This buy is outside your limit.",
-      displayMessage: `The current price is ${premiumPct.toFixed(2)}% above the reference price. Your limit is ${maxPremiumPctDec.toFixed(2)}%.`,
+      displayTitle: "Boundary exceeded",
+      displayMessage: `Current execution is ${premiumPct.toFixed(2)}% relative to reference price, which exceeds your configured maximum premium of ${maxPremiumPctDec.toFixed(2)}%.`,
     };
   }
 }
@@ -182,6 +190,200 @@ function createUnavailableDecision(
     maxPremiumPct,
     premiumBps: null,
     maxPremiumBps,
+    differenceUsd: null,
+    displayTitle,
+    displayMessage,
+  };
+}
+
+
+export interface SellPriceBoundaryInput {
+  referencePriceUsd: string | number | Decimal;
+  referenceObservedAt: string | number | Date;
+  economicTokensSold: string | number | Decimal;
+  netProceedsUsd: string | number | Decimal;
+  maxDiscountPct: string | number | Decimal;
+  quoteObservedAt?: string | number | Date | null;
+  quoteExpiresAt?: string | number | Date | null;
+  priceImpactPct?: string | number | Decimal | null;
+  maxAllowedPriceImpactPct?: string | number | Decimal;
+  now?: number | Date;
+}
+
+/**
+ * Evaluates a PreStock -> USDC sell against the user's minimum execution price.
+ *
+ * Invariant:
+ * currentSellPrice = net USDC proceeds / actual economic PreStock units sold
+ * minimumSellPrice = referencePrice * (1 - maxDiscount)
+ * executable iff currentSellPrice >= minimumSellPrice
+ */
+export function evaluateSellPriceBoundary(
+  input: SellPriceBoundaryInput
+): SellPriceDecision {
+  const now = input.now ?? Date.now();
+  const maxDiscountPctDec = toDecimal(input.maxDiscountPct);
+  const maxDiscountBps = pctToBps(maxDiscountPctDec);
+
+  if (
+    maxDiscountPctDec.lessThan(0) ||
+    maxDiscountPctDec.greaterThanOrEqualTo(100)
+  ) {
+    return createUnavailableSellDecision(
+      "DATA_UNAVAILABLE",
+      "Sell limit invalid",
+      "Maximum discount must be between 0% and less than 100%.",
+      maxDiscountPctDec.toString(),
+      maxDiscountBps
+    );
+  }
+
+  if (!isPositiveFinite(input.referencePriceUsd)) {
+    return createUnavailableSellDecision(
+      "DATA_UNAVAILABLE",
+      "Reference price unavailable",
+      "We couldn't obtain a valid reference price for this asset.",
+      maxDiscountPctDec.toString(),
+      maxDiscountBps
+    );
+  }
+  const R = toDecimal(input.referencePriceUsd);
+
+  if (!isPositiveFinite(input.economicTokensSold)) {
+    return createUnavailableSellDecision(
+      "DATA_UNAVAILABLE",
+      "Sell amount invalid",
+      "The amount to sell must be a valid positive token amount.",
+      maxDiscountPctDec.toString(),
+      maxDiscountBps,
+      R.toString()
+    );
+  }
+  const T = toDecimal(input.economicTokensSold);
+
+  if (!isPositiveFinite(input.netProceedsUsd)) {
+    return createUnavailableSellDecision(
+      "NO_ROUTE",
+      "No market route found",
+      "There is currently no executable USDC route for this token and amount.",
+      maxDiscountPctDec.toString(),
+      maxDiscountBps,
+      R.toString()
+    );
+  }
+  const U = toDecimal(input.netProceedsUsd);
+
+  if (!isFresh(input.referenceObservedAt, now, DEFAULT_REFERENCE_MAX_AGE_MS)) {
+    return createUnavailableSellDecision(
+      "STALE_REFERENCE",
+      "Reference price expired",
+      "The reference price has expired. Please check the sell price again.",
+      maxDiscountPctDec.toString(),
+      maxDiscountBps,
+      R.toString()
+    );
+  }
+
+  if (
+    input.quoteObservedAt &&
+    !isFresh(input.quoteObservedAt, now, DEFAULT_QUOTE_MAX_AGE_MS)
+  ) {
+    return createUnavailableSellDecision(
+      "STALE_QUOTE",
+      "Market quote expired",
+      "The market quote has expired. Please check the sell price again.",
+      maxDiscountPctDec.toString(),
+      maxDiscountBps,
+      R.toString()
+    );
+  }
+
+  if (isExpired(input.quoteExpiresAt, now)) {
+    return createUnavailableSellDecision(
+      "STALE_QUOTE",
+      "Market quote expired",
+      "The market quote has expired. Please check the sell price again.",
+      maxDiscountPctDec.toString(),
+      maxDiscountBps,
+      R.toString()
+    );
+  }
+
+  if (input.priceImpactPct !== undefined && input.priceImpactPct !== null) {
+    const impact = toDecimal(input.priceImpactPct).abs();
+    const maxImpact = toDecimal(
+      input.maxAllowedPriceImpactPct ?? DEFAULT_MAX_ALLOWED_PRICE_IMPACT_PCT
+    );
+    if (impact.greaterThan(maxImpact)) {
+      return createUnavailableSellDecision(
+        "ROUTE_RISK",
+        "Price impact exceeds allowable threshold",
+        `This order would move the market price by ${impact.toFixed(2)}%, which exceeds allowable execution thresholds.`,
+        maxDiscountPctDec.toString(),
+        maxDiscountBps,
+        R.toString()
+      );
+    }
+  }
+
+  const M = deriveMinimumSellPrice(R, maxDiscountPctDec);
+  const C = deriveCurrentSellPrice(U, T);
+  const discountPct = deriveDiscountPct(C, R);
+  const discountBps = pctToBps(discountPct);
+  const differenceUsd = deriveDifferenceUsd(C, R);
+  const isInsideLimit = C.greaterThanOrEqualTo(M);
+
+  if (isInsideLimit) {
+    return {
+      status: "GOOD_TO_GO",
+      isExecutable: true,
+      referencePriceUsd: R.toString(),
+      currentSellPriceUsd: C.toString(),
+      minimumSellPriceUsd: M.toString(),
+      discountPct: discountPct.toFixed(2),
+      maxDiscountPct: maxDiscountPctDec.toFixed(2),
+      discountBps,
+      maxDiscountBps,
+      differenceUsd: differenceUsd.toString(),
+      displayTitle: "Within boundary",
+      displayMessage: `Current execution is ${discountPct.toFixed(2)}% relative to reference price. Your configured maximum discount is ${maxDiscountPctDec.toFixed(2)}%.`,
+    };
+  }
+
+  return {
+    status: "PRICE_TOO_LOW",
+    isExecutable: false,
+    referencePriceUsd: R.toString(),
+    currentSellPriceUsd: C.toString(),
+    minimumSellPriceUsd: M.toString(),
+    discountPct: discountPct.toFixed(2),
+    maxDiscountPct: maxDiscountPctDec.toFixed(2),
+    discountBps,
+    maxDiscountBps,
+    differenceUsd: differenceUsd.toString(),
+    displayTitle: "Boundary exceeded",
+    displayMessage: `Current execution is ${discountPct.toFixed(2)}% relative to reference price, which exceeds your configured maximum discount of ${maxDiscountPctDec.toFixed(2)}%.`,
+  };
+}
+
+function createUnavailableSellDecision(
+  status: SellDecisionStatus,
+  displayTitle: string,
+  displayMessage: string,
+  maxDiscountPct: string,
+  maxDiscountBps: number,
+  referencePriceUsd: string = "0.00"
+): SellPriceDecision {
+  return {
+    status,
+    isExecutable: false,
+    referencePriceUsd,
+    currentSellPriceUsd: null,
+    minimumSellPriceUsd: "0.00",
+    discountPct: null,
+    maxDiscountPct,
+    discountBps: null,
+    maxDiscountBps,
     differenceUsd: null,
     displayTitle,
     displayMessage,

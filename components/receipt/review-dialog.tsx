@@ -2,22 +2,32 @@
 
 import React from "react";
 import type { CheckResponseDto } from "@/server/services/check-service";
-import type { NetworkMode } from "@/core/domain/types";
+import type { BuyCapacityResponseDto } from "@/server/services/buy-capacity-service";
+import type { SellCapacityResponseDto } from "@/server/services/sell-capacity-service";
 import { X, ArrowRight } from "lucide-react";
 
 export interface BuildSummaryDto {
-  fundingAsset: string;
-  fundingAmount: string;
+  side?: "BUY" | "SELL";
+  fundingAsset?: string;
+  fundingAmount?: string;
   targetSymbol: string;
-  expectedTargetAmount: string;
+  expectedTargetAmount?: string;
   referencePriceUsd: string;
-  currentBuyPriceUsd: string;
-  premiumPct: string;
-  maxPremiumPct: string;
+  currentBuyPriceUsd?: string;
+  premiumPct?: string;
+  maxPremiumPct?: string;
   maxBuyPriceUsd?: string;
   minimumAcceptableOutput?: string;
   premiumBps?: number;
   activeMultiplier?: string;
+  requestedEconomicAmount?: string;
+  actualEconomicAmount?: string;
+  expectedUsdcProceeds?: string;
+  currentSellPriceUsd?: string;
+  minimumSellPriceUsd?: string;
+  maxDiscountPct?: string;
+  discountBps?: number;
+  minimumAcceptableUsdc?: string;
   issuerControls?: {
     permanentDelegate: boolean;
     pausable: boolean;
@@ -35,24 +45,53 @@ export interface BuildSummaryDto {
   };
 }
 
+type LooseReviewData = Record<string, unknown> & {
+  asset?: { name?: string; symbol?: string };
+  wallet?: string;
+  issuerControls?: { permanentDelegate?: boolean; pausable?: boolean };
+  verifiedCapacity?: {
+    fundingAmount?: string;
+    economicAmount?: string;
+    effectiveSellPriceUsd?: string;
+    effectiveBuyPriceUsd?: string;
+    expectedTargetAmount?: string;
+    expectedUsdcProceeds?: string;
+  };
+  funding?: { amount?: string; asset?: string };
+  expected?: { targetAmount?: string };
+  requestedCandidate?: { expectedUsdcProceeds?: string };
+  price?: {
+    referenceUsd?: string;
+    maxBuyUsd?: string;
+    currentBuyUsd?: string;
+    premiumPct?: string;
+  };
+  requestedAmount?: string;
+  fundingAsset?: string;
+  minimumSellPriceUsd?: string;
+  maximumBuyPriceUsd?: string;
+  referencePriceUsd?: string;
+  maxDiscountPct?: string;
+  maxPremiumPct?: string;
+  side?: string;
+};
+
 interface ReviewDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  network: NetworkMode;
-  check: CheckResponseDto;
+  check: CheckResponseDto | BuyCapacityResponseDto | SellCapacityResponseDto | Record<string, unknown>;
   wallet?: string | null;
-  buildSummary?: BuildSummaryDto | null;
+  buildSummary?: BuildSummaryDto | Record<string, unknown> | null;
   expiresAt?: string | null;
   isBuilding?: boolean;
   onPrepareTransaction: () => void;
   onConfirmInWallet?: () => void;
-  onConfirmPractice?: () => void;
+  side?: "BUY" | "SELL";
 }
 
 export function ReviewDialog({
   isOpen,
   onClose,
-  network,
   check,
   wallet,
   buildSummary,
@@ -60,7 +99,7 @@ export function ReviewDialog({
   isBuilding = false,
   onPrepareTransaction,
   onConfirmInWallet,
-  onConfirmPractice,
+  side = "BUY",
 }: ReviewDialogProps) {
   React.useEffect(() => {
     if (!isOpen) return;
@@ -71,8 +110,10 @@ export function ReviewDialog({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
-  const isMainnet = network === "mainnet";
-  const hasFinalBuild = isMainnet && Boolean(buildSummary);
+  const hasFinalBuild = Boolean(buildSummary);
+  const summary = buildSummary as (BuildSummaryDto & LooseReviewData) | null | undefined;
+  const anyCheck = check as LooseReviewData;
+  const isSell = side === "SELL" || summary?.side === "SELL" || anyCheck?.side === "SELL";
 
   // Build expiry countdown
   const [secondsRemaining, setSecondsRemaining] = React.useState<number | null>(null);
@@ -97,7 +138,8 @@ export function ReviewDialog({
 
   // Fee calculation / display
   let feeDisplay = "Calculated when transaction is prepared";
-  if (hasFinalBuild && buildSummary?.feeInfo) {
+
+  if (hasFinalBuild && summary?.feeInfo) {
     const {
       signatureFeeLamports,
       signatureFeePayer,
@@ -106,12 +148,12 @@ export function ReviewDialog({
       rentFeeLamports,
       rentFeePayer,
       gasless,
-    } = buildSummary.feeInfo;
+    } = summary.feeInfo;
 
     if (gasless === true) {
       feeDisplay = "Sponsored by Jupiter (0 SOL)";
     } else {
-      const walletAddress = wallet || (check as { wallet?: string }).wallet;
+      const walletAddress = wallet || anyCheck.wallet;
       let userLamports = 0;
       let hasSufficientPayerInfo = false;
 
@@ -172,7 +214,7 @@ export function ReviewDialog({
               ORDER TICKET
             </span>
             <h3 id="review-dialog-title" className="text-base font-bold text-primaryText">
-              {hasFinalBuild ? "Final transaction review" : "Review buy"}
+              {hasFinalBuild ? "Final transaction review" : (isSell ? "Review sell" : "Review buy")}
             </h3>
           </div>
           <button
@@ -184,14 +226,6 @@ export function ReviewDialog({
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
-
-        {/* Practice Mode Environment Strip */}
-        {!isMainnet && (
-          <div className="mt-3 py-1.5 px-3 rounded-[4px] bg-sieveBlue-soft border border-blue-200 text-xs text-sieveBlue font-mono flex items-center justify-between">
-            <span className="font-semibold">TESTNET SIMULATION</span>
-            <span>Simulated execution. No funds or wallet signatures used.</span>
-          </div>
-        )}
 
         {/* Fresh-build verification strip / Expiry for Mainnet */}
         {hasFinalBuild && (
@@ -214,7 +248,7 @@ export function ReviewDialog({
 
         {/* Token-2022 Issuer Controls Disclosures */}
         {(() => {
-          const issuerControls = buildSummary?.issuerControls ?? check?.issuerControls;
+          const issuerControls = summary?.issuerControls ?? anyCheck?.issuerControls;
           const hasPermanentDelegate = issuerControls?.permanentDelegate === true;
           const hasPausable = issuerControls?.pausable === true;
           if (!hasPermanentDelegate && !hasPausable) return null;
@@ -248,17 +282,19 @@ export function ReviewDialog({
           <div className="py-2.5 flex items-center justify-between">
             <span className="text-secondaryText">Asset</span>
             <span className="font-bold text-primaryText">
-              {check.asset.name} ({check.asset.symbol})
+              {anyCheck?.asset?.name || summary?.targetSymbol} ({anyCheck?.asset?.symbol || summary?.targetSymbol})
             </span>
           </div>
 
-          {/* Spend */}
+          {/* Spend / Sell */}
           <div className="py-2.5 flex items-center justify-between">
-            <span className="text-secondaryText">Spend (You pay)</span>
+            <span className="text-secondaryText">{isSell ? "Sell (You sell)" : "Spend (You pay)"}</span>
             <span className="font-mono font-bold text-primaryText tabular-nums">
-              {hasFinalBuild && buildSummary
-                ? `${buildSummary.fundingAmount} ${buildSummary.fundingAsset}`
-                : `${check.funding.amount} ${check.funding.asset}`}
+              {isSell
+                ? `${summary?.actualEconomicAmount || summary?.requestedEconomicAmount || anyCheck?.verifiedCapacity?.economicAmount || anyCheck?.requestedAmount} ${anyCheck?.asset?.symbol || summary?.targetSymbol}`
+                : hasFinalBuild && summary?.fundingAmount
+                ? `${summary.fundingAmount} ${summary.fundingAsset}`
+                : `${anyCheck?.funding?.amount || anyCheck?.requestedAmount} ${anyCheck?.funding?.asset || anyCheck?.fundingAsset}`}
             </span>
           </div>
 
@@ -268,9 +304,11 @@ export function ReviewDialog({
               {hasFinalBuild ? "Final Expected Output" : "Expected Output"}
             </span>
             <span className="font-mono font-bold text-primaryText tabular-nums">
-              {hasFinalBuild && buildSummary
-                ? `${buildSummary.expectedTargetAmount} ${buildSummary.targetSymbol}`
-                : `${check.expected.targetAmount} ${check.asset.symbol}`}
+              {isSell
+                ? `${summary?.expectedUsdcProceeds || anyCheck?.verifiedCapacity?.expectedUsdcProceeds || anyCheck?.requestedCandidate?.expectedUsdcProceeds || "—"} USDC`
+                : hasFinalBuild && summary?.expectedTargetAmount
+                ? `${summary.expectedTargetAmount} ${summary.targetSymbol}`
+                : `${anyCheck?.expected?.targetAmount || anyCheck?.verifiedCapacity?.expectedTargetAmount || "—"} ${anyCheck?.asset?.symbol || summary?.targetSymbol}`}
             </span>
           </div>
 
@@ -278,9 +316,11 @@ export function ReviewDialog({
           <div className="py-2.5 flex items-center justify-between">
             <span className="text-secondaryText">Minimum Protected Output</span>
             <span className="font-mono font-bold text-sieveGreen tabular-nums">
-              {hasFinalBuild && buildSummary?.minimumAcceptableOutput
-                ? `${buildSummary.minimumAcceptableOutput} ${buildSummary.targetSymbol}`
-                : "Enforced at build"}
+              {isSell
+                ? (summary?.minimumAcceptableUsdc ? `${summary.minimumAcceptableUsdc} USDC` : (summary?.minimumSellPriceUsd ? `At $${summary.minimumSellPriceUsd} floor` : (anyCheck?.minimumSellPriceUsd ? `At $${anyCheck.minimumSellPriceUsd} floor` : "Enforced at build")))
+                : (hasFinalBuild && summary?.minimumAcceptableOutput
+                  ? `${summary.minimumAcceptableOutput} ${summary.targetSymbol}`
+                  : "Enforced at build")}
             </span>
           </div>
 
@@ -288,31 +328,37 @@ export function ReviewDialog({
           <div className="py-2.5 flex items-center justify-between">
             <span className="text-secondaryText">Reference Price</span>
             <span className="font-mono font-medium text-primaryText tabular-nums">
-              ${hasFinalBuild && buildSummary ? buildSummary.referencePriceUsd : check.price.referenceUsd}
+              ${hasFinalBuild && summary ? summary.referencePriceUsd : (anyCheck?.price?.referenceUsd || anyCheck?.referencePriceUsd)}
             </span>
           </div>
 
-          {/* Maximum Buy Price */}
+          {/* Maximum Buy Price / Minimum Sell Price */}
           <div className="py-2.5 flex items-center justify-between">
-            <span className="text-secondaryText">Maximum Buy Price</span>
+            <span className="text-secondaryText">{isSell ? "Minimum Sell Price" : "Maximum Buy Price"}</span>
             <span className="font-mono font-bold text-primaryText tabular-nums">
-              ${hasFinalBuild && buildSummary?.maxBuyPriceUsd ? buildSummary.maxBuyPriceUsd : check.price.maxBuyUsd}
+              ${isSell
+                ? (summary?.minimumSellPriceUsd || anyCheck?.minimumSellPriceUsd || "—")
+                : (hasFinalBuild && summary?.maxBuyPriceUsd ? summary.maxBuyPriceUsd : (anyCheck?.price?.maxBuyUsd || anyCheck?.maximumBuyPriceUsd || "—"))}
             </span>
           </div>
 
-          {/* Final Buy Price */}
+          {/* Final Price */}
           <div className="py-2.5 flex items-center justify-between">
-            <span className="text-secondaryText">Final Buy Price</span>
+            <span className="text-secondaryText">{isSell ? "Final Sell Price" : "Final Buy Price"}</span>
             <span className="font-mono font-bold text-sieveGreen tabular-nums">
-              ${hasFinalBuild && buildSummary ? buildSummary.currentBuyPriceUsd : check.price.currentBuyUsd}
+              ${isSell
+                ? (summary?.currentSellPriceUsd || anyCheck?.verifiedCapacity?.effectiveSellPriceUsd || "—")
+                : (hasFinalBuild && summary ? summary.currentBuyPriceUsd : (anyCheck?.price?.currentBuyUsd || anyCheck?.verifiedCapacity?.effectiveBuyPriceUsd || "—"))}
             </span>
           </div>
 
-          {/* Premium */}
+          {/* Premium / Discount */}
           <div className="py-2.5 flex items-center justify-between">
-            <span className="text-secondaryText">Premium over Reference</span>
+            <span className="text-secondaryText">{isSell ? "Discount from Reference" : "Premium over Reference"}</span>
             <span className="font-mono font-medium text-sieveGreen tabular-nums">
-              +{hasFinalBuild && buildSummary ? buildSummary.premiumPct : check.price.premiumPct}%
+              {isSell
+                ? `-${summary?.discountBps ? (summary.discountBps / 100).toFixed(2) : (anyCheck?.maxDiscountPct || "0.00")}%`
+                : `+${hasFinalBuild && summary ? summary.premiumPct : (anyCheck?.price?.premiumPct || anyCheck?.maxPremiumPct || "0.00")}%`}
             </span>
           </div>
 
@@ -326,7 +372,7 @@ export function ReviewDialog({
           <div className="py-2.5 flex items-center justify-between">
             <span className="text-secondaryText">Environment / Wallet</span>
             <span className="font-mono text-primaryText tabular-nums">
-              {isMainnet ? "MAINNET" : "TESTNET"} • {walletDisplay}
+              MAINNET • {walletDisplay}
             </span>
           </div>
         </div>
@@ -342,24 +388,7 @@ export function ReviewDialog({
             Cancel
           </button>
 
-          {!isMainnet ? (
-            /* Practice Mode Action */
-            <button
-              type="button"
-              onClick={onConfirmPractice}
-              disabled={isBuilding}
-              className="sieve-control-primary disabled:opacity-50"
-            >
-              {isBuilding ? (
-                <span>Running testnet simulation...</span>
-              ) : (
-                <>
-                  <span>Confirm testnet simulation</span>
-                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                </>
-              )}
-            </button>
-          ) : !hasFinalBuild ? (
+          {!hasFinalBuild ? (
             /* Mainnet Step 1: Prepare & Revalidate */
             <button
               type="button"

@@ -9,6 +9,7 @@ export default defineConfig({
     globals: true,
     setupFiles: [],
     include: ["tests/**/*.test.{ts,tsx}"],
+    exclude: ["tests/integration/live-readonly.test.ts", "**/node_modules/**", "**/.git/**"],
   },
   resolve: {
     alias: {

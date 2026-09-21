@@ -2,29 +2,32 @@
 
 import React from "react";
 import type { TradeReceipt } from "@/core/domain/types";
+import type { SellTradeReceipt } from "@/core/domain/sell-types";
 import { ExternalLink, ArrowLeft } from "lucide-react";
 
 interface TradeReceiptViewProps {
-  receipt: TradeReceipt;
+  receipt: TradeReceipt | SellTradeReceipt;
   onDone: () => void;
 }
 
 export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
   const isConfirmed = receipt.status === "CONFIRMED";
-  const isPractice = receipt.network === "testnet";
+  const isSell = "side" in receipt && receipt.side === "SELL";
   const hasRealSignature = Boolean(
     receipt.signature && !receipt.signature.startsWith("sim-")
   );
   const solscanUrl =
-    !isPractice && hasRealSignature && receipt.signature
+    hasRealSignature && receipt.signature
       ? `https://solscan.io/tx/${receipt.signature}`
       : null;
 
-  const boughtDisplay = receipt.realizedTargetAmount
-    ? `${receipt.realizedTargetAmount} ${receipt.targetSymbol}`
-    : receipt.network === "mainnet"
-    ? "Unavailable"
-    : `${receipt.expectedTargetAmount} ${receipt.targetSymbol}`;
+  const boughtDisplay = !isSell && (receipt as TradeReceipt).realizedTargetAmount
+    ? `${(receipt as TradeReceipt).realizedTargetAmount} ${receipt.targetSymbol}`
+    : isSell && (receipt as SellTradeReceipt).realizedUsdcProceeds
+    ? `${(receipt as SellTradeReceipt).realizedUsdcProceeds} USDC`
+    : isSell && (receipt as SellTradeReceipt).expectedUsdcProceeds
+    ? `${(receipt as SellTradeReceipt).expectedUsdcProceeds} USDC`
+    : "Unavailable";
 
   return (
     <div className="rounded-panel bg-surface border border-borderBase p-6 sm:p-8 shadow-xs max-w-xl mx-auto animate-in fade-in zoom-in-95">
@@ -32,7 +35,7 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
       <div className="pb-4 border-b border-borderBase mb-4">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-secondaryText">
-            {isPractice ? "TESTNET SIMULATION" : "MAINNET EXECUTION"}
+            MAINNET EXECUTION
           </span>
           <span
             className={`text-xs font-mono font-bold px-2 py-0.5 rounded-[4px] border ${
@@ -49,23 +52,14 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
         </h2>
         <p className="text-xs text-secondaryText mt-0.5">
           {isConfirmed
-            ? isPractice
-              ? `Your testnet simulation for ${receipt.targetSymbol} completed successfully.`
+            ? isSell
+              ? `Your sell of ${receipt.targetSymbol} was confirmed on Solana.`
               : `Your buy of ${receipt.targetSymbol} was confirmed on Solana.`
             : receipt.failureCode
             ? `Transaction failed (${receipt.failureCode}). The trade did not complete. A network fee may still have been charged.`
             : "The trade did not complete. A network fee may still have been charged."}
         </p>
       </div>
-
-      {/* Practice Mode Notice */}
-      {isPractice && (
-        <div className="mb-4 rounded-[4px] border border-blue-200 bg-blue-50/50 p-2.5 text-xs text-secondaryText">
-          <p className="font-mono text-[11px] text-primaryText font-medium">
-            Simulated transaction. No wallet signature or funds were used.
-          </p>
-        </div>
-      )}
 
       {/* Confirmation Rows */}
       <div className="divide-y divide-borderBase border-b border-borderBase text-xs mb-6">
@@ -77,20 +71,23 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
           </span>
         </div>
 
-        {/* Actual Paid */}
+        {/* Actual Paid / Sold */}
         <div className="py-2.5 flex items-center justify-between">
-          <span className="text-secondaryText">Actual Paid</span>
+          <span className="text-secondaryText">{isSell ? "Actual Sold" : "Actual Paid"}</span>
           <div className="text-right">
             <span className="font-mono font-bold text-primaryText tabular-nums block">
-              {receipt.actualFundingAmount
-                ? `${receipt.actualFundingAmount} ${receipt.fundingAsset}`
-                : `${receipt.fundingAmount} ${receipt.fundingAsset}`}
+              {isSell
+                ? `${(receipt as SellTradeReceipt).actualEconomicInput || (receipt as SellTradeReceipt).requestedEconomicAmount} ${receipt.targetSymbol}`
+                : (receipt as TradeReceipt).actualFundingAmount
+                ? `${(receipt as TradeReceipt).actualFundingAmount} ${(receipt as TradeReceipt).fundingAsset}`
+                : `${(receipt as TradeReceipt).fundingAmount} ${(receipt as TradeReceipt).fundingAsset}`}
             </span>
-            {receipt.actualFundingAmount &&
-              receipt.requestedFundingAmount &&
-              receipt.actualFundingAmount !== receipt.requestedFundingAmount && (
+            {!isSell &&
+              (receipt as TradeReceipt).actualFundingAmount &&
+              (receipt as TradeReceipt).requestedFundingAmount &&
+              (receipt as TradeReceipt).actualFundingAmount !== (receipt as TradeReceipt).requestedFundingAmount && (
                 <span className="text-mutedText text-[10px] block">
-                  Requested: {receipt.requestedFundingAmount} {receipt.fundingAsset}
+                  Requested: {(receipt as TradeReceipt).requestedFundingAmount} {(receipt as TradeReceipt).fundingAsset}
                 </span>
               )}
           </div>
@@ -114,33 +111,28 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
 
         {/* Executed Price */}
         <div className="py-2.5 flex items-center justify-between">
-          <span className="text-secondaryText">Executed Buy Price</span>
+          <span className="text-secondaryText">{isSell ? "Executed Sell Price" : "Executed Buy Price"}</span>
           <span className="font-mono font-bold text-sieveGreen tabular-nums">
-            ${receipt.checkedBuyPriceUsd}
+            ${isSell ? (receipt as SellTradeReceipt).checkedSellPriceUsd : (receipt as TradeReceipt).checkedBuyPriceUsd}
           </span>
         </div>
 
-        {/* Premium */}
+        {/* Premium / Discount */}
         <div className="py-2.5 flex items-center justify-between">
-          <span className="text-secondaryText">Premium over Reference</span>
+          <span className="text-secondaryText">{isSell ? "Discount from Reference" : "Premium over Reference"}</span>
           <span className="font-mono font-medium text-sieveGreen tabular-nums">
-            +{(receipt.premiumBps / 100).toFixed(2)}%
+            {isSell
+              ? `-${((((receipt as SellTradeReceipt).realizedDiscountBps ?? (receipt as SellTradeReceipt).maxDiscountBps)) / 100).toFixed(2)}%`
+              : `+${(((receipt as TradeReceipt).premiumBps) / 100).toFixed(2)}%`}
           </span>
         </div>
 
-        {/* Transaction Signature / Simulation ID */}
+        {/* Transaction Signature */}
         <div className="py-2.5 flex items-center justify-between">
           <span className="text-secondaryText">
-            {isPractice ? "Simulation ID" : "Transaction"}
+            Transaction
           </span>
-          {isPractice ? (
-            <span
-              className="font-mono text-secondaryText tabular-nums text-[11px]"
-              title={receipt.signature || receipt.id}
-            >
-              {receipt.signature || receipt.id}
-            </span>
-          ) : hasRealSignature && solscanUrl && receipt.signature ? (
+          {hasRealSignature && solscanUrl && receipt.signature ? (
             <a
               href={solscanUrl}
               target="_blank"
@@ -169,8 +161,8 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
       </div>
 
       {/* Action Buttons */}
-      <div className={`flex items-center ${!isPractice && hasRealSignature && solscanUrl ? "justify-between" : "justify-end"} gap-3`}>
-        {!isPractice && hasRealSignature && solscanUrl && (
+      <div className={`flex items-center ${hasRealSignature && solscanUrl ? "justify-between" : "justify-end"} gap-3`}>
+        {hasRealSignature && solscanUrl && (
           <a
             href={solscanUrl}
             target="_blank"

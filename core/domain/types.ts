@@ -1,4 +1,5 @@
-export type NetworkMode = "mainnet" | "testnet";
+export const MAINNET_NETWORK = "mainnet" as const;
+export type MainnetNetwork = typeof MAINNET_NETWORK;
 
 export type FundingAsset = "SOL" | "USDC";
 
@@ -22,9 +23,9 @@ export type MarketAsset = {
   referenceValuationUsd: string | null;
   impliedValuationUsd: string | null;
   supply: string | null;
-  source: "PRESTOCKS" | "PRACTICE_FIXTURE";
+  source: "PRESTOCKS";
   observedAt: string;
-  network: NetworkMode;
+  network: MainnetNetwork;
 };
 
 export type FundingValuation = {
@@ -32,12 +33,12 @@ export type FundingValuation = {
   inputRaw: bigint;
   inputDisplay: string;
   inputUsdValue: string;
-  method: "USDC_PAR" | "CURRENT_MARKET_ROUTE" | "PRACTICE_FIXTURE";
+  method: "USDC_PAR" | "CURRENT_MARKET_ROUTE";
   observedAt: string;
 };
 
 export type MarketQuote = {
-  provider: "JUPITER" | "PRACTICE_FIXTURE";
+  provider: "JUPITER";
   inputMint: string;
   outputMint: string;
   inputRaw: bigint;
@@ -66,6 +67,30 @@ export type PriceDecision = {
   displayMessage: string;
 };
 
+export type SellDecisionStatus =
+  | "GOOD_TO_GO"
+  | "PRICE_TOO_LOW"
+  | "STALE_REFERENCE"
+  | "STALE_QUOTE"
+  | "NO_ROUTE"
+  | "DATA_UNAVAILABLE"
+  | "ROUTE_RISK";
+
+export type SellPriceDecision = {
+  status: SellDecisionStatus;
+  isExecutable: boolean;
+  referencePriceUsd: string;
+  currentSellPriceUsd: string | null;
+  minimumSellPriceUsd: string;
+  discountPct: string | null;
+  maxDiscountPct: string;
+  discountBps: number | null;
+  maxDiscountBps: number;
+  differenceUsd: string | null;
+  displayTitle: string;
+  displayMessage: string;
+};
+
 export type ProtectionResult = {
   minimumAcceptableOutputRaw: bigint;
   minimumAcceptableOutputDisplay: string;
@@ -75,7 +100,7 @@ export type ProtectionResult = {
 
 export type PriceCheck = {
   id: string;
-  network: NetworkMode;
+  network: MainnetNetwork;
   wallet: string | null;
   clientIntentVersion: string;
   asset: MarketAsset;
@@ -98,7 +123,7 @@ export type IssuerControls = {
 export type BuildIntent = {
   id: string;
   checkId: string;
-  network: NetworkMode;
+  network: MainnetNetwork;
   wallet: string;
   minimumAcceptableOutputRaw: bigint;
   protectionMethod: string;
@@ -140,7 +165,7 @@ export type TradeReceipt = {
   checkId: string;
   buildIntentId: string;
   wallet: string;
-  network: NetworkMode;
+  network: MainnetNetwork;
   signature: string | null;
   internalExecutionId?: string | null;
   status: "CONFIRMED" | "FAILED";

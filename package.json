@@ -12,8 +12,8 @@
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",
-    "test:all": "vitest run tests/unit tests/integration tests/e2e/practice-flow.test.ts",
-    "test:live:readonly": "vitest run tests/integration/live-readonly.test.ts",
+    "test:all": "vitest run tests/unit tests/integration tests/e2e/mainnet-contracts.test.ts",
+    "test:live:readonly": "vitest run --config vitest.live.config.ts tests/integration/live-readonly.test.ts",
     "db:migrate": "node scripts/migrate.mjs"
   },
   "dependencies": {
@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
+    "@next/env": "15.5.25",
     "@playwright/test": "^1.63.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",

@@ -1,5 +1,5 @@
-import { Decimal, toDecimal, rawToEconomicDisplay } from "../money/decimal";
-import { deriveMaximumBuyPrice } from "../pricing/calculator";
+import { Decimal, toDecimal, rawToEconomicDisplay, rawToDisplay } from "../money/decimal";
+import { deriveMaximumBuyPrice, deriveMinimumSellPrice } from "../pricing/calculator";
 import type { ProtectionResult } from "../domain/types";
 
 export interface ProtectionDerivationInput {
@@ -138,3 +138,93 @@ export function deriveAllowedExecutionTolerance(
   };
 }
 
+
+
+export interface SellProtectionDerivationInput {
+  economicTokensSold: string | number | Decimal;
+  referencePriceUsd: string | number | Decimal;
+  maxDiscountPct: string | number | Decimal;
+  expectedNetProceedsUsd: string | number | Decimal;
+  outputDecimals: number;
+  maxAllowedSlippageBps?: number;
+}
+
+/**
+ * Returns the smallest integer output amount that still satisfies the sell floor.
+ * ROUND_CEIL is mandatory: rounding down could permit execution below the user's
+ * minimum sell price by one raw output unit.
+ */
+export function calculateMinimumSellProceedsRaw(
+  economicTokensSold: string | number | Decimal,
+  minimumSellPriceUsd: string | number | Decimal,
+  outputDecimals: number
+): bigint {
+  const T = toDecimal(economicTokensSold);
+  const M = toDecimal(minimumSellPriceUsd);
+
+  if (T.lessThanOrEqualTo(0)) {
+    throw new Error("Economic tokens sold must be positive");
+  }
+  if (M.lessThanOrEqualTo(0)) {
+    throw new Error("Minimum sell price must be positive");
+  }
+
+  const factor = new Decimal(10).pow(outputDecimals);
+  const minimumProceeds = T.mul(M);
+  const raw = minimumProceeds
+    .mul(factor)
+    .toDecimalPlaces(0, Decimal.ROUND_CEIL);
+
+  return BigInt(raw.toFixed(0));
+}
+
+/**
+ * Derives the minimum USDC output and maximum route slippage compatible with the
+ * user's sell-price boundary.
+ */
+export function deriveAllowedSellExecutionTolerance(
+  input: SellProtectionDerivationInput
+): ProtectionResult {
+  const T = toDecimal(input.economicTokensSold);
+  const R = toDecimal(input.referencePriceUsd);
+  const maxDiscountPct = toDecimal(input.maxDiscountPct);
+  const Q = toDecimal(input.expectedNetProceedsUsd);
+  const capBps =
+    input.maxAllowedSlippageBps ?? DEFAULT_MAX_SLIPPAGE_BPS_CAP;
+
+  const M = deriveMinimumSellPrice(R, maxDiscountPct);
+  const minimumProceeds = T.mul(M);
+  const minimumRaw = calculateMinimumSellProceedsRaw(
+    T,
+    M,
+    input.outputDecimals
+  );
+  const minimumDisplay = rawToDisplay(
+    minimumRaw,
+    input.outputDecimals
+  ).toString();
+
+  if (Q.lessThan(minimumProceeds)) {
+    return {
+      minimumAcceptableOutputRaw: minimumRaw,
+      minimumAcceptableOutputDisplay: minimumDisplay,
+      slippageBps: 0,
+      isExecutable: false,
+    };
+  }
+
+  const policySlippage = new Decimal(1).minus(minimumProceeds.div(Q));
+  const policySlippageBps = policySlippage
+    .mul(10000)
+    .toDecimalPlaces(0, Decimal.ROUND_FLOOR)
+    .toNumber();
+
+  const clampedBps = Math.min(Math.max(0, policySlippageBps), capBps);
+
+  return {
+    minimumAcceptableOutputRaw: minimumRaw,
+    minimumAcceptableOutputDisplay: minimumDisplay,
+    slippageBps: clampedBps,
+    isExecutable: true,
+  };
+}

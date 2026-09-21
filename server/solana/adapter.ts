@@ -21,17 +21,11 @@ import {
   AccountState,
 } from "@solana/spl-token";
 import { Decimal } from "../../core/money/decimal";
-import type { NetworkMode, FundingAsset } from "../../core/domain/types";
+import type { FundingAsset, MainnetNetwork } from "../../core/domain/types";
 
 export const CANONICAL_MINTS = {
   mainnet: {
     USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-    USDC_DECIMALS: 6,
-    WSOL: "So11111111111111111111111111111111111111112",
-    SOL_DECIMALS: 9,
-  },
-  testnet: {
-    USDC: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", // Devnet USDC
     USDC_DECIMALS: 6,
     WSOL: "So11111111111111111111111111111111111111112",
     SOL_DECIMALS: 9,
@@ -140,43 +134,33 @@ export function clearValidatedMintCache(): void {
 
 export class SolanaAdapter {
   private mainnetConnection: Connection;
-  private devnetConnection: Connection;
 
   /**
    * Minimum SOL reserve required for rent-exemption and gas fees (0.005 SOL = 5,000,000 lamports).
    */
   public static readonly FEE_RESERVE_LAMPORTS = 5_000_000n;
 
-  constructor(mainnetRpcUrl?: string, devnetRpcUrl?: string) {
+  constructor(mainnetRpcUrl?: string) {
     const mainnetUrl =
       mainnetRpcUrl ||
       process.env.SOLANA_MAINNET_RPC_URL ||
       "https://api.mainnet-beta.solana.com";
-    const devnetUrl =
-      devnetRpcUrl ||
-      process.env.SOLANA_DEVNET_RPC_URL ||
-      "https://api.devnet.solana.com";
-
     this.mainnetConnection = new Connection(mainnetUrl, {
-      commitment: "confirmed",
-      confirmTransactionInitialTimeout: 30000,
-    });
-    this.devnetConnection = new Connection(devnetUrl, {
       commitment: "confirmed",
       confirmTransactionInitialTimeout: 30000,
     });
   }
 
-  getConnection(network: NetworkMode): Connection {
-    return network === "mainnet" ? this.mainnetConnection : this.devnetConnection;
+  getConnection(_network: MainnetNetwork = "mainnet"): Connection {
+    return this.mainnetConnection;
   }
 
   /**
    * Reads authoritative Solana cluster time and epoch from Sysvar Clock.
    * Fails closed if the clock cannot be retrieved.
    */
-  async getChainClock(network: NetworkMode = "mainnet"): Promise<SolanaChainClock> {
-    const conn = this.getConnection(network);
+  async getChainClock(_network: MainnetNetwork = "mainnet"): Promise<SolanaChainClock> {
+    const conn = this.getConnection();
     try {
       const acc = await conn.getAccountInfo(SYSVAR_CLOCK_PUBKEY);
       if (
@@ -226,12 +210,8 @@ export class SolanaAdapter {
     mintAddress: string,
     programId: PublicKey = TOKEN_2022_PROGRAM_ID,
     defaultAccountState?: "Initialized" | "Frozen" | "Uninitialized",
-    network: NetworkMode = "mainnet"
+    _network: MainnetNetwork = "mainnet"
   ): Promise<{ exists: boolean; isFrozen: boolean; address: string; error?: string }> {
-    if (network === "testnet") {
-      return { exists: true, isFrozen: false, address: walletAddress };
-    }
-
     const walletPubkey = new PublicKey(walletAddress);
     const mintPubkey = new PublicKey(mintAddress);
     const ataPubkey = getAssociatedTokenAddressSync(
@@ -241,7 +221,7 @@ export class SolanaAdapter {
       programId
     );
 
-    const conn = this.getConnection(network);
+    const conn = this.getConnection();
     const accInfo = await conn.getAccountInfo(ataPubkey);
 
     if (!accInfo) {
@@ -291,7 +271,7 @@ export class SolanaAdapter {
    */
   async resolveMintMetadata(
     mintAddress: string,
-    network: NetworkMode = "mainnet",
+    network: MainnetNetwork = "mainnet",
     options?: { bypassCache?: boolean }
   ): Promise<ValidatedMintMetadata> {
     if (!options?.bypassCache && validatedMintCache.has(mintAddress)) {
@@ -299,11 +279,11 @@ export class SolanaAdapter {
     }
 
     const pubkey = new PublicKey(mintAddress);
-    const conn = this.getConnection(network);
+    const conn = this.getConnection();
     const accountInfo = await conn.getAccountInfo(pubkey);
 
     if (!accountInfo) {
-      throw new Error(`Mint account ${mintAddress} does not exist on ${network}`);
+      throw new Error(`Mint account ${mintAddress} does not exist on Solana Mainnet`);
     }
 
     const isToken = accountInfo.owner.equals(TOKEN_PROGRAM_ID);
@@ -557,7 +537,7 @@ export class SolanaAdapter {
    */
   async resolveMintDecimals(
     mintAddress: string,
-    network: NetworkMode = "mainnet",
+    network: MainnetNetwork = "mainnet",
     options?: { bypassCache?: boolean }
   ): Promise<number> {
     const meta = await this.resolveMintMetadata(mintAddress, network, options);
@@ -571,13 +551,8 @@ export class SolanaAdapter {
     walletAddress: string,
     fundingAsset: FundingAsset,
     requiredAmountRaw: bigint,
-    network: NetworkMode = "mainnet"
+    _network: MainnetNetwork = "mainnet"
   ): Promise<{ hasSufficient: boolean; error?: string }> {
-    if (network === "testnet") {
-      // Practice / Testnet mode: simulated balance is always sufficient
-      return { hasSufficient: true };
-    }
-
     try {
       const walletPubkey = new PublicKey(walletAddress);
       const conn = this.getConnection("mainnet");
@@ -630,14 +605,26 @@ export class SolanaAdapter {
     }
   }
 
+  /** Checks a wallet's raw balance for an arbitrary SPL/Token-2022 mint plus SOL fees. */
+  async checkTokenBalance(walletAddress: string, mintAddress: string, requiredRaw: bigint, _network: MainnetNetwork = "mainnet"): Promise<{ hasSufficient: boolean; error?: string }> {
+    try {
+      const wallet = new PublicKey(walletAddress);
+      const conn = this.getConnection();
+      if (BigInt(await conn.getBalance(wallet)) < SolanaAdapter.FEE_RESERVE_LAMPORTS) return { hasSufficient:false, error:"Insufficient SOL for transaction fees" };
+      const accounts = await conn.getParsedTokenAccountsByOwner(wallet, { mint: new PublicKey(mintAddress) });
+      let total = 0n; for (const a of accounts.value) total += BigInt(a.account.data.parsed.info.tokenAmount.amount);
+      return total >= requiredRaw ? { hasSufficient:true } : { hasSufficient:false, error:`Insufficient PreStock token balance: raw ${total}, required ${requiredRaw}` };
+    } catch (err) { return { hasSufficient:false, error:`Failed to verify PreStock token balance: ${err instanceof Error ? err.message : String(err)}` }; }
+  }
+
   /**
    * Simulates a base64-encoded VersionedTransaction.
    */
   async simulateTransaction(
     transactionBase64: string,
-    network: NetworkMode = "mainnet"
+    _network: MainnetNetwork = "mainnet"
   ): Promise<{ err: unknown; logs?: string[] }> {
-    const conn = this.getConnection(network);
+    const conn = this.getConnection();
     const txBuffer = Buffer.from(transactionBase64, "base64");
     const tx = VersionedTransaction.deserialize(txBuffer);
     const result = await conn.simulateTransaction(tx);
@@ -652,9 +639,9 @@ export class SolanaAdapter {
    */
   async confirmSignature(
     signature: string,
-    network: NetworkMode = "mainnet"
+    _network: MainnetNetwork = "mainnet"
   ): Promise<{ confirmed: boolean; slot?: number; err?: unknown }> {
-    const conn = this.getConnection(network);
+    const conn = this.getConnection();
     try {
       const status = await conn.getSignatureStatus(signature, {
         searchTransactionHistory: true,
@@ -683,9 +670,9 @@ export class SolanaAdapter {
    */
   async sendRawTransaction(
     signedTxBase64: string,
-    network: NetworkMode = "mainnet"
+    _network: MainnetNetwork = "mainnet"
   ): Promise<string> {
-    const conn = this.getConnection(network);
+    const conn = this.getConnection();
     const txBuffer = Buffer.from(signedTxBase64, "base64");
     const signature = await conn.sendRawTransaction(txBuffer, {
       skipPreflight: false,

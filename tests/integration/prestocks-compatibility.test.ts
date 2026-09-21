@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
-import { checkPreStocksCompatibility } from "../../scripts/check-prestocks-compatibility.mjs";
+import { auditPreStocksMarkets } from "../../scripts/lib/prestocks-compatibility.mjs";
 import { Keypair } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ExtensionType } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 
 describe("PreStocks Compatibility Diagnostic (Read-Only)", () => {
   it("correctly audits a sample PreStocks market set in read-only mode", async () => {
@@ -32,62 +32,22 @@ describe("PreStocks Compatibility Diagnostic (Read-Only)", () => {
       },
     ];
 
-    // Mock fetch for PreStocks API
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => mockMarkets,
-    }));
-
-    // Construct mock buffers
-    const splData = Buffer.alloc(82);
-    splData[44] = 6; // decimals
-    splData[45] = 1;
-
-    // NonTransferable buffer
-    const nonTransData = Buffer.alloc(165 + 1 + 4);
-    nonTransData[44] = 9;
-    nonTransData[45] = 1;
-    nonTransData[165] = 1;
-    nonTransData.writeUInt16LE(ExtensionType.NonTransferable, 166);
-    nonTransData.writeUInt16LE(0, 168);
-
-    // Clean Token-2022 buffer
-    const clean2022Data = Buffer.alloc(82);
-    clean2022Data[44] = 9;
-    clean2022Data[45] = 1;
-
-    // Mock Connection prototype
-    const { Connection } = await import("@solana/web3.js");
-    const origGetAccountInfo = Connection.prototype.getAccountInfo;
-    const origGetEpochInfo = Connection.prototype.getEpochInfo;
-
-    Connection.prototype.getEpochInfo = vi.fn().mockResolvedValue({ epoch: 500 });
-    Connection.prototype.getAccountInfo = vi.fn().mockImplementation(async (pubkey) => {
-      const keyStr = pubkey.toBase58();
+    const adapter = { resolveMintMetadata: vi.fn().mockImplementation(async (mint) => {
+      const keyStr = mint.toString();
       if (keyStr === cleanSplMint.toBase58()) {
-        return {
-          owner: TOKEN_PROGRAM_ID,
-          data: splData,
-        };
+        return { programOwner: TOKEN_PROGRAM_ID.toBase58(), decimals: 6, extensions: [], transferFeeBasisPoints: 0, scaledUiAmount: null };
       }
       if (keyStr === blockedExtMint.toBase58()) {
-        return {
-          owner: TOKEN_2022_PROGRAM_ID,
-          data: nonTransData,
-        };
+        throw new Error("Unsupported Token-2022 mint extensions: NonTransferable");
       }
       if (keyStr === cleanToken2022Mint.toBase58()) {
-        return {
-          owner: TOKEN_2022_PROGRAM_ID,
-          data: clean2022Data,
-        };
+        return { programOwner: TOKEN_2022_PROGRAM_ID.toBase58(), decimals: 9, extensions: [], transferFeeBasisPoints: 0, scaledUiAmount: null };
       }
       return null;
-    });
+    }) };
 
     try {
-      const results = await checkPreStocksCompatibility();
+      const results = await auditPreStocksMarkets(mockMarkets, adapter);
 
       expect(results).toHaveLength(4);
 
@@ -107,8 +67,6 @@ describe("PreStocks Compatibility Diagnostic (Read-Only)", () => {
       expect(missing?.status).toBe("BLOCKED_SAFE");
       expect(missing?.reason).toMatch(/Missing contract_address/);
     } finally {
-      Connection.prototype.getAccountInfo = origGetAccountInfo;
-      Connection.prototype.getEpochInfo = origGetEpochInfo;
       vi.unstubAllGlobals();
     }
   });

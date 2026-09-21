@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { activeChecksStore, type CheckResponseDto } from "./check-service";
 import { defaultJupiterAdapter, JupiterAdapter } from "../jupiter/adapter";
-import { defaultPracticeAdapter, PracticeAdapter } from "../practice/adapter";
 import { defaultSolanaAdapter, SolanaAdapter, CANONICAL_MINTS, calculateNetOutput } from "../solana/adapter";
 import { defaultMarketService, MarketService } from "./market-service";
 import { getRepository } from "../database/db";
@@ -12,26 +11,25 @@ import {
   isExpired,
   DEFAULT_CHECK_EXPIRY_MS,
 } from "../../core";
-import { Keypair, PublicKey, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { toDecimal, rawToDisplay, rawToEconomicDisplay } from "../../core/money/decimal";
 import { SieveAppError } from "./errors";
 import type {
   BuildIntent,
-  NetworkMode,
+  MainnetNetwork,
   FundingAsset,
 } from "../../core/domain/types";
 
 export interface BuildRequestInput {
   checkId: string;
   wallet: string;
-  scenarioId?: string; // For testing/practice mode
 }
 
 export type BuildResult =
   | {
       status: "READY_FOR_WALLET";
       buildIntentId: string;
-      network: NetworkMode;
+      network: MainnetNetwork;
       serializedTransaction: string;
       expiresAt: string;
       summary: BuildIntent["summary"];
@@ -53,7 +51,6 @@ export class TransactionBuildService {
   constructor(
     private marketService: MarketService = defaultMarketService,
     private jupiterAdapter: JupiterAdapter = defaultJupiterAdapter,
-    private practiceAdapter: PracticeAdapter = defaultPracticeAdapter,
     private solanaAdapter: SolanaAdapter = defaultSolanaAdapter,
     private repo: ISieveRepository = getRepository()
   ) {}
@@ -77,7 +74,7 @@ export class TransactionBuildService {
       throw new SieveAppError("WALLET_NOT_CONNECTED", "Valid Solana wallet address is required");
     }
 
-    if (check.wallet && check.wallet !== input.wallet) {
+    if (!check.wallet || check.wallet !== input.wallet) {
       throw new SieveAppError("WALLET_MISMATCH", "Wallet address does not match price check");
     }
 
@@ -86,14 +83,14 @@ export class TransactionBuildService {
       input.wallet,
       check.funding.fundingAsset,
       check.funding.inputRaw,
-      check.network
+      "mainnet"
     );
     if (!balanceCheck.hasSufficient) {
       throw new SieveAppError("INSUFFICIENT_FUNDS", balanceCheck.error || "Insufficient wallet balance");
     }
 
     // 5. Server-Side Revalidation: Refetch fresh reference and quote (force cache bypass)
-    let freshAsset = await this.marketService.getMarketByMint(check.asset.mint, check.network, { bypassCache: true });
+    const freshAsset = await this.marketService.getMarketByMint(check.asset.mint, { bypassCache: true });
     if (!freshAsset) {
       throw new SieveAppError("PRICE_REFERENCE_INVALID", "Market asset no longer available");
     }
@@ -115,23 +112,21 @@ export class TransactionBuildService {
       gasless?: boolean | null;
     } | undefined;
 
-    if (check.network === "mainnet") {
-      targetMetadata = await this.solanaAdapter.resolveMintMetadata(freshAsset.mint, "mainnet", { bypassCache: true });
-      if (!targetMetadata.supported) {
-        throw new SieveAppError("ROUTE_RISK", targetMetadata.blockers?.join(", ") || "Asset not supported");
-      }
-      const targetDecimals = targetMetadata.decimals;
+    targetMetadata = await this.solanaAdapter.resolveMintMetadata(freshAsset.mint, "mainnet", { bypassCache: true });
+    if (!targetMetadata.supported) {
+      throw new SieveAppError("ROUTE_RISK", targetMetadata.blockers?.join(", ") || "Asset not supported");
+    }
+    const freshTargetDecimals = targetMetadata.decimals;
       const activeMultiplier = targetMetadata.scaledUiAmount?.activeMultiplier ?? "1";
-      const inputMint = check.funding.fundingAsset === "USDC"
+      const quoteInputMint = check.funding.fundingAsset === "USDC"
         ? CANONICAL_MINTS.mainnet.USDC
         : CANONICAL_MINTS.mainnet.WSOL;
-
       // Re-quote from Jupiter
       const jupQuote = await this.jupiterAdapter.getQuote({
-        inputMint,
+        inputMint: quoteInputMint,
         outputMint: freshAsset.mint,
         amount: check.funding.inputRaw,
-        outputDecimals: targetDecimals,
+        outputDecimals: freshTargetDecimals,
       });
 
       // Account for Token-2022 transfer fee withholding on expected target tokens
@@ -139,7 +134,7 @@ export class TransactionBuildService {
         jupQuote.quote.outputRaw,
         targetMetadata.transferFee
       );
-      revalQuoteExpectedAmount = rawToEconomicDisplay(netRevalRaw, targetDecimals, activeMultiplier).toString();
+      revalQuoteExpectedAmount = rawToEconomicDisplay(netRevalRaw, freshTargetDecimals, activeMultiplier).toString();
       revalPriceImpact = jupQuote.quote.priceImpactPct;
 
       // Refresh SOL valuation contemporaneously if funding with SOL
@@ -158,21 +153,6 @@ export class TransactionBuildService {
           }
         }
       }
-    } else {
-      // Practice mode revalidation quote
-      if (input.scenarioId && this.practiceAdapter.getScenario(input.scenarioId).id === input.scenarioId) {
-        const practiceRevalQuote = await this.practiceAdapter.getRevalidationQuote(input.scenarioId);
-        revalQuoteExpectedAmount = practiceRevalQuote.expectedTargetAmount;
-        revalPriceImpact = practiceRevalQuote.priceImpactPct;
-        const scenario = this.practiceAdapter.getScenario(input.scenarioId);
-        if (scenario && scenario.asset) {
-          freshAsset = scenario.asset;
-        }
-      } else {
-        revalQuoteExpectedAmount = check.quote?.expectedTargetAmount ?? "0";
-        revalPriceImpact = check.quote?.priceImpactPct ?? null;
-      }
-    }
 
     // 6. Re-evaluate decision with fresh values
     const revalDecision = evaluatePriceBoundary({
@@ -191,7 +171,7 @@ export class TransactionBuildService {
         checkId: check.id,
         clientIntentVersion: check.clientIntentVersion,
         network: check.network,
-        sourceLabel: freshAsset.source === "PRESTOCKS" ? "PreStocks Official" : "Practice Fixture",
+        sourceLabel: "PreStocks Official",
         asset: {
           name: freshAsset.name,
           symbol: freshAsset.symbol,
@@ -229,9 +209,7 @@ export class TransactionBuildService {
     }
 
     // 8. Decision is GOOD_TO_GO: Derive transaction protection
-    const targetDecimals = check.network === "mainnet" && targetMetadata
-      ? targetMetadata.decimals
-      : 6;
+    const targetDecimals = targetMetadata.decimals;
 
     const protection = deriveAllowedExecutionTolerance({
       fundingUsdValue: freshFundingUsdValue,
@@ -247,8 +225,7 @@ export class TransactionBuildService {
     }
 
     // 9. Assemble transaction
-    if (check.network === "mainnet") {
-      // Check destination ATA state before assembling transaction
+    // Check destination ATA state before assembling transaction
       if (targetMetadata) {
         const destCheck = await this.solanaAdapter.checkDestinationAccount(
           input.wallet,
@@ -335,37 +312,12 @@ export class TransactionBuildService {
         rentFeePayer: buildResult.rentFeePayer ?? null,
         gasless: buildResult.gasless ?? null,
       };
-    } else {
-      // Practice mode: construct a valid, deserialize-able minimal VersionedTransaction
-      const dummyBlockhash = Keypair.generate().publicKey.toBase58();
-      try {
-        const payer = new PublicKey(input.wallet);
-        const message = new TransactionMessage({
-          payerKey: payer,
-          recentBlockhash: dummyBlockhash,
-          instructions: [],
-        }).compileToV0Message();
-        const dummyTx = new VersionedTransaction(message);
-        serializedTx = Buffer.from(dummyTx.serialize()).toString("base64");
-      } catch {
-        const dummyKey = Keypair.generate().publicKey;
-        const message = new TransactionMessage({
-          payerKey: dummyKey,
-          recentBlockhash: dummyBlockhash,
-          instructions: [],
-        }).compileToV0Message();
-        const dummyTx = new VersionedTransaction(message);
-        serializedTx = Buffer.from(dummyTx.serialize()).toString("base64");
-      }
-      lastValidBlockHeight = "426500000";
-      requestId = `practice-req-${check.id}`;
-    }
 
     // Scaled-UI transition safety: evaluate using authoritative Solana chain time.
     // Never mix host time with chain transition timestamps.
     // If a future ScaledUi multiplier transition can occur within the next 120 seconds of authoritative Solana chain time:
     // BLOCK transaction preparation with ROUTE_RISK and prompt user to retry after transition.
-    if (check.network === "mainnet" && targetMetadata?.scaledUiAmount?.newMultiplierEffectiveTimestamp != null) {
+    if (targetMetadata.scaledUiAmount?.newMultiplierEffectiveTimestamp != null) {
       const effTs = targetMetadata.scaledUiAmount.newMultiplierEffectiveTimestamp;
       const chainTs = targetMetadata.chainTimestamp;
       if (chainTs == null) {

@@ -22,7 +22,7 @@ export function MarketRow({ market }: MarketRowProps) {
   const diff = market.differencePct ? parseFloat(market.differencePct) : null;
   const isDiscount = diff !== null && diff < 0;
   const isNear = diff !== null && diff >= 0 && diff <= 5;
-  const displayName = market.name.replace(/\s*\(Practice\)\s*$/i, "");
+  const displayName = market.name;
 
   return (
     <>
