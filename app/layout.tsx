@@ -3,8 +3,9 @@ import { AppShell } from "@/components/app-shell/app-shell";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Sieve | Buy private-market tokens without overpaying",
-  description: "Set the price limit you're comfortable with. Sieve checks the live market before you sign.",
+  title: "Sieve — Execution Boundaries for PreStocks",
+  description:
+    "User-defined execution boundaries for PreStocks on Solana. Verify current Buy or Sell execution against your configured constraint before transaction preparation.",
 };
 
 export default function RootLayout({

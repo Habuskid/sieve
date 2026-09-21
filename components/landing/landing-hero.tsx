@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, CheckCircle2 } from "lucide-react";
 
 export function LandingHero() {
   const reduceMotion = useReducedMotion();
@@ -17,25 +17,25 @@ export function LandingHero() {
           transition={{ duration: 0.45, ease: "easeOut" }}
           className="lg:col-span-7"
         >
-          <p className="sieve-eyebrow">PreStocks execution guard</p>
+          <p className="sieve-eyebrow">User-defined execution boundary engine for PreStocks</p>
 
           <h1 className="sieve-display mt-5">
-            <span className="block">Set the price.</span>
-            <span className="sieve-display-muted">Sieve checks the execution.</span>
+            <span className="block">You set the boundary.</span>
+            <span className="sieve-display-muted">Sieve enforces it.</span>
           </h1>
 
           <p className="sieve-hero-copy mt-7">
-            Set the most you are willing to pay. Sieve checks the current executable Solana route before your wallet is asked to sign.
+            Set the execution constraint for a PreStocks trade. Sieve measures current Jupiter execution against the PreStocks reference, accounts for the token&apos;s onchain economics, and verifies how much of the requested order currently fits your boundary before transaction preparation.
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-x-7 gap-y-4">
             <Link href="/buy" className="sieve-action-primary">
-              Start a buy
+              Check a boundary
               <ArrowRight className="size-4" aria-hidden="true" />
             </Link>
 
             <Link href="/markets" className="sieve-action-secondary">
-              View markets
+              Explore PreStocks
             </Link>
           </div>
         </motion.div>
@@ -46,25 +46,55 @@ export function LandingHero() {
           transition={{ delay: reduceMotion ? 0 : 0.08, duration: 0.5, ease: "easeOut" }}
           className="lg:col-span-5"
         >
-          <div
-            className="sieve-execution-stage"
-            role="img"
-            aria-label="Decorative execution animation showing routes checked against a price boundary before signing."
-          >
-            <div className="sieve-execution-grid" aria-hidden="true" />
-            <div className="sieve-execution-track sieve-execution-track-a" aria-hidden="true" />
-            <div className="sieve-execution-track sieve-execution-track-b" aria-hidden="true" />
-            <div className="sieve-execution-track sieve-execution-track-c" aria-hidden="true" />
-            <div className="sieve-execution-gate" aria-hidden="true" />
-            <div className="sieve-execution-packet sieve-execution-packet-a" aria-hidden="true" />
-            <div className="sieve-execution-packet sieve-execution-packet-b" aria-hidden="true" />
-            <div className="sieve-execution-packet sieve-execution-packet-c" aria-hidden="true" />
-            <div className="sieve-execution-approved" aria-hidden="true" />
+          <div className="rounded-panel border border-borderBase bg-surface p-5 shadow-xs sm:p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-borderBase pb-3">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-secondaryText">
+                Illustrative example
+              </span>
+              <span className="font-mono text-[10px] text-mutedText">
+                Not live market data
+              </span>
+            </div>
 
-            <p className="sieve-execution-caption">
-              Executable route
-              <strong>Protected before signing</strong>
-            </p>
+            <div className="space-y-3 font-mono text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-secondaryText">Asset</span>
+                <span className="font-bold text-primaryText">OpenAI (OPENAI)</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-secondaryText">Reference price</span>
+                <span className="text-primaryText">$500.00</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-secondaryText">Configured boundary</span>
+                <span className="font-semibold text-sieveBlue">+5.0% maximum premium ($525.00)</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-secondaryText">Requested order</span>
+                <span className="text-primaryText">1,000 USDC</span>
+              </div>
+
+              <div className="rounded-[4px] border border-emerald-300 bg-sieveGreen-soft p-3 space-y-1.5 text-[11px]">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-sieveGreen flex items-center gap-1.5">
+                    <CheckCircle2 className="size-3.5" aria-hidden="true" />
+                    Within boundary
+                  </span>
+                  <span className="text-secondaryText font-medium">Boundary Capacity Verified</span>
+                </div>
+                <p className="text-secondaryText leading-relaxed">
+                  650 USDC of the requested 1,000 USDC is currently verified within your configured boundary.
+                </p>
+                <div className="pt-1 text-mutedText text-[10px]">
+                  Verified Amount: <span className="font-bold text-primaryText">650 USDC</span> · Effective Price: <span className="font-bold text-primaryText">$512.40</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-borderBase flex items-center justify-between text-[11px] text-secondaryText font-mono">
+              <span>Executable route check</span>
+              <span className="text-sieveBlue font-semibold">Ready to prepare</span>
+            </div>
           </div>
         </motion.div>
       </div>

@@ -120,8 +120,8 @@ export function evaluatePriceBoundary(input: PriceBoundaryInput): PriceDecision 
     if (impact.greaterThan(maxImpact)) {
       return createUnavailableDecision(
         "ROUTE_RISK",
-        "Price impact too high",
-        `This order would move the market price by ${impact.toFixed(2)}%, which exceeds safety thresholds.`,
+        "Price impact exceeds allowable threshold",
+        `This order would move the market price by ${impact.toFixed(2)}%, which exceeds allowable execution thresholds.`,
         maxPremiumPctDec.toString(),
         maxPremiumBps,
         R.toString()
@@ -151,8 +151,8 @@ export function evaluatePriceBoundary(input: PriceBoundaryInput): PriceDecision 
       premiumBps,
       maxPremiumBps,
       differenceUsd: differenceUsd.toString(),
-      displayTitle: "The price is inside your limit.",
-      displayMessage: `You're paying about ${premiumPct.toFixed(2)}% above the reference price. Your limit is ${maxPremiumPctDec.toFixed(2)}%.`,
+      displayTitle: "Within boundary",
+      displayMessage: `Current execution is ${premiumPct.toFixed(2)}% relative to reference price. Your configured maximum premium is ${maxPremiumPctDec.toFixed(2)}%.`,
     };
   } else {
     return {
@@ -166,8 +166,8 @@ export function evaluatePriceBoundary(input: PriceBoundaryInput): PriceDecision 
       premiumBps,
       maxPremiumBps,
       differenceUsd: differenceUsd.toString(),
-      displayTitle: "This buy is outside your limit.",
-      displayMessage: `The current price is ${premiumPct.toFixed(2)}% above the reference price. Your limit is ${maxPremiumPctDec.toFixed(2)}%.`,
+      displayTitle: "Boundary exceeded",
+      displayMessage: `Current execution is ${premiumPct.toFixed(2)}% relative to reference price, which exceeds your configured maximum premium of ${maxPremiumPctDec.toFixed(2)}%.`,
     };
   }
 }
@@ -211,7 +211,7 @@ export interface SellPriceBoundaryInput {
 }
 
 /**
- * Evaluates a PreStock -> USDC sell against the user's minimum acceptable price.
+ * Evaluates a PreStock -> USDC sell against the user's minimum execution price.
  *
  * Invariant:
  * currentSellPrice = net USDC proceeds / actual economic PreStock units sold
@@ -317,8 +317,8 @@ export function evaluateSellPriceBoundary(
     if (impact.greaterThan(maxImpact)) {
       return createUnavailableSellDecision(
         "ROUTE_RISK",
-        "Price impact too high",
-        `This order would move the market price by ${impact.toFixed(2)}%, which exceeds safety thresholds.`,
+        "Price impact exceeds allowable threshold",
+        `This order would move the market price by ${impact.toFixed(2)}%, which exceeds allowable execution thresholds.`,
         maxDiscountPctDec.toString(),
         maxDiscountBps,
         R.toString()
@@ -345,8 +345,8 @@ export function evaluateSellPriceBoundary(
       discountBps,
       maxDiscountBps,
       differenceUsd: differenceUsd.toString(),
-      displayTitle: "The sell price is inside your limit.",
-      displayMessage: `The route is ${discountPct.toFixed(2)}% below the reference price. Your maximum discount is ${maxDiscountPctDec.toFixed(2)}%.`,
+      displayTitle: "Within boundary",
+      displayMessage: `Current execution is ${discountPct.toFixed(2)}% relative to reference price. Your configured maximum discount is ${maxDiscountPctDec.toFixed(2)}%.`,
     };
   }
 
@@ -361,8 +361,8 @@ export function evaluateSellPriceBoundary(
     discountBps,
     maxDiscountBps,
     differenceUsd: differenceUsd.toString(),
-    displayTitle: "This sell is outside your limit.",
-    displayMessage: `The route is ${discountPct.toFixed(2)}% below the reference price. Your maximum discount is ${maxDiscountPctDec.toFixed(2)}%.`,
+    displayTitle: "Boundary exceeded",
+    displayMessage: `Current execution is ${discountPct.toFixed(2)}% relative to reference price, which exceeds your configured maximum discount of ${maxDiscountPctDec.toFixed(2)}%.`,
   };
 }
 

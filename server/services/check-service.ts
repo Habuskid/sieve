@@ -8,7 +8,7 @@ import {
   evaluatePriceBoundary,
   DEFAULT_CHECK_EXPIRY_MS,
 } from "../../core";
-import { displayToRaw, rawToEconomicDisplay, isPositiveFinite, toDecimal } from "../../core/money/decimal";
+import { displayToRaw, rawToDisplay, rawToEconomicDisplay, isPositiveFinite, toDecimal } from "../../core/money/decimal";
 import { SieveAppError } from "./errors";
 import type {
   MainnetNetwork,
@@ -99,113 +99,154 @@ export class PriceCheckService {
       );
     }
 
-    let fundingValuation: FundingValuation;
-    let quote: MarketQuote | null = null;
     const now = Date.now();
+    const targetMetadata = await this.solanaAdapter.resolveMintMetadata(asset.mint, "mainnet");
+    if (!targetMetadata.supported) {
+      throw new SieveAppError("ROUTE_RISK", targetMetadata.blockers?.join(", ") || "Asset not supported");
+    }
+
+    const candidateRaw =
+      input.fundingAsset === "USDC"
+        ? displayToRaw(input.amount, CANONICAL_MINTS.mainnet.USDC_DECIMALS)
+        : displayToRaw(input.amount, CANONICAL_MINTS.mainnet.SOL_DECIMALS);
+
+    const evaluated = await this.evaluateBuyCandidate({
+      asset,
+      targetMetadata,
+      fundingAsset: input.fundingAsset,
+      candidateRaw,
+      maxPremiumPct: input.maxPremiumPct,
+      clientIntentVersion: input.clientIntentVersion,
+      wallet: input.wallet,
+      now,
+    });
+
+    const priceCheck = evaluated.priceCheck;
+    activeChecksStore.set(priceCheck.id, priceCheck);
+    await this.repo.savePriceCheck(priceCheck);
+
+    return this.toDto(priceCheck, targetMetadata);
+  }
+
+  async evaluateBuyCandidate(input: {
+    asset: import("../../core/domain/types").MarketAsset;
+    targetMetadata: import("../solana/adapter").ValidatedMintMetadata;
+    fundingAsset: FundingAsset;
+    candidateRaw: bigint;
+    maxPremiumPct: string;
+    clientIntentVersion: string;
+    wallet?: string | null;
+    now?: number;
+  }): Promise<{
+    priceCheck: PriceCheck;
+    expectedNetTargetAmount: string;
+    isExecutable: boolean;
+  }> {
+    const {
+      asset,
+      targetMetadata,
+      fundingAsset,
+      candidateRaw,
+      maxPremiumPct,
+      clientIntentVersion,
+      wallet,
+    } = input;
+
+    const now = input.now ?? Date.now();
     const observedAt = new Date(now).toISOString();
+    const targetDecimals = targetMetadata.decimals;
+    const activeMultiplier = targetMetadata.scaledUiAmount?.activeMultiplier ?? "1";
 
-    let targetMetadata: import("../solana/adapter").ValidatedMintMetadata | null = null;
+    let fundingValuation: FundingValuation;
+    let quote: MarketQuote;
 
-    // 3. Mainnet flow
-      targetMetadata = await this.solanaAdapter.resolveMintMetadata(asset.mint, "mainnet");
-      if (!targetMetadata.supported) {
-        throw new SieveAppError("ROUTE_RISK", targetMetadata.blockers?.join(", ") || "Asset not supported");
-      }
-      const targetDecimals = targetMetadata.decimals;
-      const activeMultiplier = targetMetadata.scaledUiAmount?.activeMultiplier ?? "1";
+    if (fundingAsset === "USDC") {
+      const inputMint = CANONICAL_MINTS.mainnet.USDC;
+      const inputDisplay = rawToDisplay(candidateRaw, CANONICAL_MINTS.mainnet.USDC_DECIMALS).toString();
+      const inputUsdValue = inputDisplay;
 
-      if (input.fundingAsset === "USDC") {
-        const inputMint = CANONICAL_MINTS.mainnet.USDC;
-        const inputRaw = displayToRaw(input.amount, CANONICAL_MINTS.mainnet.USDC_DECIMALS);
-        const inputUsdValue = toDecimal(input.amount).toString();
+      fundingValuation = {
+        fundingAsset: "USDC",
+        inputRaw: candidateRaw,
+        inputDisplay,
+        inputUsdValue,
+        method: "USDC_PAR",
+        observedAt,
+      };
 
-        fundingValuation = {
-          fundingAsset: "USDC",
-          inputRaw,
-          inputDisplay: input.amount,
-          inputUsdValue,
-          method: "USDC_PAR",
-          observedAt,
-        };
+      const jupQuote = await this.jupiterAdapter.getQuote({
+        inputMint,
+        outputMint: asset.mint,
+        amount: candidateRaw,
+        outputDecimals: targetDecimals,
+      });
 
-        const jupQuote = await this.jupiterAdapter.getQuote({
-          inputMint,
-          outputMint: asset.mint,
-          amount: inputRaw,
-          outputDecimals: targetDecimals,
-        });
+      const netOutputRaw = calculateNetOutput(
+        jupQuote.quote.outputRaw,
+        targetMetadata.transferFee
+      );
+      const expectedNetTargetAmount = rawToEconomicDisplay(netOutputRaw, targetDecimals, activeMultiplier).toString();
+      quote = {
+        ...jupQuote.quote,
+        outputRaw: netOutputRaw,
+        expectedTargetAmount: expectedNetTargetAmount,
+      };
+    } else {
+      const inputMint = CANONICAL_MINTS.mainnet.WSOL;
+      const inputDisplay = rawToDisplay(candidateRaw, CANONICAL_MINTS.mainnet.SOL_DECIMALS).toString();
 
-        // Guarantee NET output by accounting for Token-2022 transfer fee withholding
-        const netOutputRaw = calculateNetOutput(
-          jupQuote.quote.outputRaw,
-          targetMetadata.transferFee
-        );
-        const expectedNetTargetAmount = rawToEconomicDisplay(netOutputRaw, targetDecimals, activeMultiplier).toString();
-        quote = {
-          ...jupQuote.quote,
-          outputRaw: netOutputRaw,
-          expectedTargetAmount: expectedNetTargetAmount,
-        };
+      const jupQuote = await this.jupiterAdapter.getQuote({
+        inputMint,
+        outputMint: asset.mint,
+        amount: candidateRaw,
+        outputDecimals: targetDecimals,
+      });
+
+      let usdVal: string;
+      if (jupQuote.inUsdValue != null && jupQuote.inUsdValue > 0) {
+        usdVal = toDecimal(jupQuote.inUsdValue).toString();
       } else {
-        // SOL funding asset
-        const inputMint = CANONICAL_MINTS.mainnet.WSOL;
-        const inputRaw = displayToRaw(input.amount, CANONICAL_MINTS.mainnet.SOL_DECIMALS);
-
-        const jupQuote = await this.jupiterAdapter.getQuote({
-          inputMint,
-          outputMint: asset.mint,
-          amount: inputRaw,
-          outputDecimals: targetDecimals,
-        });
-
-        // Contemporaneous SOL USD valuation from Jupiter (never a hardcoded constant)
-        let usdVal: string;
-        if (jupQuote.inUsdValue != null && jupQuote.inUsdValue > 0) {
-          usdVal = toDecimal(jupQuote.inUsdValue).toString();
-        } else {
-          try {
-            const solPrice = await this.jupiterAdapter.getSolUsdPrice();
-            usdVal = toDecimal(input.amount).mul(solPrice).toString();
-          } catch (err) {
-            throw new SieveAppError(
-              "DATA_UNAVAILABLE",
-              `Unable to derive contemporaneous SOL/USD valuation: ${err instanceof Error ? err.message : String(err)}`
-            );
-          }
+        try {
+          const solPrice = await this.jupiterAdapter.getSolUsdPrice();
+          usdVal = toDecimal(inputDisplay).mul(solPrice).toString();
+        } catch (err) {
+          throw new SieveAppError(
+            "DATA_UNAVAILABLE",
+            `Unable to derive contemporaneous SOL/USD valuation: ${err instanceof Error ? err.message : String(err)}`
+          );
         }
-
-        fundingValuation = {
-          fundingAsset: "SOL",
-          inputRaw,
-          inputDisplay: input.amount,
-          inputUsdValue: usdVal,
-          method: "CURRENT_MARKET_ROUTE",
-          observedAt,
-        };
-
-        // Guarantee NET output by accounting for Token-2022 transfer fee withholding
-        const netOutputRaw = calculateNetOutput(
-          jupQuote.quote.outputRaw,
-          targetMetadata.transferFee
-        );
-        const expectedNetTargetAmount = rawToEconomicDisplay(netOutputRaw, targetDecimals, activeMultiplier).toString();
-        quote = {
-          ...jupQuote.quote,
-          outputRaw: netOutputRaw,
-          expectedTargetAmount: expectedNetTargetAmount,
-        };
       }
 
-    // 5. Evaluate decision via core policy evaluator
+      fundingValuation = {
+        fundingAsset: "SOL",
+        inputRaw: candidateRaw,
+        inputDisplay,
+        inputUsdValue: usdVal,
+        method: "CURRENT_MARKET_ROUTE",
+        observedAt,
+      };
+
+      const netOutputRaw = calculateNetOutput(
+        jupQuote.quote.outputRaw,
+        targetMetadata.transferFee
+      );
+      const expectedNetTargetAmount = rawToEconomicDisplay(netOutputRaw, targetDecimals, activeMultiplier).toString();
+      quote = {
+        ...jupQuote.quote,
+        outputRaw: netOutputRaw,
+        expectedTargetAmount: expectedNetTargetAmount,
+      };
+    }
+
     const decision = evaluatePriceBoundary({
       referencePriceUsd: asset.referencePriceUsd,
       referenceObservedAt: asset.observedAt,
       fundingUsdValue: fundingValuation.inputUsdValue,
-      expectedTargetTokens: quote?.expectedTargetAmount ?? "0",
-      maxPremiumPct: input.maxPremiumPct,
-      quoteObservedAt: quote?.observedAt,
-      quoteExpiresAt: quote?.expiresAt,
-      priceImpactPct: quote?.priceImpactPct,
+      expectedTargetTokens: quote.expectedTargetAmount,
+      maxPremiumPct,
+      quoteObservedAt: quote.observedAt,
+      quoteExpiresAt: quote.expiresAt,
+      priceImpactPct: quote.priceImpactPct,
       now,
     });
 
@@ -215,40 +256,49 @@ export class PriceCheckService {
     const priceCheck: PriceCheck = {
       id: checkId,
       network: "mainnet",
-      wallet: input.wallet ?? null,
-      clientIntentVersion: input.clientIntentVersion,
+      wallet: wallet ?? null,
+      clientIntentVersion,
       asset,
       funding: fundingValuation,
       quote,
-      maxPremiumPct: input.maxPremiumPct,
+      maxPremiumPct,
       maxPremiumBps: decision.maxPremiumBps,
       decision,
       createdAt: observedAt,
       expiresAt,
     };
 
-    activeChecksStore.set(checkId, priceCheck);
-    await this.repo.savePriceCheck(priceCheck);
+    return {
+      priceCheck,
+      expectedNetTargetAmount: quote.expectedTargetAmount,
+      isExecutable: decision.isExecutable,
+    };
+  }
 
+  toDto(
+    priceCheck: PriceCheck,
+    targetMetadata?: import("../solana/adapter").ValidatedMintMetadata | null
+  ): CheckResponseDto {
+    const decision = priceCheck.decision;
     const mappedDecision =
       decision.status === "STALE_REFERENCE" || decision.status === "STALE_QUOTE"
         ? "STALE_DATA"
         : decision.status;
 
     return {
-      checkId,
-      clientIntentVersion: input.clientIntentVersion,
+      checkId: priceCheck.id,
+      clientIntentVersion: priceCheck.clientIntentVersion,
       network: "mainnet",
       sourceLabel: "PreStocks Official",
       asset: {
-        name: asset.name,
-        symbol: asset.symbol,
-        mint: asset.mint,
+        name: priceCheck.asset.name,
+        symbol: priceCheck.asset.symbol,
+        mint: priceCheck.asset.mint,
       },
       funding: {
-        asset: fundingValuation.fundingAsset,
-        amount: fundingValuation.inputDisplay,
-        usdValue: fundingValuation.inputUsdValue,
+        asset: priceCheck.funding.fundingAsset,
+        amount: priceCheck.funding.inputDisplay,
+        usdValue: priceCheck.funding.inputUsdValue,
       },
       price: {
         referenceUsd: decision.referencePriceUsd,
@@ -257,12 +307,12 @@ export class PriceCheckService {
         premiumPct: decision.premiumPct,
       },
       expected: {
-        targetAmount: quote?.expectedTargetAmount ?? null,
-        priceImpactPct: quote?.priceImpactPct ?? null,
+        targetAmount: priceCheck.quote?.expectedTargetAmount ?? null,
+        priceImpactPct: priceCheck.quote?.priceImpactPct ?? null,
       },
       decision: mappedDecision,
-      observedAt,
-      expiresAt,
+      observedAt: priceCheck.createdAt,
+      expiresAt: priceCheck.expiresAt,
       display: {
         title: decision.displayTitle,
         message: decision.displayMessage,

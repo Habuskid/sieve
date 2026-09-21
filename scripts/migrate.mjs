@@ -3,18 +3,15 @@ import path from "node:path";
 import postgres from "postgres";
 
 async function runMigrations() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    if (process.env.NODE_ENV === "production") {
-      console.error("Error: DATABASE_URL must be configured in production environment to run migrations.");
-      process.exit(1);
-    }
-    console.log("DATABASE_URL not set in non-production environment. Skipping PostgreSQL migrations.");
-    process.exit(0);
+  const migrationDatabaseUrl = process.env.MIGRATION_DATABASE_URL;
+  if (!migrationDatabaseUrl) {
+    console.error("Error: MIGRATION_DATABASE_URL is required to run migrations.");
+    process.exit(1);
   }
 
-  const sql = postgres(databaseUrl, {
+  const sql = postgres(migrationDatabaseUrl, {
     max: 1,
+    ssl: "require",
     connect_timeout: 10,
     idle_timeout: 5,
   });

@@ -2,15 +2,17 @@
 
 import React from "react";
 import type { TradeReceipt } from "@/core/domain/types";
+import type { SellTradeReceipt } from "@/core/domain/sell-types";
 import { ExternalLink, ArrowLeft } from "lucide-react";
 
 interface TradeReceiptViewProps {
-  receipt: TradeReceipt;
+  receipt: TradeReceipt | SellTradeReceipt;
   onDone: () => void;
 }
 
 export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
   const isConfirmed = receipt.status === "CONFIRMED";
+  const isSell = "side" in receipt && receipt.side === "SELL";
   const hasRealSignature = Boolean(
     receipt.signature && !receipt.signature.startsWith("sim-")
   );
@@ -19,8 +21,12 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
       ? `https://solscan.io/tx/${receipt.signature}`
       : null;
 
-  const boughtDisplay = receipt.realizedTargetAmount
-    ? `${receipt.realizedTargetAmount} ${receipt.targetSymbol}`
+  const boughtDisplay = !isSell && (receipt as TradeReceipt).realizedTargetAmount
+    ? `${(receipt as TradeReceipt).realizedTargetAmount} ${receipt.targetSymbol}`
+    : isSell && (receipt as SellTradeReceipt).realizedUsdcProceeds
+    ? `${(receipt as SellTradeReceipt).realizedUsdcProceeds} USDC`
+    : isSell && (receipt as SellTradeReceipt).expectedUsdcProceeds
+    ? `${(receipt as SellTradeReceipt).expectedUsdcProceeds} USDC`
     : "Unavailable";
 
   return (
@@ -46,7 +52,9 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
         </h2>
         <p className="text-xs text-secondaryText mt-0.5">
           {isConfirmed
-            ? `Your buy of ${receipt.targetSymbol} was confirmed on Solana.`
+            ? isSell
+              ? `Your sell of ${receipt.targetSymbol} was confirmed on Solana.`
+              : `Your buy of ${receipt.targetSymbol} was confirmed on Solana.`
             : receipt.failureCode
             ? `Transaction failed (${receipt.failureCode}). The trade did not complete. A network fee may still have been charged.`
             : "The trade did not complete. A network fee may still have been charged."}
@@ -63,20 +71,23 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
           </span>
         </div>
 
-        {/* Actual Paid */}
+        {/* Actual Paid / Sold */}
         <div className="py-2.5 flex items-center justify-between">
-          <span className="text-secondaryText">Actual Paid</span>
+          <span className="text-secondaryText">{isSell ? "Actual Sold" : "Actual Paid"}</span>
           <div className="text-right">
             <span className="font-mono font-bold text-primaryText tabular-nums block">
-              {receipt.actualFundingAmount
-                ? `${receipt.actualFundingAmount} ${receipt.fundingAsset}`
-                : `${receipt.fundingAmount} ${receipt.fundingAsset}`}
+              {isSell
+                ? `${(receipt as SellTradeReceipt).actualEconomicInput || (receipt as SellTradeReceipt).requestedEconomicAmount} ${receipt.targetSymbol}`
+                : (receipt as TradeReceipt).actualFundingAmount
+                ? `${(receipt as TradeReceipt).actualFundingAmount} ${(receipt as TradeReceipt).fundingAsset}`
+                : `${(receipt as TradeReceipt).fundingAmount} ${(receipt as TradeReceipt).fundingAsset}`}
             </span>
-            {receipt.actualFundingAmount &&
-              receipt.requestedFundingAmount &&
-              receipt.actualFundingAmount !== receipt.requestedFundingAmount && (
+            {!isSell &&
+              (receipt as TradeReceipt).actualFundingAmount &&
+              (receipt as TradeReceipt).requestedFundingAmount &&
+              (receipt as TradeReceipt).actualFundingAmount !== (receipt as TradeReceipt).requestedFundingAmount && (
                 <span className="text-mutedText text-[10px] block">
-                  Requested: {receipt.requestedFundingAmount} {receipt.fundingAsset}
+                  Requested: {(receipt as TradeReceipt).requestedFundingAmount} {(receipt as TradeReceipt).fundingAsset}
                 </span>
               )}
           </div>
@@ -100,17 +111,19 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
 
         {/* Executed Price */}
         <div className="py-2.5 flex items-center justify-between">
-          <span className="text-secondaryText">Executed Buy Price</span>
+          <span className="text-secondaryText">{isSell ? "Executed Sell Price" : "Executed Buy Price"}</span>
           <span className="font-mono font-bold text-sieveGreen tabular-nums">
-            ${receipt.checkedBuyPriceUsd}
+            ${isSell ? (receipt as SellTradeReceipt).checkedSellPriceUsd : (receipt as TradeReceipt).checkedBuyPriceUsd}
           </span>
         </div>
 
-        {/* Premium */}
+        {/* Premium / Discount */}
         <div className="py-2.5 flex items-center justify-between">
-          <span className="text-secondaryText">Premium over Reference</span>
+          <span className="text-secondaryText">{isSell ? "Discount from Reference" : "Premium over Reference"}</span>
           <span className="font-mono font-medium text-sieveGreen tabular-nums">
-            +{(receipt.premiumBps / 100).toFixed(2)}%
+            {isSell
+              ? `-${((((receipt as SellTradeReceipt).realizedDiscountBps ?? (receipt as SellTradeReceipt).maxDiscountBps)) / 100).toFixed(2)}%`
+              : `+${(((receipt as TradeReceipt).premiumBps) / 100).toFixed(2)}%`}
           </span>
         </div>
 

@@ -74,7 +74,7 @@ export class TransactionBuildService {
       throw new SieveAppError("WALLET_NOT_CONNECTED", "Valid Solana wallet address is required");
     }
 
-    if (check.wallet && check.wallet !== input.wallet) {
+    if (!check.wallet || check.wallet !== input.wallet) {
       throw new SieveAppError("WALLET_MISMATCH", "Wallet address does not match price check");
     }
 
@@ -113,15 +113,14 @@ export class TransactionBuildService {
     } | undefined;
 
     targetMetadata = await this.solanaAdapter.resolveMintMetadata(freshAsset.mint, "mainnet", { bypassCache: true });
-      if (!targetMetadata.supported) {
-        throw new SieveAppError("ROUTE_RISK", targetMetadata.blockers?.join(", ") || "Asset not supported");
-      }
-      const freshTargetDecimals = targetMetadata.decimals;
+    if (!targetMetadata.supported) {
+      throw new SieveAppError("ROUTE_RISK", targetMetadata.blockers?.join(", ") || "Asset not supported");
+    }
+    const freshTargetDecimals = targetMetadata.decimals;
       const activeMultiplier = targetMetadata.scaledUiAmount?.activeMultiplier ?? "1";
       const quoteInputMint = check.funding.fundingAsset === "USDC"
         ? CANONICAL_MINTS.mainnet.USDC
         : CANONICAL_MINTS.mainnet.WSOL;
-
       // Re-quote from Jupiter
       const jupQuote = await this.jupiterAdapter.getQuote({
         inputMint: quoteInputMint,

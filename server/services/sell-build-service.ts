@@ -19,7 +19,7 @@ export class SellBuildService {
     const check = await this.repo.getSellPriceCheck(input.checkId);
     if (!check) throw new SieveAppError("QUOTE_EXPIRED", "Sell check not found");
     if (isExpired(check.expiresAt, Date.now())) throw new SieveAppError("TRANSACTION_EXPIRED", "Sell check expired");
-    if (check.wallet && check.wallet !== input.wallet) throw new SieveAppError("WALLET_MISMATCH");
+    if (!check.wallet || check.wallet !== input.wallet) throw new SieveAppError("WALLET_MISMATCH");
 
     const asset = await this.markets.getMarketByMint(check.asset.mint, { bypassCache: true });
     if (!asset) throw new SieveAppError("DATA_UNAVAILABLE");
