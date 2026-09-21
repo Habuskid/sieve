@@ -1,6 +1,6 @@
 import { getRepository } from "../database/db";
 import type { ISieveRepository, ListFilterParams } from "../database/repository";
-import type { NetworkMode, TradeReceipt, PriceCheck } from "../../core/domain/types";
+import type { MainnetNetwork } from "../../core/domain/types";
 
 export interface HistoryItem {
   id: string;
@@ -21,7 +21,7 @@ export interface HistoryItem {
     premiumPct: string;
     limitPct: string;
   };
-  network: NetworkMode;
+  network: MainnetNetwork;
   signature?: string;
   statusLabel: string;
 }
@@ -31,13 +31,12 @@ export class HistoryService {
 
   async getUserHistory(params: {
     wallet: string;
-    network?: NetworkMode;
     limit?: number;
     offset?: number;
   }): Promise<HistoryItem[]> {
     const filter: ListFilterParams = {
       wallet: params.wallet,
-      network: params.network,
+      network: "mainnet",
       limit: params.limit ?? 50,
       offset: params.offset ?? 0,
     };

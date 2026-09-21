@@ -2,14 +2,14 @@ import type {
   PriceCheck,
   BuildIntent,
   TradeReceipt,
-  NetworkMode,
+  MainnetNetwork,
 } from "../../core/domain/types";
 import { SieveAppError } from "../services/errors";
 import type { SellBuildIntent, SellPriceCheck, SellTradeReceipt } from "../../core/domain/sell-types";
 
 export interface ListFilterParams {
   wallet?: string;
-  network?: NetworkMode;
+    network?: MainnetNetwork;
   limit?: number;
   offset?: number;
 }

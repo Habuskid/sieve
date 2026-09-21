@@ -8,7 +8,7 @@ import type { ISieveRepository } from "../database/repository";
 import { SieveAppError } from "./errors";
 import { isExpired } from "../../core";
 import { rawToDisplay, rawToEconomicDisplay } from "../../core/money/decimal";
-import type { TradeReceipt, NetworkMode } from "../../core/domain/types";
+import type { TradeReceipt } from "../../core/domain/types";
 
 
 export interface ConfirmRequestInput {
@@ -16,7 +16,6 @@ export interface ConfirmRequestInput {
   signature?: string;
   signedTransaction?: string;
   wallet?: string;
-  network?: NetworkMode;
 }
 
 export interface ConfirmResponseDto {
@@ -45,9 +44,6 @@ export class ConfirmationService {
     }
 
     // 2. Context binding validation (Audit Repair 5)
-    if (input.network && input.network !== buildIntent.network) {
-      throw new SieveAppError("NETWORK_MISMATCH", "Network mode does not match build intent");
-    }
     if (input.wallet && input.wallet !== buildIntent.wallet) {
       throw new SieveAppError("WALLET_MISMATCH", "Wallet address does not match build intent");
     }
@@ -57,10 +53,8 @@ export class ConfirmationService {
       throw new SieveAppError("TRANSACTION_EXPIRED", "Transaction build intent expired before confirmation");
     }
 
-    const network = input.network ?? buildIntent.network;
-
     // 4. Mainnet signature-only rejection (Audit Defect 1)
-    if (network === "mainnet" && !input.signedTransaction) {
+    if (!input.signedTransaction) {
       throw new SieveAppError("VALIDATION_ERROR", "Mainnet confirmation requires signedTransaction");
     }
 
@@ -103,8 +97,7 @@ export class ConfirmationService {
     let rawWalletOutput: string | null = null;
     const internalExecutionId = uuidv4();
 
-    if (network === "mainnet") {
-      if (!buildIntent.requestId) {
+    if (!buildIntent.requestId) {
         throw new SieveAppError("TRANSACTION_FAILED", "Missing Jupiter requestId for execution");
       }
       const execResult = await this.jupiterAdapter.executeTransaction({
@@ -184,13 +177,6 @@ export class ConfirmationService {
         // Do not fabricate failed-xxxxxxxx signatures (Audit Defect 11)
         signature = execResult.signature || null;
       }
-    } else {
-      // Practice / Testnet mode: accept simulated execution
-      isConfirmed = true;
-      signature = signature || `sim-testnet-sig-${buildIntent.id.slice(0, 8)}`;
-      realizedTargetAmount = buildIntent.summary.expectedTargetAmount;
-      actualFundingAmount = buildIntent.summary.fundingAmount;
-    }
 
     const receiptId = uuidv4();
     const confirmedAt = isConfirmed ? new Date().toISOString() : null;
@@ -200,7 +186,7 @@ export class ConfirmationService {
       checkId: check.id,
       buildIntentId: buildIntent.id,
       wallet: buildIntent.wallet,
-      network,
+      network: "mainnet",
       signature,
       status: isConfirmed ? "CONFIRMED" : "FAILED",
       fundingAsset: buildIntent.summary.fundingAsset,
@@ -263,13 +249,10 @@ export class ConfirmationService {
     return receiptsBySignatureStore.get(signature) ?? null;
   }
 
-  async getReceiptsByWallet(wallet: string, network?: NetworkMode): Promise<TradeReceipt[]> {
-    const fromRepo = await this.repo.listTradeReceipts({ wallet, network });
+  async getReceiptsByWallet(wallet: string): Promise<TradeReceipt[]> {
+    const fromRepo = await this.repo.listTradeReceipts({ wallet, network: "mainnet" });
     if (fromRepo.length > 0) return fromRepo;
     const list = receiptsByWalletStore.get(wallet) ?? [];
-    if (network) {
-      return list.filter((r) => r.network === network);
-    }
     return list;
   }
 }

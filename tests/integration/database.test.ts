@@ -14,7 +14,7 @@ describe("Database & Persistence Layer (Phase 6)", () => {
 
   const sampleCheck: PriceCheck = {
     id: "check-uuid-1",
-    network: "testnet",
+    network: "mainnet",
     wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
     clientIntentVersion: "v1",
     asset: {
@@ -28,9 +28,9 @@ describe("Database & Persistence Layer (Phase 6)", () => {
       referenceValuationUsd: null,
       impliedValuationUsd: null,
       supply: null,
-      source: "PRACTICE_FIXTURE",
+      source: "PRESTOCKS",
       observedAt: new Date().toISOString(),
-      network: "testnet",
+      network: "mainnet",
     },
     funding: {
       fundingAsset: "USDC",
@@ -41,7 +41,7 @@ describe("Database & Persistence Layer (Phase 6)", () => {
       observedAt: new Date().toISOString(),
     },
     quote: {
-      provider: "PRACTICE_FIXTURE",
+      provider: "JUPITER",
       inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       outputMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
       inputRaw: 10_000_000n,
@@ -76,7 +76,7 @@ describe("Database & Persistence Layer (Phase 6)", () => {
   const sampleBuildIntent: BuildIntent = {
     id: "build-intent-uuid-1",
     checkId: "check-uuid-1",
-    network: "testnet",
+    network: "mainnet",
     wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
     minimumAcceptableOutputRaw: 95_238n,
     protectionMethod: "JUPITER_SLIPPAGE_BPS_190",
@@ -99,7 +99,7 @@ describe("Database & Persistence Layer (Phase 6)", () => {
     checkId: "check-uuid-1",
     buildIntentId: "build-intent-uuid-1",
     wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
-    network: "testnet",
+    network: "mainnet",
     signature: "5K7V4aQ8t9yU2xW3zR1mockSignatureForTestingSolanaTransactions123456789",
     status: "CONFIRMED",
     fundingAsset: "USDC",
@@ -180,29 +180,18 @@ describe("Database & Persistence Layer (Phase 6)", () => {
     expect(list).toHaveLength(1);
   });
 
-  it("filters history by wallet and network mode", async () => {
+  it("returns Mainnet history for the bound wallet", async () => {
     await repo.savePriceCheck(sampleCheck);
     await repo.saveTradeReceipt(sampleReceipt);
 
-    // Add a check on mainnet
-    const mainnetCheck: PriceCheck = {
+    const secondCheck: PriceCheck = {
       ...sampleCheck,
       id: "mainnet-check-1",
-      network: "mainnet",
     };
-    await repo.savePriceCheck(mainnetCheck);
+    await repo.savePriceCheck(secondCheck);
 
-    // Filter testnet
-    const testnetHistory = await historyService.getUserHistory({
-      wallet: sampleCheck.wallet!,
-      network: "testnet",
-    });
-    expect(testnetHistory.every((h) => h.network === "testnet")).toBe(true);
-
-    // Filter mainnet
     const mainnetHistory = await historyService.getUserHistory({
       wallet: sampleCheck.wallet!,
-      network: "mainnet",
     });
     expect(mainnetHistory.every((h) => h.network === "mainnet")).toBe(true);
   });
@@ -221,7 +210,6 @@ describe("Database & Persistence Layer (Phase 6)", () => {
 
     const history = await historyService.getUserHistory({
       wallet: sampleCheck.wallet!,
-      network: "testnet",
     });
 
     const blockedItem = history.find((h) => h.id === "blocked-check-1");
@@ -253,7 +241,7 @@ describe("Database & Persistence Layer (Phase 6)", () => {
       {
         id: "incomplete-build-1",
         check_id: "check-1",
-        network: "testnet",
+        network: "mainnet",
         wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
         minimum_output_raw: "95238",
         protection_method: "JUPITER_SLIPPAGE_BPS_190",
@@ -272,6 +260,14 @@ describe("Database & Persistence Layer (Phase 6)", () => {
     const pgRepo = new PostgresSieveRepository(mockSqlIncomplete);
     await expect(pgRepo.getBuildIntent("incomplete-build-1")).rejects.toThrow(
       /missing required lifecycle fields; database integrity check failed/
+    );
+  });
+
+  it("fails closed when a historical non-Mainnet build is addressed by the runtime", async () => {
+    const { PostgresSieveRepository } = await import("../../server/database/db");
+    const mockSql = (async () => [{ id: "legacy-build", network: "testnet" }]) as any;
+    await expect(new PostgresSieveRepository(mockSql).getBuildIntent("legacy-build")).rejects.toThrow(
+      /Non-Mainnet build intent cannot be loaded/
     );
   });
 
@@ -370,7 +366,7 @@ describe("Database & Persistence Layer (Phase 6)", () => {
     const mockSqlMissingFundingMethod = (async () => [
       {
         id: "check-missing-funding-method",
-        network: "testnet",
+        network: "mainnet",
         wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
         target_name: "OpenAI PreStocks",
         target_symbol: "OPENAI",
@@ -409,7 +405,7 @@ describe("Database & Persistence Layer (Phase 6)", () => {
     const mockSqlMissingDecimals = (async () => [
       {
         id: "check-missing-decimals",
-        network: "testnet",
+        network: "mainnet",
         wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
         target_name: "OpenAI PreStocks",
         target_symbol: "OPENAI",

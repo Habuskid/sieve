@@ -11,20 +11,17 @@ interface TradeReceiptViewProps {
 
 export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
   const isConfirmed = receipt.status === "CONFIRMED";
-  const isPractice = receipt.network === "testnet";
   const hasRealSignature = Boolean(
     receipt.signature && !receipt.signature.startsWith("sim-")
   );
   const solscanUrl =
-    !isPractice && hasRealSignature && receipt.signature
+    hasRealSignature && receipt.signature
       ? `https://solscan.io/tx/${receipt.signature}`
       : null;
 
   const boughtDisplay = receipt.realizedTargetAmount
     ? `${receipt.realizedTargetAmount} ${receipt.targetSymbol}`
-    : receipt.network === "mainnet"
-    ? "Unavailable"
-    : `${receipt.expectedTargetAmount} ${receipt.targetSymbol}`;
+    : "Unavailable";
 
   return (
     <div className="rounded-panel bg-surface border border-borderBase p-6 sm:p-8 shadow-xs max-w-xl mx-auto animate-in fade-in zoom-in-95">
@@ -32,7 +29,7 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
       <div className="pb-4 border-b border-borderBase mb-4">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-mono font-semibold uppercase tracking-wider text-secondaryText">
-            {isPractice ? "TESTNET SIMULATION" : "MAINNET EXECUTION"}
+            MAINNET EXECUTION
           </span>
           <span
             className={`text-xs font-mono font-bold px-2 py-0.5 rounded-[4px] border ${
@@ -49,23 +46,12 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
         </h2>
         <p className="text-xs text-secondaryText mt-0.5">
           {isConfirmed
-            ? isPractice
-              ? `Your testnet simulation for ${receipt.targetSymbol} completed successfully.`
-              : `Your buy of ${receipt.targetSymbol} was confirmed on Solana.`
+            ? `Your buy of ${receipt.targetSymbol} was confirmed on Solana.`
             : receipt.failureCode
             ? `Transaction failed (${receipt.failureCode}). The trade did not complete. A network fee may still have been charged.`
             : "The trade did not complete. A network fee may still have been charged."}
         </p>
       </div>
-
-      {/* Practice Mode Notice */}
-      {isPractice && (
-        <div className="mb-4 rounded-[4px] border border-blue-200 bg-blue-50/50 p-2.5 text-xs text-secondaryText">
-          <p className="font-mono text-[11px] text-primaryText font-medium">
-            Simulated transaction. No wallet signature or funds were used.
-          </p>
-        </div>
-      )}
 
       {/* Confirmation Rows */}
       <div className="divide-y divide-borderBase border-b border-borderBase text-xs mb-6">
@@ -128,19 +114,12 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
           </span>
         </div>
 
-        {/* Transaction Signature / Simulation ID */}
+        {/* Transaction Signature */}
         <div className="py-2.5 flex items-center justify-between">
           <span className="text-secondaryText">
-            {isPractice ? "Simulation ID" : "Transaction"}
+            Transaction
           </span>
-          {isPractice ? (
-            <span
-              className="font-mono text-secondaryText tabular-nums text-[11px]"
-              title={receipt.signature || receipt.id}
-            >
-              {receipt.signature || receipt.id}
-            </span>
-          ) : hasRealSignature && solscanUrl && receipt.signature ? (
+          {hasRealSignature && solscanUrl && receipt.signature ? (
             <a
               href={solscanUrl}
               target="_blank"
@@ -169,8 +148,8 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
       </div>
 
       {/* Action Buttons */}
-      <div className={`flex items-center ${!isPractice && hasRealSignature && solscanUrl ? "justify-between" : "justify-end"} gap-3`}>
-        {!isPractice && hasRealSignature && solscanUrl && (
+      <div className={`flex items-center ${hasRealSignature && solscanUrl ? "justify-between" : "justify-end"} gap-3`}>
+        {hasRealSignature && solscanUrl && (
           <a
             href={solscanUrl}
             target="_blank"

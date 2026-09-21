@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { defaultMarketService, MarketService } from "./market-service";
 import { defaultJupiterAdapter, JupiterAdapter } from "../jupiter/adapter";
-import { defaultPracticeAdapter, PracticeAdapter } from "../practice/adapter";
 import { defaultSolanaAdapter, SolanaAdapter, CANONICAL_MINTS, calculateNetOutput } from "../solana/adapter";
 import { getRepository } from "../database/db";
 import type { ISieveRepository } from "../database/repository";
@@ -9,10 +8,10 @@ import {
   evaluatePriceBoundary,
   DEFAULT_CHECK_EXPIRY_MS,
 } from "../../core";
-import { displayToRaw, rawToDisplay, rawToEconomicDisplay, isPositiveFinite, toDecimal } from "../../core/money/decimal";
+import { displayToRaw, rawToEconomicDisplay, isPositiveFinite, toDecimal } from "../../core/money/decimal";
 import { SieveAppError } from "./errors";
 import type {
-  NetworkMode,
+  MainnetNetwork,
   FundingAsset,
   PriceCheck,
   FundingValuation,
@@ -21,20 +20,18 @@ import type {
 } from "../../core/domain/types";
 
 export interface CheckRequestInput {
-  network: NetworkMode;
   targetMint: string;
   fundingAsset: FundingAsset;
   amount: string;
   maxPremiumPct: string;
   wallet?: string | null;
   clientIntentVersion: string;
-  scenarioId?: string; // Used for deterministic testing/practice
 }
 
 export interface CheckResponseDto {
   checkId: string;
   clientIntentVersion: string;
-  network: NetworkMode;
+  network: MainnetNetwork;
   sourceLabel: string;
   asset: {
     name: string;
@@ -80,7 +77,6 @@ export class PriceCheckService {
   constructor(
     private marketService: MarketService = defaultMarketService,
     private jupiterAdapter: JupiterAdapter = defaultJupiterAdapter,
-    private practiceAdapter: PracticeAdapter = defaultPracticeAdapter,
     private solanaAdapter: SolanaAdapter = defaultSolanaAdapter,
     private repo: ISieveRepository = getRepository()
   ) {}
@@ -95,7 +91,7 @@ export class PriceCheckService {
     }
 
     // 2. Resolve target market asset
-    let asset = await this.marketService.getMarketByMint(input.targetMint, input.network);
+    const asset = await this.marketService.getMarketByMint(input.targetMint);
     if (!asset) {
       throw new SieveAppError(
         "PRICE_REFERENCE_INVALID",
@@ -110,8 +106,7 @@ export class PriceCheckService {
 
     let targetMetadata: import("../solana/adapter").ValidatedMintMetadata | null = null;
 
-    if (input.network === "mainnet") {
-      // 3. Mainnet flow
+    // 3. Mainnet flow
       targetMetadata = await this.solanaAdapter.resolveMintMetadata(asset.mint, "mainnet");
       if (!targetMetadata.supported) {
         throw new SieveAppError("ROUTE_RISK", targetMetadata.blockers?.join(", ") || "Asset not supported");
@@ -200,65 +195,6 @@ export class PriceCheckService {
           expectedTargetAmount: expectedNetTargetAmount,
         };
       }
-    } else {
-      // 4. Testnet / Practice mode
-      const practiceResult = await this.practiceAdapter.getQuote(input.scenarioId);
-      quote = practiceResult.quote;
-      fundingValuation = practiceResult.funding;
-      if (practiceResult.asset) {
-        asset = practiceResult.asset;
-      }
-
-      // If user customized fundingAsset and amount in Practice mode without a fixed scenario,
-      // dynamically scale the fixture funding valuation and quote:
-      if (!input.scenarioId && input.amount) {
-        const inputAmt = input.amount;
-        if (input.fundingAsset === "SOL") {
-          const solPriceUsd = 150; // $150 / SOL in practice fixture
-          const usdVal = (parseFloat(inputAmt) * solPriceUsd).toString();
-          const targetPrice = parseFloat(asset.referencePriceUsd) * 1.03; // ~3% premium in practice
-          const targetTokens = (parseFloat(usdVal) / targetPrice).toFixed(6);
-          fundingValuation = {
-            fundingAsset: "SOL",
-            inputRaw: BigInt(Math.floor(parseFloat(inputAmt) * 1e9)),
-            inputDisplay: inputAmt,
-            inputUsdValue: usdVal,
-            method: "CURRENT_MARKET_ROUTE",
-            observedAt,
-          };
-          if (quote) {
-            quote = {
-              ...quote,
-              expectedTargetAmount: targetTokens,
-              outputRaw: BigInt(Math.floor(parseFloat(targetTokens) * 1e6)),
-              observedAt: new Date(now - 1000).toISOString(),
-              expiresAt: new Date(now + 30_000).toISOString(),
-            };
-          }
-        } else {
-          const usdVal = inputAmt;
-          const targetPrice = parseFloat(asset.referencePriceUsd) * 1.03; // ~3% premium in practice
-          const targetTokens = (parseFloat(usdVal) / targetPrice).toFixed(6);
-          fundingValuation = {
-            fundingAsset: "USDC",
-            inputRaw: BigInt(Math.floor(parseFloat(inputAmt) * 1e6)),
-            inputDisplay: inputAmt,
-            inputUsdValue: usdVal,
-            method: "USDC_PAR",
-            observedAt,
-          };
-          if (quote) {
-            quote = {
-              ...quote,
-              expectedTargetAmount: targetTokens,
-              outputRaw: BigInt(Math.floor(parseFloat(targetTokens) * 1e6)),
-              observedAt: new Date(now - 1000).toISOString(),
-              expiresAt: new Date(now + 30_000).toISOString(),
-            };
-          }
-        }
-      }
-    }
 
     // 5. Evaluate decision via core policy evaluator
     const decision = evaluatePriceBoundary({
@@ -278,7 +214,7 @@ export class PriceCheckService {
 
     const priceCheck: PriceCheck = {
       id: checkId,
-      network: input.network,
+      network: "mainnet",
       wallet: input.wallet ?? null,
       clientIntentVersion: input.clientIntentVersion,
       asset,
@@ -302,8 +238,8 @@ export class PriceCheckService {
     return {
       checkId,
       clientIntentVersion: input.clientIntentVersion,
-      network: input.network,
-      sourceLabel: asset.source === "PRESTOCKS" ? "PreStocks Official" : "Practice Fixture (Test data)",
+      network: "mainnet",
+      sourceLabel: "PreStocks Official",
       asset: {
         name: asset.name,
         symbol: asset.symbol,

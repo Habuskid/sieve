@@ -1,4 +1,5 @@
-export type NetworkMode = "mainnet" | "testnet";
+export const MAINNET_NETWORK = "mainnet" as const;
+export type MainnetNetwork = typeof MAINNET_NETWORK;
 
 export type FundingAsset = "SOL" | "USDC";
 
@@ -22,9 +23,9 @@ export type MarketAsset = {
   referenceValuationUsd: string | null;
   impliedValuationUsd: string | null;
   supply: string | null;
-  source: "PRESTOCKS" | "PRACTICE_FIXTURE";
+  source: "PRESTOCKS";
   observedAt: string;
-  network: NetworkMode;
+  network: MainnetNetwork;
 };
 
 export type FundingValuation = {
@@ -32,12 +33,12 @@ export type FundingValuation = {
   inputRaw: bigint;
   inputDisplay: string;
   inputUsdValue: string;
-  method: "USDC_PAR" | "CURRENT_MARKET_ROUTE" | "PRACTICE_FIXTURE";
+  method: "USDC_PAR" | "CURRENT_MARKET_ROUTE";
   observedAt: string;
 };
 
 export type MarketQuote = {
-  provider: "JUPITER" | "PRACTICE_FIXTURE";
+  provider: "JUPITER";
   inputMint: string;
   outputMint: string;
   inputRaw: bigint;
@@ -99,7 +100,7 @@ export type ProtectionResult = {
 
 export type PriceCheck = {
   id: string;
-  network: NetworkMode;
+  network: MainnetNetwork;
   wallet: string | null;
   clientIntentVersion: string;
   asset: MarketAsset;
@@ -122,7 +123,7 @@ export type IssuerControls = {
 export type BuildIntent = {
   id: string;
   checkId: string;
-  network: NetworkMode;
+  network: MainnetNetwork;
   wallet: string;
   minimumAcceptableOutputRaw: bigint;
   protectionMethod: string;
@@ -164,7 +165,7 @@ export type TradeReceipt = {
   checkId: string;
   buildIntentId: string;
   wallet: string;
-  network: NetworkMode;
+  network: MainnetNetwork;
   signature: string | null;
   internalExecutionId?: string | null;
   status: "CONFIRMED" | "FAILED";

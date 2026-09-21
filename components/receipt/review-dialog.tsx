@@ -2,7 +2,6 @@
 
 import React from "react";
 import type { CheckResponseDto } from "@/server/services/check-service";
-import type { NetworkMode } from "@/core/domain/types";
 import { X, ArrowRight } from "lucide-react";
 
 export interface BuildSummaryDto {
@@ -38,7 +37,6 @@ export interface BuildSummaryDto {
 interface ReviewDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  network: NetworkMode;
   check: CheckResponseDto;
   wallet?: string | null;
   buildSummary?: BuildSummaryDto | null;
@@ -46,13 +44,11 @@ interface ReviewDialogProps {
   isBuilding?: boolean;
   onPrepareTransaction: () => void;
   onConfirmInWallet?: () => void;
-  onConfirmPractice?: () => void;
 }
 
 export function ReviewDialog({
   isOpen,
   onClose,
-  network,
   check,
   wallet,
   buildSummary,
@@ -60,7 +56,6 @@ export function ReviewDialog({
   isBuilding = false,
   onPrepareTransaction,
   onConfirmInWallet,
-  onConfirmPractice,
 }: ReviewDialogProps) {
   React.useEffect(() => {
     if (!isOpen) return;
@@ -71,8 +66,7 @@ export function ReviewDialog({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
-  const isMainnet = network === "mainnet";
-  const hasFinalBuild = isMainnet && Boolean(buildSummary);
+  const hasFinalBuild = Boolean(buildSummary);
 
   // Build expiry countdown
   const [secondsRemaining, setSecondsRemaining] = React.useState<number | null>(null);
@@ -184,14 +178,6 @@ export function ReviewDialog({
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
-
-        {/* Practice Mode Environment Strip */}
-        {!isMainnet && (
-          <div className="mt-3 py-1.5 px-3 rounded-[4px] bg-sieveBlue-soft border border-blue-200 text-xs text-sieveBlue font-mono flex items-center justify-between">
-            <span className="font-semibold">TESTNET SIMULATION</span>
-            <span>Simulated execution. No funds or wallet signatures used.</span>
-          </div>
-        )}
 
         {/* Fresh-build verification strip / Expiry for Mainnet */}
         {hasFinalBuild && (
@@ -326,7 +312,7 @@ export function ReviewDialog({
           <div className="py-2.5 flex items-center justify-between">
             <span className="text-secondaryText">Environment / Wallet</span>
             <span className="font-mono text-primaryText tabular-nums">
-              {isMainnet ? "MAINNET" : "TESTNET"} • {walletDisplay}
+              MAINNET • {walletDisplay}
             </span>
           </div>
         </div>
@@ -342,24 +328,7 @@ export function ReviewDialog({
             Cancel
           </button>
 
-          {!isMainnet ? (
-            /* Practice Mode Action */
-            <button
-              type="button"
-              onClick={onConfirmPractice}
-              disabled={isBuilding}
-              className="sieve-control-primary disabled:opacity-50"
-            >
-              {isBuilding ? (
-                <span>Running testnet simulation...</span>
-              ) : (
-                <>
-                  <span>Confirm testnet simulation</span>
-                  <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                </>
-              )}
-            </button>
-          ) : !hasFinalBuild ? (
+          {!hasFinalBuild ? (
             /* Mainnet Step 1: Prepare & Revalidate */
             <button
               type="button"

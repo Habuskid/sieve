@@ -1,4 +1,4 @@
-import type { IssuerControls, MarketAsset, NetworkMode, SellPriceDecision } from "./types";
+import type { IssuerControls, MainnetNetwork, MarketAsset, SellPriceDecision } from "./types";
 
 export type SellInputConversion = {
   requestedEconomicAmount: string;
@@ -11,16 +11,15 @@ export type SellInputConversion = {
 };
 
 export type SellPriceCheck = {
-  id: string; network: NetworkMode; wallet: string | null; clientIntentVersion: string;
+  id: string; network: MainnetNetwork; wallet: string | null; clientIntentVersion: string;
   asset: MarketAsset; input: SellInputConversion; expectedUsdcProceedsRaw: bigint;
   expectedUsdcProceeds: string; priceImpactPct: string | null; routeFingerprint: string | null;
   maxDiscountPct: string; maxDiscountBps: number; decision: SellPriceDecision;
-  practiceScenarioId: string | null;
-  source: "JUPITER" | "PRACTICE_FIXTURE"; createdAt: string; expiresAt: string;
+  source: "JUPITER"; createdAt: string; expiresAt: string;
 };
 
 export type SellBuildIntent = {
-  id: string; checkId: string; network: NetworkMode; wallet: string;
+  id: string; checkId: string; network: MainnetNetwork; wallet: string;
   transactionBase64: string; requestId?: string; lastValidBlockHeight?: string;
   minimumUsdcOutputRaw: bigint; expiresAt: string;
   summary: {
@@ -36,8 +35,8 @@ export type SellBuildIntent = {
 };
 
 export type SellTradeReceipt = {
-  id: string; side: "SELL"; simulated: boolean; checkId: string; buildIntentId: string;
-  wallet: string; network: NetworkMode; signature: string | null; internalExecutionId?: string | null;
+  id: string; side: "SELL"; checkId: string; buildIntentId: string;
+  wallet: string; network: MainnetNetwork; signature: string | null; internalExecutionId?: string | null;
   status: "CONFIRMED" | "FAILED"; targetSymbol: string; targetMint: string;
   requestedEconomicAmount: string; actualEconomicInput: string | null; rawInput: string | null;
   expectedUsdcProceeds: string; realizedUsdcProceeds: string | null;

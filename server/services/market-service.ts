@@ -1,21 +1,14 @@
 import { defaultPreStocksAdapter, type PreStocksAdapter } from "../prestocks/adapter";
-import { defaultPracticeAdapter, type PracticeAdapter } from "../practice/adapter";
-import type { MarketAsset, NetworkMode } from "../../core/domain/types";
+import type { MarketAsset } from "../../core/domain/types";
 
 export class MarketService {
-  constructor(
-    private prestocksAdapter: PreStocksAdapter = defaultPreStocksAdapter,
-    private practiceAdapter: PracticeAdapter = defaultPracticeAdapter
-  ) {}
+  constructor(private prestocksAdapter: PreStocksAdapter = defaultPreStocksAdapter) {}
 
   /**
-   * Fetches supported private markets for the requested network mode.
+   * Fetches supported private markets from the authoritative Mainnet source.
    */
-  async getMarkets(network: NetworkMode): Promise<MarketAsset[]> {
-    if (network === "mainnet") {
-      return this.prestocksAdapter.fetchMarkets();
-    }
-    return this.practiceAdapter.getMarkets();
+  async getMarkets(): Promise<MarketAsset[]> {
+    return this.prestocksAdapter.fetchMarkets();
   }
 
   /**
@@ -23,13 +16,9 @@ export class MarketService {
    */
   async getMarketByMint(
     mint: string,
-    network: NetworkMode,
     options?: { bypassCache?: boolean }
   ): Promise<MarketAsset | null> {
-    if (network === "mainnet") {
-      return this.prestocksAdapter.getMarketByMint(mint, options);
-    }
-    return this.practiceAdapter.getMarketByMint(mint);
+    return this.prestocksAdapter.getMarketByMint(mint, options);
   }
 }
 

@@ -3,15 +3,10 @@
 import React, { useState, useEffect } from "react";
 import { SearchFilter, type MarketFilter } from "./search-filter";
 import { MarketRow, type MarketItem } from "./market-row";
-import type { NetworkMode } from "@/core/domain/types";
 import { AlertCircle } from "lucide-react";
 import { RefreshAction } from "@/components/ui/refresh-action";
 
-interface MarketsViewProps {
-  network: NetworkMode;
-}
-
-export function MarketsView({ network }: MarketsViewProps) {
+export function MarketsView() {
   const [markets, setMarkets] = useState<MarketItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +17,7 @@ export function MarketsView({ network }: MarketsViewProps) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/markets?network=${network}`);
+      const res = await fetch("/api/markets");
       if (!res.ok) {
         throw new Error(`Failed to load markets (HTTP ${res.status})`);
       }
@@ -33,7 +28,7 @@ export function MarketsView({ network }: MarketsViewProps) {
     } finally {
       setLoading(false);
     }
-  }, [network]);
+  }, []);
 
   useEffect(() => {
     fetchMarkets();

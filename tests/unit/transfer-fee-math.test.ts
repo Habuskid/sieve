@@ -138,21 +138,7 @@ describe("Token-2022 Transfer Fee Math (calculateNetOutput & calculateGrossRequi
   });
 
   it("destination ATA check: blocks frozen token accounts and uninitialized accounts with Frozen default state", async () => {
-    const { SolanaAdapter } = await import("../../server/solana/adapter");
-    const adapter = new SolanaAdapter();
-
-    // 1. Destination ATA does not exist and mint DefaultAccountState is Frozen -> BLOCKED
-    const uninitFrozenResult = await adapter.checkDestinationAccount(
-      "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
-      "PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB",
-      undefined,
-      "Frozen",
-      "testnet" // Practice mode always passes
-    );
-    expect(uninitFrozenResult.isFrozen).toBe(false); // testnet simulated
-
-    // Test the logic directly:
-    // If defaultAccountState is Frozen on mainnet and account does not exist:
+    // Test the fail-closed decision logic without making an RPC call.
     const mockCheck = (accExists: boolean, isFrozen: boolean, defaultState: "Initialized" | "Frozen") => {
       if (!accExists) {
         if (defaultState === "Frozen") {

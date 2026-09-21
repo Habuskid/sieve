@@ -3,17 +3,9 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NetworkToggle } from "./network-toggle";
 import { WalletButton } from "./wallet-button";
 import { SieveLogo } from "../brand/sieve-logo";
-import type { NetworkMode } from "@/core/domain/types";
-
-interface HeaderProps {
-  network: NetworkMode;
-  onNetworkChange: (network: NetworkMode) => void;
-}
-
-export function Header({ network, onNetworkChange }: HeaderProps) {
+export function Header() {
   const pathname = usePathname();
 
   const navLinks = [
@@ -66,12 +58,9 @@ export function Header({ network, onNetworkChange }: HeaderProps) {
           </nav>
         </div>
 
-        {/* Right Controls: Network Toggle + Wallet */}
+        {/* Right Controls: fixed Mainnet identity + wallet */}
         <div className="flex items-center gap-4">
-          <NetworkToggle
-            currentNetwork={network}
-            onNetworkChange={onNetworkChange}
-          />
+          <span className="hidden text-xs text-secondaryText sm:inline">Solana Mainnet</span>
           <WalletButton />
         </div>
       </div>

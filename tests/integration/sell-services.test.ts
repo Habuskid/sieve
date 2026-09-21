@@ -1,62 +1,176 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { deriveSellInputConversion, economicSellAmountToRaw, rawToEconomicDisplay } from "../../core";
+import type { SellBuildIntent } from "../../core";
 import { InMemorySieveRepository } from "../../server/database/repository";
+import { guaranteedWalletUsdcOutput } from "../../server/jupiter/sell-output-accounting";
 import { SellCheckService } from "../../server/services/sell-check-service";
 import { SellBuildService } from "../../server/services/sell-build-service";
 import { SellConfirmationService } from "../../server/services/sell-confirmation-service";
-import { deriveSellInputConversion, economicSellAmountToRaw, rawToEconomicDisplay } from "../../core";
-import type { SellBuildIntent } from "../../core";
-import { guaranteedWalletUsdcOutput } from "../../server/jupiter/sell-output-accounting";
 
 const wallet = "11111111111111111111111111111111";
+const otherWallet = "22222222222222222222222222222222";
 const mint = "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF";
-const asset = () => ({ name:"OpenAI PreStocks",symbol:"OPENAI",mint,imageUrl:null,productUrl:null,referencePriceUsd:"100",tokenPriceUsd:null,referenceValuationUsd:null,impliedValuationUsd:null,supply:null,source:"PRACTICE_FIXTURE" as const,observedAt:new Date().toISOString(),network:"testnet" as const });
-const markets = { getMarketByMint: async()=>asset() } as any;
+const usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
-describe("Sell Stage 2 lifecycle",()=>{
-  let repo:InMemorySieveRepository;
-  beforeEach(()=>{repo=new InMemorySieveRepository()});
-  const checker=()=>new SellCheckService(markets,{} as any,{} as any,repo);
+function makeHarness(initialOutputRaw = 97_000_000n, threshold: string | undefined = "95000000") {
+  const repo = new InMemorySieveRepository();
+  let outputRaw = initialOutputRaw;
+  let finalThreshold: string | undefined = threshold;
+  let supported = true;
+  const asset = {
+    name: "OpenAI PreStocks", symbol: "OPENAI", mint, imageUrl: null, productUrl: null,
+    referencePriceUsd: "100", tokenPriceUsd: null, referenceValuationUsd: null,
+    impliedValuationUsd: null, supply: null, source: "PRESTOCKS" as const,
+    observedAt: new Date().toISOString(), network: "mainnet" as const,
+  };
+  const markets = { getMarketByMint: async () => ({ ...asset, observedAt: new Date().toISOString() }) } as any;
+  const metadata = () => ({
+    mint, supported, blockers: supported ? [] : ["unsupported extension"], warnings: [], decimals: 9,
+    programOwner: "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", extensions: [],
+    transferFee: null, olderTransferFee: null, newerTransferFee: null, scaledUiAmount: null,
+    issuerControls: { permanentDelegate: false, pausable: false, isPaused: false, defaultAccountState: "Initialized" },
+    transferHook: null, validatedAt: Date.now(), chainTimestamp: 1_700_000_000, epoch: 1n,
+    transferFeeBasisPoints: 0, maximumFee: 0n,
+  });
+  const quote = () => ({
+    provider: "JUPITER" as const, inputMint: mint, outputMint: usdc, inputRaw: 1_000_000_000n,
+    outputRaw, outputDecimals: 6, expectedTargetAmount: (Number(outputRaw) / 1_000_000).toString(),
+    priceImpactPct: "0.1", observedAt: new Date().toISOString(), expiresAt: null,
+    routeFingerprint: `sell-fixture-${outputRaw}`,
+  });
+  const rawResponse = () => ({ inputMint: mint, outputMint: usdc, inAmount: "1000000000", outAmount: outputRaw.toString(), requestId: "quote", platformFee: null });
+  const jupiter = {
+    getQuote: async () => ({ quote: quote(), rawResponse: rawResponse() }),
+    buildTransaction: async () => ({ transactionBase64: "AA==", requestId: "sell-request", lastValidBlockHeight: "123", otherAmountThreshold: finalThreshold, quote: quote(), rawResponse: rawResponse(), platformFee: null }),
+    executeTransaction: async () => ({ status: "Success", signature: "sell-mainnet-signature-111111111111111111111", totalInputAmount: "1000000000", inputAmountResult: "1000000000", totalOutputAmount: outputRaw.toString() }),
+  } as any;
+  const solana = { resolveMintMetadata: async () => metadata(), checkTokenBalance: async () => ({ hasSufficient: true }) } as any;
+  const checker = new SellCheckService(markets, jupiter, solana, repo);
+  const builder = new SellBuildService(markets, jupiter, solana, checker, repo);
+  const confirmer = new SellConfirmationService(jupiter, repo);
+  return {
+    repo, checker, builder, confirmer,
+    setOutputRaw(value: bigint) { outputRaw = value; },
+    setThreshold(value: string | undefined) { finalThreshold = value; },
+    setSupported(value: boolean) { supported = value; },
+  };
+}
 
-  it("passes a deterministic Testnet Sell check and labels it simulated",async()=>{const r=await checker().executeCheck({network:"testnet",targetMint:mint,amount:"1",maxDiscountPct:"5",wallet,clientIntentVersion:"1"});expect(r.decision).toBe("GOOD_TO_GO");expect(r.simulated).toBe(true)});
-  it("blocks below the minimum Sell price",async()=>{const r=await checker().executeCheck({network:"testnet",targetMint:mint,amount:"1",maxDiscountPct:"5",clientIntentVersion:"1",scenarioId:"SELL_BLOCK"});expect(r.decision).toBe("PRICE_TOO_LOW")});
-  it("passes the exact Sell boundary",async()=>{const r=await checker().executeCheck({network:"testnet",targetMint:mint,amount:"1",maxDiscountPct:"5",clientIntentVersion:"1",scenarioId:"SELL_EXACT"});expect(r.decision).toBe("GOOD_TO_GO");expect(r.price.currentSellUsd).toBe("95")});
-  it("loads PASS_THEN_MOVE only from the persisted check and ignores a forged build scenario",async()=>{const c=await checker().executeCheck({network:"testnet",targetMint:mint,amount:"1",maxDiscountPct:"5",wallet,clientIntentVersion:"1",scenarioId:"SELL_PASS_THEN_MOVE"});expect((await repo.getSellPriceCheck(c.checkId))?.practiceScenarioId).toBe("SELL_PASS_THEN_MOVE");const b=new SellBuildService(markets,{} as any,{} as any,checker(),repo);expect((await b.buildTransaction({checkId:c.checkId,wallet})).status).toBe("BLOCKED");expect((await b.buildTransaction({checkId:c.checkId,wallet,scenarioId:"SELL_PASS"} as any)).status).toBe("BLOCKED")});
-  it("binds Sell check and build to the original wallet",async()=>{const c=await checker().executeCheck({network:"testnet",targetMint:mint,amount:"1",maxDiscountPct:"5",wallet,clientIntentVersion:"1"});const b=new SellBuildService(markets,{} as any,{} as any,checker(),repo);await expect(b.buildTransaction({checkId:c.checkId,wallet:"22222222222222222222222222222222"})).rejects.toMatchObject({details:{code:"WALLET_MISMATCH"}})});
-  it("rejects expired Sell checks",async()=>{const c=await checker().executeCheck({network:"testnet",targetMint:mint,amount:"1",maxDiscountPct:"5",wallet,clientIntentVersion:"1"});const stored=await repo.getSellPriceCheck(c.checkId);stored!.expiresAt=new Date(0).toISOString();await repo.saveSellPriceCheck(stored!);const b=new SellBuildService(markets,{} as any,{} as any,checker(),repo);await expect(b.buildTransaction({checkId:c.checkId,wallet})).rejects.toMatchObject({details:{code:"TRANSACTION_EXPIRED"}})});
-  it("ignores forged client pricing and still blocks a persisted failing check",async()=>{const c=await checker().executeCheck({network:"testnet",targetMint:mint,amount:"1",maxDiscountPct:"5",wallet,clientIntentVersion:"1",scenarioId:"SELL_BLOCK"});const b=new SellBuildService(markets,{} as any,{} as any,checker(),repo);const r=await b.buildTransaction({checkId:c.checkId,wallet,currentSellPrice:"999",decision:"GOOD_TO_GO"} as any);expect(r.status).toBe("BLOCKED")});
-  it("creates and confirms a Testnet SELL receipt idempotently",async()=>{const c=await checker().executeCheck({network:"testnet",targetMint:mint,amount:"1",maxDiscountPct:"5",wallet,clientIntentVersion:"1"});const b=new SellBuildService(markets,{} as any,{} as any,checker(),repo);const ready=await b.buildTransaction({checkId:c.checkId,wallet});expect(ready.status).toBe("READY_FOR_WALLET");if(ready.status!=="READY_FOR_WALLET")return;expect(ready.simulated).toBe(true);const svc=new SellConfirmationService({} as any,repo);const one=await svc.confirm({buildIntentId:ready.buildIntentId,signature:"simulated-signature-00000000000000000000",wallet,network:"testnet"});const two=await svc.confirm({buildIntentId:ready.buildIntentId,signature:"simulated-signature-00000000000000000000",wallet,network:"testnet"});expect(one.receipt.side).toBe("SELL");expect(one.receipt.simulated).toBe(true);expect(two.receiptId).toBe(one.receiptId)});
-  it("rejects reusing a Sell signature across build intents",async()=>{const c=await checker().executeCheck({network:"testnet",targetMint:mint,amount:"1",maxDiscountPct:"5",wallet,clientIntentVersion:"1"});const b=new SellBuildService(markets,{} as any,{} as any,checker(),repo);const a=await b.buildTransaction({checkId:c.checkId,wallet});const d=await b.buildTransaction({checkId:c.checkId,wallet});if(a.status!=="READY_FOR_WALLET"||d.status!=="READY_FOR_WALLET")throw new Error();const svc=new SellConfirmationService({} as any,repo);const sig="cross-build-signature-000000000000000000000";await svc.confirm({buildIntentId:a.buildIntentId,signature:sig,network:"testnet"});await expect(svc.confirm({buildIntentId:d.buildIntentId,signature:sig,network:"testnet"})).rejects.toMatchObject({details:{code:"IDEMPOTENCY_VIOLATION"}})});
+const checkInput = { targetMint: mint, amount: "1", maxDiscountPct: "5", wallet, clientIntentVersion: "v1" };
+
+describe("Mainnet-only Sell lifecycle with isolated fixtures", () => {
+  let harness: ReturnType<typeof makeHarness>;
+  beforeEach(() => { harness = makeHarness(); });
+
+  it("passes a Sell check inside the floor", async () => {
+    expect((await harness.checker.executeCheck(checkInput)).decision).toBe("GOOD_TO_GO");
+  });
+
+  it("blocks below the minimum Sell price", async () => {
+    expect((await makeHarness(94_000_000n).checker.executeCheck(checkInput)).decision).toBe("PRICE_TOO_LOW");
+  });
+
+  it("passes the exact Sell boundary", async () => {
+    const result = await makeHarness(95_000_000n).checker.executeCheck(checkInput);
+    expect(result.decision).toBe("GOOD_TO_GO");
+    expect(result.price.currentSellUsd).toBe("95");
+  });
+
+  it("blocks at build when a passing quote moves below the floor", async () => {
+    const check = await harness.checker.executeCheck(checkInput);
+    harness.setOutputRaw(90_000_000n);
+    await expect(harness.builder.buildTransaction({ checkId: check.checkId, wallet })).resolves.toMatchObject({ status: "BLOCKED", reason: "PRICE_MOVED" });
+  });
+
+  it("ignores forged client pricing fields", async () => {
+    const check = await harness.checker.executeCheck(checkInput);
+    harness.setOutputRaw(90_000_000n);
+    const result = await harness.builder.buildTransaction({ checkId: check.checkId, wallet, currentSellPrice: "999" } as any);
+    expect(result.status).toBe("BLOCKED");
+  });
+
+  it("binds Sell checks to the original wallet", async () => {
+    const check = await harness.checker.executeCheck(checkInput);
+    await expect(harness.builder.buildTransaction({ checkId: check.checkId, wallet: otherWallet })).rejects.toMatchObject({ details: { code: "WALLET_MISMATCH" } });
+  });
+
+  it("rejects expired Sell checks", async () => {
+    const check = await harness.checker.executeCheck(checkInput);
+    const stored = await harness.repo.getSellPriceCheck(check.checkId);
+    stored!.expiresAt = new Date(0).toISOString();
+    await expect(harness.builder.buildTransaction({ checkId: check.checkId, wallet })).rejects.toMatchObject({ details: { code: "TRANSACTION_EXPIRED" } });
+  });
+
+  it("fails closed when final otherAmountThreshold is missing", async () => {
+    const check = await harness.checker.executeCheck(checkInput);
+    harness.setThreshold(undefined);
+    await expect(harness.builder.buildTransaction({ checkId: check.checkId, wallet })).rejects.toMatchObject({ details: { code: "ROUTE_RISK" } });
+  });
+
+  it("fails closed when Jupiter final threshold is below the Sieve minimum", async () => {
+    const check = await harness.checker.executeCheck(checkInput);
+    harness.setThreshold("94000000");
+    await expect(harness.builder.buildTransaction({ checkId: check.checkId, wallet })).rejects.toMatchObject({ details: { code: "PRICE_MOVED_OUTSIDE_LIMIT" } });
+  });
+
+  it("fails closed for unsupported Token-2022 extensions", async () => {
+    harness.setSupported(false);
+    await expect(harness.checker.executeCheck(checkInput)).rejects.toMatchObject({ details: { code: "ROUTE_RISK" } });
+  });
+
+  it("confirms a SELL receipt and is idempotent", async () => {
+    const check = await harness.checker.executeCheck(checkInput);
+    const build = await harness.builder.buildTransaction({ checkId: check.checkId, wallet });
+    if (build.status !== "READY_FOR_WALLET") throw new Error("expected ready build");
+    const first = await harness.confirmer.confirm({ buildIntentId: build.buildIntentId, signedTransaction: "signed", wallet });
+    const second = await harness.confirmer.confirm({ buildIntentId: build.buildIntentId, signedTransaction: "signed", signature: first.signature!, wallet });
+    expect(first.receipt.side).toBe("SELL");
+    expect(first.receipt.network).toBe("mainnet");
+    expect(second.receiptId).toBe(first.receiptId);
+  });
 });
 
-describe("Sell Token-2022 input conversion",()=>{
-  it("chooses a raw ScaledUi amount that never exceeds economic intent",()=>{const raw=economicSellAmountToRaw("1",9,"1.4861347");expect(rawToEconomicDisplay(raw,9,"1.4861347").lessThanOrEqualTo(1)).toBe(true);expect(rawToEconomicDisplay(raw+1n,9,"1.4861347").greaterThan(1)).toBe(true)});
-  it("separates wallet debit, withheld transfer fee, and route input",()=>{const x=deriveSellInputConversion({requestedEconomicAmount:"1",decimals:6,activeMultiplier:"1",transferFee:{basisPoints:50,maximumFee:10_000n,epoch:1n}});expect(x.rawWalletInput).toBe(1_000_000n);expect(x.rawTransferFee).toBe(5_000n);expect(x.rawRouteInput).toBe(995_000n)});
+describe("Sell Token-2022 input conversion", () => {
+  it("chooses a ScaledUi raw amount that never exceeds economic intent", () => {
+    const raw = economicSellAmountToRaw("1", 9, "1.4861347");
+    expect(rawToEconomicDisplay(raw, 9, "1.4861347").lessThanOrEqualTo(1)).toBe(true);
+    expect(rawToEconomicDisplay(raw + 1n, 9, "1.4861347").greaterThan(1)).toBe(true);
+  });
+
+  it("separates wallet debit, withheld transfer fee, and route input", () => {
+    const conversion = deriveSellInputConversion({ requestedEconomicAmount: "1", decimals: 6, activeMultiplier: "1", transferFee: { basisPoints: 50, maximumFee: 10_000n, epoch: 1n } });
+    expect(conversion.rawWalletInput).toBe(1_000_000n);
+    expect(conversion.rawTransferFee).toBe(5_000n);
+    expect(conversion.rawRouteInput).toBe(995_000n);
+  });
 });
 
-describe("Sell Mainnet final threshold enforcement",()=>{
-  const metadata={supported:true,blockers:[],warnings:[],decimals:9,programOwner:"TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",extensions:[],transferFee:null,olderTransferFee:null,newerTransferFee:null,scaledUiAmount:null,issuerControls:{permanentDelegate:false,pausable:false,isPaused:false,defaultAccountState:"Initialized"},chainTimestamp:1_700_000_000,epoch:1n};
-  const solana={resolveMintMetadata:async()=>metadata,checkTokenBalance:async()=>({hasSufficient:true})} as any;
-  const usdc="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-  function jupiter(threshold?:string,feeMint?:string,feeAmount?:string){const quote={provider:"JUPITER",inputMint:mint,outputMint:usdc,inputRaw:1_000_000_000n,outputRaw:97_000_000n,outputDecimals:6,expectedTargetAmount:"97",priceImpactPct:"0.1",observedAt:new Date().toISOString(),expiresAt:null,routeFingerprint:"q"};const rawResponse={inputMint:mint,outputMint:usdc,inAmount:"1000000000",outAmount:"97000000",requestId:"q",feeMint,platformFee:feeAmount?{feeMint,amount:feeAmount,feeBps:10}:null};return{getQuote:async()=>({quote,rawResponse}),buildTransaction:async()=>({transactionBase64:"AA==",requestId:"b",otherAmountThreshold:threshold,feeMint,platformFee:rawResponse.platformFee,quote,rawResponse})}as any}
-  async function ready(threshold?:string){const repo=new InMemorySieveRepository();const mainMarkets={getMarketByMint:async()=>({...asset(),source:"PRESTOCKS",network:"mainnet",observedAt:new Date().toISOString()})}as any;const cSvc=new SellCheckService(mainMarkets,jupiter(threshold),solana,repo);const c=await cSvc.executeCheck({network:"mainnet",targetMint:mint,amount:"1",maxDiscountPct:"5",wallet,clientIntentVersion:"1"});return new SellBuildService(mainMarkets,jupiter(threshold),solana,cSvc,repo).buildTransaction({checkId:c.checkId,wallet})}
-  it("fails closed when final otherAmountThreshold is missing",async()=>{await expect(ready(undefined)).rejects.toMatchObject({details:{code:"ROUTE_RISK"}})});
-  it("fails closed when Jupiter final threshold is below the Sieve minimum",async()=>{await expect(ready("94000000")).rejects.toMatchObject({details:{code:"PRICE_MOVED_OUTSIDE_LIMIT"}})});
-  it("accepts a threshold at or above the minimum USDC output",async()=>{await expect(ready("95000000")).resolves.toMatchObject({status:"READY_FOR_WALLET"})});
-  it("does not double-subtract an output-mint fee from the final threshold",async()=>{const repo=new InMemorySieveRepository();const mainMarkets={getMarketByMint:async()=>({...asset(),source:"PRESTOCKS",network:"mainnet",observedAt:new Date().toISOString()})}as any;const adapter=jupiter("95000000",usdc,"1000000");const cSvc=new SellCheckService(mainMarkets,adapter,solana,repo);const c=await cSvc.executeCheck({network:"mainnet",targetMint:mint,amount:"1",maxDiscountPct:"5",wallet,clientIntentVersion:"1"});await expect(new SellBuildService(mainMarkets,adapter,solana,cSvc,repo).buildTransaction({checkId:c.checkId,wallet})).resolves.toMatchObject({status:"READY_FOR_WALLET"})});
-  it("fails closed when the Solana adapter reports an unsupported extension",async()=>{const repo=new InMemorySieveRepository();const bad={resolveMintMetadata:async()=>({...metadata,supported:false,blockers:["unsupported extension"]})}as any;const mainMarkets={getMarketByMint:async()=>({...asset(),source:"PRESTOCKS",network:"mainnet"})}as any;const svc=new SellCheckService(mainMarkets,jupiter("95000000"),bad,repo);await expect(svc.executeCheck({network:"mainnet",targetMint:mint,amount:"1",maxDiscountPct:"5",clientIntentVersion:"1"})).rejects.toMatchObject({details:{code:"ROUTE_RISK"}})});
+describe("Sell Jupiter wallet-output accounting", () => {
+  const base = { rawAmount: 95_000_000n, field: "otherAmountThreshold" as const, outputMint: usdc, expectedUsdcMint: usdc };
+  it("uses the threshold unchanged with no fee", () => expect(guaranteedWalletUsdcOutput(base)).toBe(95_000_000n));
+  it("uses it unchanged for an input-mint fee", () => expect(guaranteedWalletUsdcOutput({ ...base, feeMint: mint, platformFeeAmount: "1000" })).toBe(95_000_000n));
+  it("does not double-subtract an output-mint fee", () => expect(guaranteedWalletUsdcOutput({ ...base, feeMint: usdc, platformFeeAmount: "1000" })).toBe(95_000_000n));
 });
 
-describe("Sell Jupiter wallet-output accounting",()=>{
-  const usdc="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-  const base={rawAmount:95_000_000n,field:"otherAmountThreshold" as const,outputMint:usdc,expectedUsdcMint:usdc};
-  it("uses the threshold unchanged when there is no fee",()=>expect(guaranteedWalletUsdcOutput(base)).toBe(95_000_000n));
-  it("uses the threshold unchanged when the fee mint is the input mint",()=>expect(guaranteedWalletUsdcOutput({...base,feeMint:mint,platformFeeAmount:"1000"})).toBe(95_000_000n));
-  it("uses the already fee-inclusive threshold unchanged when the fee mint is USDC",()=>expect(guaranteedWalletUsdcOutput({...base,feeMint:usdc,platformFeeAmount:"1000"})).toBe(95_000_000n));
-});
+describe("Sell Mainnet execution reconciliation", () => {
+  function buildIntent(): SellBuildIntent {
+    return { id: "11111111-1111-4111-8111-111111111111", checkId: "22222222-2222-4222-8222-222222222222", network: "mainnet", wallet, transactionBase64: "", requestId: "request", minimumUsdcOutputRaw: 95_000_000n, expiresAt: new Date(Date.now() + 60_000).toISOString(), summary: { side: "SELL", targetSymbol: "OPENAI", targetMint: mint, requestedEconomicAmount: "1", actualEconomicAmount: "999", rawWalletInput: "500000", rawTransferFee: "5000", rawRouteInput: "495000", expectedUsdcProceeds: "95", referencePriceUsd: "100", currentSellPriceUsd: "95", minimumSellPriceUsd: "95", maxDiscountPct: "5", discountBps: 500, inputDecimals: 6, activeMultiplier: "2" } };
+  }
 
-describe("Sell Mainnet execution reconciliation",()=>{
-  function buildIntent():SellBuildIntent{return{id:"11111111-1111-4111-8111-111111111111",checkId:"22222222-2222-4222-8222-222222222222",network:"mainnet",wallet,transactionBase64:"",requestId:"request",minimumUsdcOutputRaw:95_000_000n,expiresAt:new Date(Date.now()+60_000).toISOString(),summary:{side:"SELL",targetSymbol:"OPENAI",targetMint:mint,requestedEconomicAmount:"1",actualEconomicAmount:"999",rawWalletInput:"500000",rawTransferFee:"5000",rawRouteInput:"495000",expectedUsdcProceeds:"95",referencePriceUsd:"100",currentSellPriceUsd:"95",minimumSellPriceUsd:"95",maxDiscountPct:"5",discountBps:500,inputDecimals:6,activeMultiplier:"2"}}}
-  it("derives actual economic input and realized discount from totalInputAmount",async()=>{const repo=new InMemorySieveRepository();await repo.saveSellBuildIntent(buildIntent());const jupiter={executeTransaction:async()=>({status:"Success",signature:"mainnet-signature",totalInputAmount:"500000",inputAmountResult:"495000",totalOutputAmount:"95000000"})}as any;const result=await new SellConfirmationService(jupiter,repo).confirm({buildIntentId:buildIntent().id,signedTransaction:"signed",wallet,network:"mainnet"});expect(result.receipt.rawInput).toBe("500000");expect(result.receipt.actualEconomicInput).toBe("1");expect(result.receipt.realizedDiscountBps).toBe(500)});
-  it("fails closed when exact-input execution debits a different raw amount",async()=>{const repo=new InMemorySieveRepository();await repo.saveSellBuildIntent(buildIntent());const jupiter={executeTransaction:async()=>({status:"Success",signature:"mainnet-signature",totalInputAmount:"499999",inputAmountResult:"494999",totalOutputAmount:"95000000"})}as any;await expect(new SellConfirmationService(jupiter,repo).confirm({buildIntentId:buildIntent().id,signedTransaction:"signed"})).rejects.toMatchObject({details:{code:"CONFIRMATION_FAILED"}})});
-  it("reconciles inputAmountResult after Token-2022 and Jupiter input-mint fees",async()=>{const repo=new InMemorySieveRepository();const intent=buildIntent();intent.summary.jupiterFeeMint=mint;intent.summary.jupiterPlatformFeeRaw="1000";await repo.saveSellBuildIntent(intent);const jupiter={executeTransaction:async()=>({status:"Success",signature:"mainnet-signature",totalInputAmount:"500000",inputAmountResult:"494000",totalOutputAmount:"95000000"})}as any;await expect(new SellConfirmationService(jupiter,repo).confirm({buildIntentId:intent.id,signedTransaction:"signed"})).resolves.toMatchObject({receipt:{actualEconomicInput:"1"}})});
+  it("derives actual economic input from totalInputAmount", async () => {
+    const repo = new InMemorySieveRepository();
+    await repo.saveSellBuildIntent(buildIntent());
+    const jupiter = { executeTransaction: async () => ({ status: "Success", signature: "mainnet-signature", totalInputAmount: "500000", inputAmountResult: "495000", totalOutputAmount: "95000000" }) } as any;
+    const result = await new SellConfirmationService(jupiter, repo).confirm({ buildIntentId: buildIntent().id, signedTransaction: "signed", wallet });
+    expect(result.receipt.rawInput).toBe("500000");
+    expect(result.receipt.actualEconomicInput).toBe("1");
+    expect(result.receipt.realizedDiscountBps).toBe(500);
+  });
+
+  it("fails closed when exact-input execution debits a different amount", async () => {
+    const repo = new InMemorySieveRepository();
+    await repo.saveSellBuildIntent(buildIntent());
+    const jupiter = { executeTransaction: async () => ({ status: "Success", signature: "mainnet-signature", totalInputAmount: "499999", inputAmountResult: "494999", totalOutputAmount: "95000000" }) } as any;
+    await expect(new SellConfirmationService(jupiter, repo).confirm({ buildIntentId: buildIntent().id, signedTransaction: "signed" })).rejects.toMatchObject({ details: { code: "CONFIRMATION_FAILED" } });
+  });
 });

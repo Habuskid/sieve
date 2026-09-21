@@ -12,7 +12,7 @@ import { StateBanner, type BannerState } from "./state-banner";
 import { ReviewDialog, type BuildSummaryDto } from "../receipt/review-dialog";
 import { WalletWaiting } from "../receipt/wallet-waiting";
 import { TradeReceiptView } from "../receipt/trade-receipt-view";
-import type { NetworkMode, FundingAsset, TradeReceipt } from "@/core/domain/types";
+import type { FundingAsset, TradeReceipt } from "@/core/domain/types";
 import type { CheckResponseDto } from "@/server/services/check-service";
 import type { MarketItem } from "../markets/market-row";
 import { ArrowRight } from "lucide-react";
@@ -25,11 +25,7 @@ interface BuildData {
   expiresAt: string;
   summary: BuildSummaryDto;
 }
-interface BuyViewProps {
-  network: NetworkMode;
-}
-
-export function BuyView({ network }: BuyViewProps) {
+export function BuyView() {
   const searchParams = useSearchParams();
   const mintFromUrl = searchParams.get("mint");
 
@@ -79,7 +75,7 @@ export function BuyView({ network }: BuyViewProps) {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`/api/markets?network=${network}`);
+        const res = await fetch("/api/markets");
         if (res.ok) {
           const data = await res.json();
           setMarkets(data.markets || []);
@@ -92,7 +88,7 @@ export function BuyView({ network }: BuyViewProps) {
       }
     }
     load();
-  }, [network]);
+  }, []);
 
   // Reset check when inputs change and bump intent version
   useEffect(() => {
@@ -100,11 +96,11 @@ export function BuyView({ network }: BuyViewProps) {
     setCheckResult(null);
     setBannerState("IDLE");
     setErrorMessage(null);
-  }, [selectedMint, fundingAsset, amount, userLimitPct, network]);
+  }, [selectedMint, fundingAsset, amount, userLimitPct]);
 
   const selectedMarket = markets.find((m) => m.mint === selectedMint) || markets[0];
   const selectedMarketDisplayName = selectedMarket
-    ? selectedMarket.name.replace(/\s*\(Practice\)\s*$/i, "")
+    ? selectedMarket.name
     : "Choose an asset";
   const parsedReference = selectedMarket
     ? Number.parseFloat(selectedMarket.referencePriceUsd)
@@ -131,7 +127,6 @@ export function BuyView({ network }: BuyViewProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          network,
           targetMint: selectedMint,
           fundingAsset,
           amount,
@@ -180,7 +175,7 @@ export function BuyView({ network }: BuyViewProps) {
 
   // Start Buy / Open Review
   const handleStartReview = () => {
-    if (!connected && network === "mainnet") {
+    if (!connected) {
       setWalletModalVisible(true);
       return;
     }
@@ -265,7 +260,6 @@ export function BuyView({ network }: BuyViewProps) {
           buildIntentId: buildData.buildIntentId,
           signedTransaction: signedTxBase64,
           wallet: walletAddress,
-          network: "mainnet",
         }),
       });
 
@@ -283,72 +277,6 @@ export function BuyView({ network }: BuyViewProps) {
       const message = err instanceof Error ? err.message : "Wallet rejected transaction";
       setBannerState("ERROR");
       setErrorMessage(message.includes("User rejected") ? "You cancelled the transaction in your wallet." : message);
-    }
-  };
-
-  // Practice Mode: Direct Simulated Execution (Never prompts wallet signing)
-  const handleConfirmPractice = async () => {
-    if (!checkResult) return;
-    setIsBuilding(true);
-
-    try {
-      const walletAddress = publicKey?.toBase58() || "PracticeWallet1111111111111111111111111111";
-
-      // 1. Build practice intent
-      const buildRes = await fetch("/api/build", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          checkId: checkResult.checkId,
-          wallet: walletAddress,
-        }),
-      });
-
-      const data = await buildRes.json();
-      if (!buildRes.ok || data.status === "BLOCKED") {
-        setIsReviewOpen(false);
-        setIsBuilding(false);
-        if (data.status === "BLOCKED") {
-          setBannerState("PRICE_TOO_HIGH");
-          setErrorMessage("The price moved above your limit before transaction construction.");
-          if (data.refreshedCheck) {
-            setCheckResult(data.refreshedCheck);
-          }
-        } else {
-          setBannerState("ERROR");
-          setErrorMessage(data.error?.message || "Testnet simulation failed");
-        }
-        return;
-      }
-
-      // 2. Simulated confirmation (never prompts wallet)
-      const mockSig = `sim-practice-tx-${Date.now()}-${Math.random().toString(36).slice(2, 10).padEnd(8, "0")}`;
-      const confirmRes = await fetch("/api/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          buildIntentId: data.buildIntentId,
-          signature: mockSig,
-          wallet: walletAddress,
-          network: "testnet",
-        }),
-      });
-
-      const confirmData = await confirmRes.json();
-      setIsBuilding(false);
-      setIsReviewOpen(false);
-
-      if (confirmData.status === "CONFIRMED" && confirmData.receipt) {
-        setReceipt(confirmData.receipt);
-      } else {
-        setBannerState("ERROR");
-        setErrorMessage(confirmData.error?.message || "Testnet simulation failed");
-      }
-    } catch (err) {
-      setIsBuilding(false);
-      setIsReviewOpen(false);
-      setBannerState("ERROR");
-      setErrorMessage(err instanceof Error ? err.message : "Testnet simulation failed");
     }
   };
 
@@ -403,7 +331,7 @@ export function BuyView({ network }: BuyViewProps) {
             >
               {markets.map((market) => (
                 <option key={market.mint} value={market.mint} className="bg-surface text-primaryText">
-                  {market.name.replace(/\s*\(Practice\)\s*$/i, "")} ({market.symbol})
+                  {market.name} ({market.symbol})
                 </option>
               ))}
             </select>
@@ -472,7 +400,6 @@ export function BuyView({ network }: BuyViewProps) {
             setIsReviewOpen(false);
             setBuildData(null);
           }}
-          network={network}
           check={checkResult}
           wallet={publicKey?.toBase58()}
           buildSummary={buildData?.summary}
@@ -480,7 +407,6 @@ export function BuyView({ network }: BuyViewProps) {
           isBuilding={isBuilding}
           onPrepareTransaction={handlePrepareTransaction}
           onConfirmInWallet={handleConfirmInWallet}
-          onConfirmPractice={handleConfirmPractice}
         />
       )}
 

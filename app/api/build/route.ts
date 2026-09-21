@@ -9,8 +9,7 @@ export const dynamic = "force-dynamic";
 const BuildRequestSchema = z.object({
   checkId: z.string().uuid("checkId must be a valid UUID"),
   wallet: z.string().min(32).max(44, "Wallet address must be 32-44 characters"),
-  scenarioId: z.string().optional(),
-});
+}).strict();
 
 export async function POST(request: NextRequest) {
   try {
@@ -55,7 +54,6 @@ export async function POST(request: NextRequest) {
     const response = await defaultTransactionBuildService.buildTransaction({
       checkId: data.checkId,
       wallet: data.wallet,
-      scenarioId: data.scenarioId,
     });
 
     return NextResponse.json(response);
