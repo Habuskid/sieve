@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("TASK 11 — Landing Page Visual & Responsive Proof", () => {
-  test("Desktop (1440x900) — Renders hero, Boundary Capacity, Buy/Sell, Architecture, and CTA", async ({
+test.describe("TASK 11 - Landing Page Visual & Responsive Proof", () => {
+  test("Desktop (1440x900) - Renders hero, Boundary Capacity, Buy/Sell, Architecture, and CTA", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -48,7 +48,7 @@ test.describe("TASK 11 — Landing Page Visual & Responsive Proof", () => {
     });
   });
 
-  test("Mobile (390x844) — Renders cleanly, CTAs reachable, no horizontal overflow", async ({
+  test("Mobile (390x844) - Renders cleanly, CTAs reachable, no horizontal overflow", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });

@@ -411,7 +411,7 @@ describe("Buy Boundary Capacity Integration (Task 5)", () => {
     expect(result.status).toBe("PARTIALLY_WITHIN_BOUNDARY");
     expect(result.verifiedCapacity?.fundingAmount).toBe("50");
 
-    // Build only accepts checkId and wallet — user cannot supply an amount to build!
+    // Build only accepts checkId and wallet - user cannot supply an amount to build!
     const buildResult = await h.builder.buildTransaction({
       checkId: result.checkId!,
       wallet,

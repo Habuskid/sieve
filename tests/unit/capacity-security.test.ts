@@ -257,7 +257,7 @@ function createHarness(options: {
   };
 }
 
-describe("Task 8 — Capacity -> Check -> Build Security Proof (Deterministic Test Suite)", () => {
+describe("Task 8 - Capacity -> Check -> Build Security Proof (Deterministic Test Suite)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });

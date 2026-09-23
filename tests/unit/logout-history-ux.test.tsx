@@ -144,7 +144,7 @@ const sampleHistoryItems: HistoryItem[] = [
   },
 ];
 
-describe("TASK — LOGOUT REDIRECT + HISTORY UX (10 Focused Invariant Proofs)", () => {
+describe("TASK - LOGOUT REDIRECT + HISTORY UX (10 Focused Invariant Proofs)", () => {
   beforeEach(() => {
     mockConnected = false;
     mockPublicKey = null;
@@ -253,7 +253,7 @@ describe("TASK — LOGOUT REDIRECT + HISTORY UX (10 Focused Invariant Proofs)", 
   });
 
   // Proof 6: Check-only record does not say 'Transaction reconciliation unavailable'
-  it("Proof 6: Check-only record displays 'Check only — no transaction prepared' instead of reconciliation unavailable", async () => {
+  it("Proof 6: Check-only record displays 'Check only - no transaction prepared' instead of reconciliation unavailable", async () => {
     mockConnected = true;
     mockPublicKey = { toBase58: () => "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM" };
 
@@ -266,7 +266,7 @@ describe("TASK — LOGOUT REDIRECT + HISTORY UX (10 Focused Invariant Proofs)", 
     render(<HistoryView />);
 
     await waitFor(() => {
-      expect(screen.getAllByText("Check only — no transaction prepared").length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText("Check only - no transaction prepared").length).toBeGreaterThanOrEqual(1);
     });
 
     expect(screen.queryByText(/Transaction reconciliation unavailable/i)).not.toBeInTheDocument();
@@ -379,6 +379,6 @@ describe("TASK — LOGOUT REDIRECT + HISTORY UX (10 Focused Invariant Proofs)", 
     expect(mobileContainer).toHaveTextContent("BUY");
     expect(mobileContainer).toHaveTextContent("Checked");
     expect(mobileContainer).toHaveTextContent("50.00 USDC");
-    expect(mobileContainer).toHaveTextContent("Check only — no transaction prepared");
+    expect(mobileContainer).toHaveTextContent("Check only - no transaction prepared");
   });
 });

@@ -85,7 +85,7 @@ const forbiddenAdvisoryWords = [
   "optimal amount",
 ];
 
-describe("TASK 10 — Non-Advisory Copy Audit (15 Required Proofs)", () => {
+describe("TASK 10 - Non-Advisory Copy Audit (15 Required Proofs)", () => {
   let fetchSpy: any;
 
   beforeEach(() => {

@@ -50,7 +50,7 @@ const mockMarkets = [
   },
 ];
 
-describe("TASK 9 — Frontend Boundary Capacity User Action Flow (36 Invariant Tests)", () => {
+describe("TASK 9 - Frontend Boundary Capacity User Action Flow (36 Invariant Tests)", () => {
   let fetchSpy: any;
 
   beforeEach(() => {

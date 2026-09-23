@@ -165,11 +165,11 @@ test.describe("TASK 9A: Desktop (1440 × 900) Visual & Interaction Proof", () =>
     await expect(page.getByText("Maximum premium")).toBeVisible();
     await expect(page.getByText("You set this execution boundary.")).toBeVisible();
 
-    // Price rail BEFORE check: NO fake values (shows "—")
+    // Price rail BEFORE check: NO fake values (shows "-")
     const maxPriceText = page.locator("p:has-text('Maximum price') + strong");
-    await expect(maxPriceText).toHaveText("—");
+    await expect(maxPriceText).toHaveText("-");
     const routePriceText = page.locator("p:has-text('Route price') + strong");
-    await expect(routePriceText).toHaveText("—");
+    await expect(routePriceText).toHaveText("-");
 
     // Screenshot initial desktop BUY
     await page.screenshot({ path: path.join(SCREENSHOTS_DIR, "desktop-buy-initial.png"), fullPage: true });

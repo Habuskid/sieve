@@ -45,7 +45,7 @@ vi.mock("next/navigation", () => ({
 const WALLET_A = "WalletA1111111111111111111111111111111111111";
 const WALLET_B = "WalletB2222222222222222222222222222222222222";
 
-describe("FINAL HISTORY CORRECTNESS PASS — COMPREHENSIVE SUITE", () => {
+describe("FINAL HISTORY CORRECTNESS PASS - COMPREHENSIVE SUITE", () => {
   let repo: InMemorySieveRepository;
   let service: HistoryService;
 

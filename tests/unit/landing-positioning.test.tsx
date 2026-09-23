@@ -60,7 +60,7 @@ const forbiddenAdvisoryWords = [
   "ideal amount",
 ];
 
-describe("TASK 11 — Landing Page Positioning (20 Required Proofs)", () => {
+describe("TASK 11 - Landing Page Positioning (20 Required Proofs)", () => {
   beforeEach(() => {
     mockConnected = false;
     mockPublicKey = null;

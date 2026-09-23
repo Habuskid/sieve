@@ -211,7 +211,7 @@ async function setupMockHistory(page: any) {
   });
 }
 
-test.describe("TASK DASHBOARD & LANDING REFINEMENT — Complete 9 Proofs", () => {
+test.describe("TASK DASHBOARD & LANDING REFINEMENT - Complete 9 Proofs", () => {
   // PROOF 1: Landing disconnected CTA is "Connect wallet" button in hero and opens wallet modal
   test("Proof 1: Landing disconnected CTA is 'Connect wallet' button and opens wallet modal", async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -425,8 +425,8 @@ test.describe("TASK DASHBOARD & LANDING REFINEMENT — Complete 9 Proofs", () =>
     await page.screenshot({ path: path.join(SCREENSHOTS_DIR, "proof8-dashboard-within-boundary-no-green.png"), fullPage: true });
   });
 
-  // PROOF 9: Mobile responsiveness — no horizontal overflow on landing and dashboard
-  test("Proof 9: Mobile responsiveness — no horizontal overflow on landing and dashboard", async ({ page }) => {
+  // PROOF 9: Mobile responsiveness - no horizontal overflow on landing and dashboard
+  test("Proof 9: Mobile responsiveness - no horizontal overflow on landing and dashboard", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await injectMockWallet(page, { autoConnect: false });
     await setupMockMarkets(page);
@@ -540,7 +540,7 @@ test.describe("TASK DASHBOARD & LANDING REFINEMENT — Complete 9 Proofs", () =>
     expect(await page.locator("table").innerText()).not.toContain("50.000000000000000000");
 
     // Check-only row does NOT say 'Transaction reconciliation unavailable'
-    await expect(page.getByText("Check only — no transaction prepared").first()).toBeVisible();
+    await expect(page.getByText("Check only - no transaction prepared").first()).toBeVisible();
 
     await page.screenshot({ path: path.join(SCREENSHOTS_DIR, "proof12-history-desktop.png"), fullPage: true });
   });

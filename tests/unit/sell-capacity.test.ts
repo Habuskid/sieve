@@ -445,7 +445,7 @@ describe("Sell Boundary Capacity Integration (Task 6)", () => {
     expect(result.status).toBe("PARTIALLY_WITHIN_BOUNDARY");
     expect(result.verifiedCapacity?.economicAmount).toBe("0.5");
 
-    // Build only accepts checkId and wallet — user cannot supply an amount to build!
+    // Build only accepts checkId and wallet - user cannot supply an amount to build!
     const buildResult = await h.builder.buildTransaction({
       checkId: result.checkId!,
       wallet,

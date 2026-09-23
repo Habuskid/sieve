@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { economicSellAmountToRaw, deriveSellInputConversion } from "../../core/money/sell-input";
 import { rawToEconomicDisplay, toDecimal } from "../../core/money/decimal";
 
-describe("TASK 6A — Sell Conversion Audit", () => {
+describe("TASK 6A - Sell Conversion Audit", () => {
   const cases = [
     { name: "multiplier = 1, standard 9 dec", econ: "1", dec: 9, mult: "1" },
     { name: "multiplier = 1, standard 6 dec", econ: "100", dec: 6, mult: "1" },
