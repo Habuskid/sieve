@@ -155,7 +155,7 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
         <div className="py-2.5 flex items-center justify-between">
           <span className="text-secondaryText">Execution Time</span>
           <span className="font-mono text-secondaryText tabular-nums">
-            {receipt.confirmedAt ? new Date(receipt.confirmedAt).toLocaleString() : "—"}
+            {receipt.confirmedAt ? new Date(receipt.confirmedAt).toLocaleString() : "-"}
           </span>
         </div>
       </div>

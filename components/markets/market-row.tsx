@@ -60,7 +60,7 @@ export function MarketRow({ market }: MarketRowProps) {
         {/* Market Buy Price */}
         <td className="py-2.5 px-4 text-right">
           <span className="font-mono font-medium text-primaryText tabular-nums">
-            {market.sourceTokenPriceUsd ? `$${parseFloat(market.sourceTokenPriceUsd).toFixed(2)}` : "—"}
+            {market.sourceTokenPriceUsd ? `$${parseFloat(market.sourceTokenPriceUsd).toFixed(2)}` : "-"}
           </span>
         </td>
 
@@ -86,7 +86,7 @@ export function MarketRow({ market }: MarketRowProps) {
               {diff > 0 ? `+${diff.toFixed(2)}%` : `${diff.toFixed(2)}%`}
             </span>
           ) : (
-            <span className="text-mutedText font-mono">—</span>
+            <span className="text-mutedText font-mono">-</span>
           )}
         </td>
 
@@ -141,7 +141,7 @@ export function MarketRow({ market }: MarketRowProps) {
           <div>
             <span className="text-secondaryText block">Market</span>
             <span className="font-mono font-medium text-primaryText tabular-nums">
-              {market.sourceTokenPriceUsd ? `$${parseFloat(market.sourceTokenPriceUsd).toFixed(2)}` : "—"}
+              {market.sourceTokenPriceUsd ? `$${parseFloat(market.sourceTokenPriceUsd).toFixed(2)}` : "-"}
             </span>
           </div>
 
@@ -167,7 +167,7 @@ export function MarketRow({ market }: MarketRowProps) {
                 {diff > 0 ? `+${diff.toFixed(2)}%` : `${diff.toFixed(2)}%`}
               </span>
             ) : (
-              <span className="text-mutedText font-mono">—</span>
+              <span className="text-mutedText font-mono">-</span>
             )}
           </div>
         </div>

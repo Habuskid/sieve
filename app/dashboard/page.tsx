@@ -3,7 +3,7 @@ import React, { Suspense } from "react";
 import { BuyView } from "@/components/buy/buy-view";
 
 export const metadata: Metadata = {
-  title: "Dashboard — Execution | Sieve",
+  title: "Dashboard - Execution | Sieve",
   description: "User-defined execution boundary engine for PreStocks on Solana.",
 };
 

@@ -236,7 +236,7 @@ export function ReviewDialog({
             </div>
           ) : (
             <div className="mt-3 py-1.5 px-3 rounded-[4px] bg-sky-500/[0.06] border border-sky-500/30 text-xs text-sieveBlue font-mono flex items-center justify-between">
-              <span className="font-semibold">FRESH BUILD VERIFIED — ROUTE REVALIDATED</span>
+              <span className="font-semibold">FRESH BUILD VERIFIED - ROUTE REVALIDATED</span>
               {secondsRemaining !== null && (
                 <span className="tabular-nums font-bold">
                   Expires in {secondsRemaining}s
@@ -305,10 +305,10 @@ export function ReviewDialog({
             </span>
             <span className="font-mono font-bold text-primaryText tabular-nums">
               {isSell
-                ? `${summary?.expectedUsdcProceeds || anyCheck?.verifiedCapacity?.expectedUsdcProceeds || anyCheck?.requestedCandidate?.expectedUsdcProceeds || "—"} USDC`
+                ? `${summary?.expectedUsdcProceeds || anyCheck?.verifiedCapacity?.expectedUsdcProceeds || anyCheck?.requestedCandidate?.expectedUsdcProceeds || "-"} USDC`
                 : hasFinalBuild && summary?.expectedTargetAmount
                 ? `${summary.expectedTargetAmount} ${summary.targetSymbol}`
-                : `${anyCheck?.expected?.targetAmount || anyCheck?.verifiedCapacity?.expectedTargetAmount || "—"} ${anyCheck?.asset?.symbol || summary?.targetSymbol}`}
+                : `${anyCheck?.expected?.targetAmount || anyCheck?.verifiedCapacity?.expectedTargetAmount || "-"} ${anyCheck?.asset?.symbol || summary?.targetSymbol}`}
             </span>
           </div>
 
@@ -337,8 +337,8 @@ export function ReviewDialog({
             <span className="text-secondaryText">{isSell ? "Minimum Sell Price" : "Maximum Buy Price"}</span>
             <span className="font-mono font-bold text-primaryText tabular-nums">
               ${isSell
-                ? (summary?.minimumSellPriceUsd || anyCheck?.minimumSellPriceUsd || "—")
-                : (hasFinalBuild && summary?.maxBuyPriceUsd ? summary.maxBuyPriceUsd : (anyCheck?.price?.maxBuyUsd || anyCheck?.maximumBuyPriceUsd || "—"))}
+                ? (summary?.minimumSellPriceUsd || anyCheck?.minimumSellPriceUsd || "-")
+                : (hasFinalBuild && summary?.maxBuyPriceUsd ? summary.maxBuyPriceUsd : (anyCheck?.price?.maxBuyUsd || anyCheck?.maximumBuyPriceUsd || "-"))}
             </span>
           </div>
 
@@ -347,8 +347,8 @@ export function ReviewDialog({
             <span className="text-secondaryText">{isSell ? "Final Sell Price" : "Final Buy Price"}</span>
             <span className="font-mono font-bold text-primaryText tabular-nums">
               ${isSell
-                ? (summary?.currentSellPriceUsd || anyCheck?.verifiedCapacity?.effectiveSellPriceUsd || "—")
-                : (hasFinalBuild && summary ? summary.currentBuyPriceUsd : (anyCheck?.price?.currentBuyUsd || anyCheck?.verifiedCapacity?.effectiveBuyPriceUsd || "—"))}
+                ? (summary?.currentSellPriceUsd || anyCheck?.verifiedCapacity?.effectiveSellPriceUsd || "-")
+                : (hasFinalBuild && summary ? summary.currentBuyPriceUsd : (anyCheck?.price?.currentBuyUsd || anyCheck?.verifiedCapacity?.effectiveBuyPriceUsd || "-"))}
             </span>
           </div>
 

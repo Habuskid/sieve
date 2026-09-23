@@ -71,7 +71,7 @@ export function PriceRail({
 
   const formatPrice = (price: number | null | undefined) =>
     price === null || price === undefined || Number.isNaN(price)
-      ? "—"
+      ? "-"
       : `$${price.toFixed(2)}`;
 
   const boundaryLabel =

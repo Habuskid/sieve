@@ -10,7 +10,7 @@ import { RefreshAction } from "@/components/ui/refresh-action";
 export type HistoryFilter = "ALL" | "EXECUTIONS" | "CHECKS";
 
 function formatDisplayAmount(amountStr?: string | number, asset?: string): string {
-  if (!amountStr || amountStr === "—") return "—";
+  if (!amountStr || amountStr === "-") return "-";
   const num = typeof amountStr === "number" ? amountStr : parseFloat(amountStr);
   if (isNaN(num)) return String(amountStr);
   if (asset === "USDC") {
@@ -23,7 +23,7 @@ function formatDisplayAmount(amountStr?: string | number, asset?: string): strin
 }
 
 function formatDisplayPrice(priceStr?: string | number | null): string {
-  if (!priceStr || priceStr === "—") return "—";
+  if (!priceStr || priceStr === "-") return "-";
   const num = typeof priceStr === "number" ? priceStr : parseFloat(priceStr);
   if (isNaN(num)) return String(priceStr);
   return `$${num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -278,7 +278,7 @@ export function HistoryView() {
                         title={execPrice ?? undefined}
                       >
                         {formatDisplayPrice(execPrice)}{" "}
-                        {diffPct && diffPct !== "—" && (
+                        {diffPct && diffPct !== "-" && (
                           <span className="text-secondaryText text-[11px]">
                             ({isDiscount ? "-" : "+"}{diffPct}%)
                           </span>
@@ -311,7 +311,7 @@ export function HistoryView() {
                           </a>
                         ) : isCheckOnly ? (
                           <span className="font-mono text-[11px] text-mutedText">
-                            Check only — no transaction prepared
+                            Check only - no transaction prepared
                           </span>
                         ) : (
                           <span className="font-mono text-[11px] text-mutedText">
@@ -398,7 +398,7 @@ export function HistoryView() {
                       <span className="text-primaryText font-medium tabular-nums" title={execPrice ?? undefined}>
                         {formatDisplayPrice(execPrice)}
                       </span>
-                      {diffPct && diffPct !== "—" && (
+                      {diffPct && diffPct !== "-" && (
                         <span className="block text-[9px] text-secondaryText">
                           ({isDiscount ? "-" : "+"}{diffPct}%)
                         </span>
@@ -427,7 +427,7 @@ export function HistoryView() {
                         </a>
                       ) : isCheckOnly ? (
                         <span className="text-mutedText">
-                          Check only — no transaction prepared
+                          Check only - no transaction prepared
                         </span>
                       ) : (
                         <span className="text-mutedText">
