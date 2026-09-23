@@ -1,11 +1,13 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { LogOut, ChevronDown } from "lucide-react";
 
 export function WalletButton() {
+  const router = useRouter();
   const { publicKey, connected, disconnect, connecting } = useWallet();
   const { setVisible } = useWalletModal();
   const [mounted, setMounted] = useState(false);
@@ -54,9 +56,14 @@ export function WalletButton() {
             </div>
             <button
               type="button"
-              onClick={() => {
-                disconnect();
+              onClick={async () => {
+                try {
+                  await disconnect();
+                } catch (err) {
+                  console.error("Disconnect error", err);
+                }
                 setDropdownOpen(false);
+                router.replace("/");
               }}
               className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-sm font-medium text-sieveRed transition-colors duration-150 hover:bg-sieveRed/10"
               role="menuitem"

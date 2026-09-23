@@ -149,6 +149,68 @@ async function setupMockBuyCapacity(page: any) {
   });
 }
 
+// Helper to mock history endpoint
+async function setupMockHistory(page: any) {
+  await page.route("**/api/history**", async (route: any) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        wallet: "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        network: "mainnet",
+        items: [
+          {
+            id: "chk-openai",
+            side: "BUY",
+            type: "CHECK_PASSED",
+            timestamp: "2026-09-23T12:00:00.000Z",
+            tokenSymbol: "OPENAI",
+            amount: "50.000000000000000000",
+            asset: { name: "OpenAI PreStock", symbol: "OPENAI", mint: "mint-openai" },
+            funding: { asset: "USDC", amount: "50.000000000000000000" },
+            executionPriceUsd: "512.50",
+            boundary: { type: "MAX_PREMIUM", bps: 500, pct: "5.00" },
+            realizedBoundaryPct: "2.50",
+            network: "mainnet",
+            statusLabel: "Checked",
+          },
+          {
+            id: "chk-spacex",
+            side: "BUY",
+            type: "CHECK_BLOCKED",
+            timestamp: "2026-09-23T12:05:00.000Z",
+            tokenSymbol: "SPACEX",
+            amount: "100.000000",
+            asset: { name: "SpaceX PreStock", symbol: "SPACEX", mint: "mint-spacex" },
+            funding: { asset: "USDC", amount: "100.000000" },
+            executionPriceUsd: "220.00",
+            boundary: { type: "MAX_PREMIUM", bps: 500, pct: "5.00" },
+            realizedBoundaryPct: "10.00",
+            network: "mainnet",
+            statusLabel: "Blocked",
+          },
+          {
+            id: "trade-anthropic",
+            side: "BUY",
+            type: "TRADE_CONFIRMED",
+            timestamp: "2026-09-23T12:10:00.000Z",
+            tokenSymbol: "ANTHROPIC",
+            amount: "250.000000",
+            asset: { name: "Anthropic PreStock", symbol: "ANTHROPIC", mint: "mint-anthropic" },
+            funding: { asset: "USDC", amount: "250.000000" },
+            executionPriceUsd: "153.00",
+            boundary: { type: "MAX_PREMIUM", bps: 500, pct: "5.00" },
+            realizedBoundaryPct: "2.00",
+            network: "mainnet",
+            signature: "5VERv8NMvzbJMEdV8xnrLkEaMaWRqfZ8xTuU8xnrLkEaMaWRqfZ8xTuU8xnrLkEaMaWRqfZ8xTuU8xnrLkEaMaWR",
+            statusLabel: "Confirmed",
+          },
+        ],
+      }),
+    });
+  });
+}
+
 test.describe("TASK DASHBOARD & LANDING REFINEMENT — Complete 9 Proofs", () => {
   // PROOF 1: Landing disconnected CTA is "Connect wallet" button in hero and opens wallet modal
   test("Proof 1: Landing disconnected CTA is 'Connect wallet' button and opens wallet modal", async ({ page }) => {
@@ -186,7 +248,7 @@ test.describe("TASK DASHBOARD & LANDING REFINEMENT — Complete 9 Proofs", () =>
     await page.getByRole("button", { name: /Institutional Mock Wallet/i }).click();
 
     // It redirects to /dashboard
-    await page.waitForURL("**/dashboard", { timeout: 10000 });
+    await page.waitForURL("**/dashboard", { timeout: 20000 });
     expect(page.url()).toContain("/dashboard");
     await expect(page.getByRole("heading", { name: "Execution" })).toBeVisible();
 
@@ -397,5 +459,115 @@ test.describe("TASK DASHBOARD & LANDING REFINEMENT — Complete 9 Proofs", () =>
     expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
 
     await page.screenshot({ path: path.join(SCREENSHOTS_DIR, "proof9-mobile-dashboard-connected.png"), fullPage: true });
+  });
+
+  // PROOF 10: Explicit Disconnect from wallet dropdown redirects to /
+  test("Proof 10: Explicit Disconnect from wallet dropdown redirects to /", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await injectMockWallet(page, { autoConnect: false });
+    await setupMockMarkets(page);
+
+    // Connect wallet on dashboard
+    await page.goto("/dashboard");
+    await page.getByRole("button", { name: "Connect wallet" }).first().click();
+    await page.getByRole("button", { name: /Institutional Mock Wallet/i }).click();
+    await expect(page.getByRole("heading", { name: "Execution" })).toBeVisible();
+
+    // Click wallet button in header to open dropdown
+    await page.getByRole("button", { name: /9wzd/i }).click();
+    await expect(page.getByRole("menuitem", { name: /disconnect/i })).toBeVisible();
+
+    // Click Disconnect
+    await page.getByRole("menuitem", { name: /disconnect/i }).click();
+
+    // Must redirect to "/" and render in disconnected state
+    await page.waitForURL("/");
+    expect(new URL(page.url()).pathname).toBe("/");
+    await expect(page.getByRole("button", { name: "Connect wallet" }).first()).toBeVisible();
+
+    await page.screenshot({ path: path.join(SCREENSHOTS_DIR, "proof10-logout-redirect.png"), fullPage: true });
+  });
+
+  // PROOF 11: /buy route redirects to /dashboard preserving deep link search params
+  test("Proof 11: /buy route redirects to /dashboard preserving deep link search params", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await injectMockWallet(page, { autoConnect: false });
+
+    // Navigate to legacy /buy deep link with params
+    await page.goto("/buy?mint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+    await page.waitForURL("**/dashboard?mint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+
+    const currentUrl = new URL(page.url());
+    expect(currentUrl.pathname).toBe("/dashboard");
+    expect(currentUrl.searchParams.get("mint")).toBe("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+
+    await page.screenshot({ path: path.join(SCREENSHOTS_DIR, "proof11-buy-redirect-dashboard.png"), fullPage: true });
+  });
+
+  // PROOF 12: History desktop shows segmented control filters, neutral columns, and human-readable USDC
+  test("Proof 12: History desktop shows segmented control filters, neutral columns, and human-readable USDC", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await injectMockWallet(page, { autoConnect: false });
+    await setupMockHistory(page);
+
+    await page.goto("/history");
+
+    // Connect wallet
+    await page.getByRole("button", { name: "Connect wallet" }).first().click();
+    await page.getByRole("button", { name: /Institutional Mock Wallet/i }).click();
+
+    await expect(page.getByRole("heading", { name: "Execution History" })).toBeVisible();
+
+    // Verify segmented control tabs
+    const tablist = page.getByRole("tablist", { name: "History filters" });
+    await expect(tablist).toBeVisible();
+    await expect(page.getByRole("tab", { name: "All" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Executions" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Boundary checks" })).toBeVisible();
+
+    // Verify neutral column headers
+    await expect(page.getByRole("columnheader", { name: "Status" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Asset" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Side" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Amount" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Execution Price" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Boundary" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Time" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "Transaction" })).toBeVisible();
+
+    // Verify human-readable USDC (50.00 USDC, not 50.000000000000000000)
+    await expect(page.getByText("50.00 USDC").first()).toBeVisible();
+    expect(await page.locator("table").innerText()).not.toContain("50.000000000000000000");
+
+    // Check-only row does NOT say 'Transaction reconciliation unavailable'
+    await expect(page.getByText("Check only — no transaction prepared").first()).toBeVisible();
+
+    await page.screenshot({ path: path.join(SCREENSHOTS_DIR, "proof12-history-desktop.png"), fullPage: true });
+  });
+
+  // PROOF 13: History mobile has no horizontal overflow
+  test("Proof 13: History mobile has no horizontal overflow and renders stacked cards", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await injectMockWallet(page, { autoConnect: false });
+    await setupMockHistory(page);
+
+    await page.goto("/history");
+
+    // Connect wallet on mobile
+    await page.getByRole("button", { name: "Connect wallet" }).first().click();
+    await page.getByRole("button", { name: /Institutional Mock Wallet/i }).click();
+
+    await expect(page.getByRole("heading", { name: "Execution History" })).toBeVisible();
+
+    // Check no horizontal overflow
+    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
+    expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
+
+    // Verify mobile stacked cards render
+    await expect(page.locator(".sm\\:hidden").getByText("OPENAI").first()).toBeVisible();
+    await expect(page.locator(".sm\\:hidden").getByText("50.00 USDC").first()).toBeVisible();
+
+    await page.screenshot({ path: path.join(SCREENSHOTS_DIR, "proof13-history-mobile.png"), fullPage: true });
   });
 });

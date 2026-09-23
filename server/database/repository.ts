@@ -17,10 +17,12 @@ export interface ListFilterParams {
 export interface ISellRepository {
   saveSellPriceCheck(check: SellPriceCheck): Promise<void>;
   getSellPriceCheck(id: string): Promise<SellPriceCheck | null>;
+  listSellPriceChecks(params?: ListFilterParams): Promise<SellPriceCheck[]>;
   saveSellBuildIntent(intent: SellBuildIntent): Promise<void>;
   getSellBuildIntent(id: string): Promise<SellBuildIntent | null>;
   saveSellTradeReceipt(receipt: SellTradeReceipt): Promise<SellTradeReceipt>;
   getSellTradeReceiptBySignature(signature: string): Promise<SellTradeReceipt | null>;
+  listSellTradeReceipts(params?: ListFilterParams): Promise<SellTradeReceipt[]>;
 }
 
 export interface ISieveRepository extends ISellRepository {
@@ -45,6 +47,9 @@ export class InMemorySieveRepository implements ISieveRepository {
   private sellChecks = new Map<string, SellPriceCheck>();
   private sellBuilds = new Map<string, SellBuildIntent>();
   private sellReceipts = new Map<string, SellTradeReceipt>();
+  // Failed Sell receipts may have no signature. Keep them by ID so History can list
+  // every receipt while the signature map retains existing idempotency behavior.
+  private sellReceiptsById = new Map<string, SellTradeReceipt>();
 
   async savePriceCheck(check: PriceCheck): Promise<void> {
     this.checks.set(check.id, { ...check });
@@ -124,6 +129,19 @@ export class InMemorySieveRepository implements ISieveRepository {
 
   async saveSellPriceCheck(check: SellPriceCheck) { this.sellChecks.set(check.id, { ...check }); }
   async getSellPriceCheck(id: string) { return this.sellChecks.get(id) ?? null; }
+  async listSellPriceChecks(params: ListFilterParams = {}): Promise<SellPriceCheck[]> {
+    let list = Array.from(this.sellChecks.values());
+    if (params.network) {
+      list = list.filter((c) => c.network === params.network);
+    }
+    if (params.wallet) {
+      list = list.filter((c) => c.wallet === params.wallet);
+    }
+    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const offset = params.offset ?? 0;
+    const limit = params.limit ?? 50;
+    return list.slice(offset, offset + limit);
+  }
   async saveSellBuildIntent(intent: SellBuildIntent) { this.sellBuilds.set(intent.id, { ...intent }); }
   async getSellBuildIntent(id: string) { return this.sellBuilds.get(id) ?? null; }
   async saveSellTradeReceipt(receipt: SellTradeReceipt) {
@@ -131,17 +149,38 @@ export class InMemorySieveRepository implements ISieveRepository {
       const existing = this.sellReceipts.get(receipt.signature);
       if (existing && existing.buildIntentId !== receipt.buildIntentId) throw new SieveAppError("IDEMPOTENCY_VIOLATION", "Signature belongs to a different Sell build intent");
       if (existing) return existing;
-      this.sellReceipts.set(receipt.signature, { ...receipt });
+      const cloned = { ...receipt };
+      this.sellReceipts.set(receipt.signature, cloned);
+      this.sellReceiptsById.set(receipt.id, cloned);
+      return cloned;
     }
-    return { ...receipt };
+    const cloned = { ...receipt };
+    this.sellReceiptsById.set(receipt.id, cloned);
+    return cloned;
   }
   async getSellTradeReceiptBySignature(signature: string) { return this.sellReceipts.get(signature) ?? null; }
+  async listSellTradeReceipts(params: ListFilterParams = {}): Promise<SellTradeReceipt[]> {
+    let list = Array.from(this.sellReceiptsById.values());
+    if (params.network) {
+      list = list.filter((r) => r.network === params.network);
+    }
+    if (params.wallet) {
+      list = list.filter((r) => r.wallet === params.wallet);
+    }
+    list.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime());
+    const offset = params.offset ?? 0;
+    const limit = params.limit ?? 50;
+    return list.slice(offset, offset + limit);
+  }
 
   clear(): void {
     this.checks.clear();
     this.buildIntents.clear();
     this.receipts.clear();
     this.receiptsById.clear();
-    this.sellChecks.clear(); this.sellBuilds.clear(); this.sellReceipts.clear();
+    this.sellChecks.clear();
+    this.sellBuilds.clear();
+    this.sellReceipts.clear();
+    this.sellReceiptsById.clear();
   }
 }

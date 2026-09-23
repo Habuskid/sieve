@@ -12,7 +12,6 @@ export function Header() {
   const navLinks = [
     { href: "/dashboard", label: "Dashboard" },
     { href: "/markets", label: "Markets" },
-    { href: "/buy", label: "Buy" },
     { href: "/history", label: "History" },
     { href: "/preferences", label: "Preferences" },
   ];
