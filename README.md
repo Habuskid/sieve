@@ -8,6 +8,18 @@ Sieve does not decide what a user should buy or sell. The user defines the polic
 
 **Live app:** https://usesieve.vercel.app
 
+<p align="left">
+  <img src="https://img.shields.io/badge/Next.js-15-000000?logo=nextdotjs&logoColor=white" alt="Next.js" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111111" alt="React" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/Tailwind_CSS-3-06B6D4?logo=tailwindcss&logoColor=white" alt="Tailwind CSS" />
+  <img src="https://img.shields.io/badge/Solana-Mainnet-000000?logo=solana&logoColor=14F195" alt="Solana" />
+  <img src="https://img.shields.io/badge/PostgreSQL-Database-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/Vitest-Testing-6E9F18?logo=vitest&logoColor=white" alt="Vitest" />
+  <img src="https://img.shields.io/badge/Playwright-E2E-2EAD33?logo=playwright&logoColor=white" alt="Playwright" />
+  <img src="https://img.shields.io/badge/Vercel-Deployment-000000?logo=vercel&logoColor=white" alt="Vercel" />
+</p>
+
 ---
 
 ## Table of Contents
@@ -32,6 +44,7 @@ Sieve does not decide what a user should buy or sell. The user defines the polic
 - [Local Development](#local-development)
 - [Environment Variables](#environment-variables)
 - [Database Migrations](#database-migrations)
+- [Supabase Free Project Keepalive](#supabase-free-project-keepalive)
 - [Testing](#testing)
 - [Design Principles](#design-principles)
 - [Non-Goals](#non-goals)
@@ -376,7 +389,7 @@ History merges Buy and Sell checks/receipts server-side, removes duplicate lifec
 
 ### Application
 
-- **Next.js 15** — App Router, pages, and API routes
+- **Next.js 15** - App Router, pages, and API routes
 - **React 19**
 - **TypeScript**
 - **Tailwind CSS**
@@ -403,7 +416,18 @@ History merges Buy and Sell checks/receipts server-side, removes duplicate lifec
 - **Decimal.js**
 - **Zod**
 
-### Testing
+#
+## Supabase Free Project Keepalive
+
+This repository includes a scheduled GitHub Actions workflow at `.github/workflows/supabase-keepalive.yml`.
+
+The workflow sends a small read-only request to Sieve's live `/api/history` route every day. That route performs wallet- and network-scoped PostgreSQL reads, which creates real database activity without inserting, updating, or deleting application data.
+
+The keepalive is intentionally more frequent than once every seven days because Supabase evaluates activity over a rolling weekly window. A single request exactly once per week is not treated as a guaranteed anti-pause mechanism.
+
+The workflow can also be run manually from the GitHub Actions tab.
+
+## Testing
 
 - **Vitest**
 - **Testing Library**
