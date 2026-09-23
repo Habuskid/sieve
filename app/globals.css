@@ -524,7 +524,7 @@ body {
   }
 
   .sieve-price-datum strong.is-safe {
-    color: var(--sieve-green);
+    color: var(--sieve-blue);
   }
 
   .sieve-price-datum strong.is-blocked {
@@ -608,8 +608,8 @@ body {
   }
 
   .sieve-boundary-route.is-safe {
-    background: var(--sieve-green);
-    color: var(--sieve-green);
+    background: var(--sieve-blue);
+    color: var(--sieve-blue);
   }
 
   .sieve-boundary-route.is-blocked {
@@ -647,7 +647,7 @@ body {
   }
 
   .sieve-boundary-route-label.is-safe {
-    color: var(--sieve-green);
+    color: var(--sieve-blue);
   }
 
   .sieve-boundary-route-label.is-blocked {
@@ -663,7 +663,7 @@ body {
   }
 
   .sieve-boundary-status p.is-safe {
-    color: var(--sieve-green);
+    color: var(--sieve-blue);
     font-weight: 600;
   }
 

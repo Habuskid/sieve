@@ -1,12 +1,43 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, useReducedMotion } from "framer-motion";
 import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 
 export function LandingHero() {
   const reduceMotion = useReducedMotion();
+  const { connected } = useWallet();
+  const { setVisible } = useWalletModal();
+  const router = useRouter();
+
+  const explicitConnectRef = useRef(false);
+
+  useEffect(() => {
+    const handleIntent = () => {
+      explicitConnectRef.current = true;
+    };
+    window.addEventListener("sieve:wallet-connect-intent", handleIntent);
+    return () => window.removeEventListener("sieve:wallet-connect-intent", handleIntent);
+  }, []);
+
+  useEffect(() => {
+    if (explicitConnectRef.current && connected) {
+      explicitConnectRef.current = false;
+      router.push("/dashboard");
+    }
+  }, [connected, router]);
+
+  const handleConnectWallet = () => {
+    explicitConnectRef.current = true;
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("sieve:wallet-connect-intent"));
+    }
+    setVisible(true);
+  };
 
   return (
     <section className="relative overflow-hidden border-b border-borderBase bg-background">
@@ -29,10 +60,21 @@ export function LandingHero() {
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-x-7 gap-y-4">
-            <Link href="/buy" className="sieve-action-primary">
-              Check a boundary
-              <ArrowRight className="size-4" aria-hidden="true" />
-            </Link>
+            {connected ? (
+              <Link href="/dashboard" className="sieve-action-primary">
+                Open dashboard
+                <ArrowRight className="size-4" aria-hidden="true" />
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={handleConnectWallet}
+                className="sieve-action-primary"
+              >
+                Connect wallet
+                <ArrowRight className="size-4" aria-hidden="true" />
+              </button>
+            )}
 
             <Link href="/markets" className="sieve-action-secondary">
               Explore PreStocks
@@ -74,10 +116,10 @@ export function LandingHero() {
                 <span className="text-primaryText">1,000 USDC</span>
               </div>
 
-              <div className="rounded-[4px] border border-emerald-300 bg-sieveGreen-soft p-3 space-y-1.5 text-[11px]">
+              <div className="rounded-[4px] border border-sky-500/20 bg-sky-500/[0.03] p-3 space-y-1.5 text-[11px]">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-sieveGreen flex items-center gap-1.5">
-                    <CheckCircle2 className="size-3.5" aria-hidden="true" />
+                  <span className="font-semibold text-primaryText flex items-center gap-1.5">
+                    <CheckCircle2 className="size-3.5 text-sieveBlue" aria-hidden="true" />
                     Within boundary
                   </span>
                   <span className="text-secondaryText font-medium">Boundary Capacity Verified</span>

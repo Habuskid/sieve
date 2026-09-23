@@ -1,9 +1,36 @@
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent } from "@testing-library/react";
 import React from "react";
 import Home from "@/app/page";
 import { LandingHero } from "@/components/landing/landing-hero";
 import "@testing-library/jest-dom/vitest";
+
+let mockConnected = false;
+let mockPublicKey: { toBase58: () => string } | null = null;
+const mockSetVisible = vi.fn();
+const mockPush = vi.fn();
+
+vi.mock("@solana/wallet-adapter-react", () => ({
+  useWallet: () => ({
+    connected: mockConnected,
+    publicKey: mockPublicKey,
+  }),
+}));
+
+vi.mock("@solana/wallet-adapter-react-ui", () => ({
+  useWalletModal: () => ({
+    setVisible: mockSetVisible,
+  }),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: mockPush,
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+  }),
+}));
 
 const forbiddenAdvisoryWords = [
   "safe",
@@ -34,6 +61,13 @@ const forbiddenAdvisoryWords = [
 ];
 
 describe("TASK 11 — Landing Page Positioning (20 Required Proofs)", () => {
+  beforeEach(() => {
+    mockConnected = false;
+    mockPublicKey = null;
+    mockSetVisible.mockClear();
+    mockPush.mockClear();
+  });
+
   // Proof 1: hero contains "You set the boundary"
   it("Proof 1: hero contains 'You set the boundary'", () => {
     render(<LandingHero />);
@@ -193,5 +227,25 @@ describe("TASK 11 — Landing Page Positioning (20 Required Proofs)", () => {
     expect(text).not.toContain("equityzen");
     expect(text).not.toContain("carta");
     expect(text).not.toContain("secfi");
+  });
+
+  // Proof 21: Landing hero shows "Connect wallet" button when disconnected
+  it("Proof 21: Landing hero shows 'Connect wallet' button when disconnected", () => {
+    mockConnected = false;
+    render(<LandingHero />);
+    const button = screen.getByRole("button", { name: /connect wallet/i });
+    expect(button).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(mockSetVisible).toHaveBeenCalledWith(true);
+  });
+
+  // Proof 22: Landing hero shows "Open dashboard" link to /dashboard when connected
+  it("Proof 22: Landing hero shows 'Open dashboard' link to /dashboard when connected", () => {
+    mockConnected = true;
+    mockPublicKey = { toBase58: () => "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM" };
+    render(<LandingHero />);
+    const link = screen.getByRole("link", { name: /open dashboard/i });
+    expect(link).toBeInTheDocument();
+    expect(link).toHaveAttribute("href", "/dashboard");
   });
 });
