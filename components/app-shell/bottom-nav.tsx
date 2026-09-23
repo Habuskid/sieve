@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, BarChart3, ShoppingCart, History, Settings } from "lucide-react";
+import { LayoutDashboard, BarChart3, History, Settings } from "lucide-react";
 
 export function BottomNav() {
   const pathname = usePathname();
@@ -11,9 +11,8 @@ export function BottomNav() {
   const navLinks = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/markets", label: "Markets", icon: BarChart3 },
-    { href: "/buy", label: "Buy", icon: ShoppingCart },
     { href: "/history", label: "History", icon: History },
-    { href: "/preferences", label: "Settings", icon: Settings },
+    { href: "/preferences", label: "Preferences", icon: Settings },
   ];
 
   return (

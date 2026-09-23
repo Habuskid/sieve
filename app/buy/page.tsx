@@ -1,24 +1,19 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import React, { Suspense } from "react";
-import { BuyView } from "@/components/buy/buy-view";
-
-export default function BuyPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="mx-auto max-w-7xl px-5 py-12 sm:px-8 lg:px-10">
-          <div className="h-8 w-56 animate-pulse bg-surface-subtle" />
-          <div className="mt-8 h-px w-full bg-borderBase" />
-          <div className="mt-8 grid gap-8 md:grid-cols-3">
-            <div className="h-24 animate-pulse bg-surface-subtle" />
-            <div className="h-24 animate-pulse bg-surface-subtle" />
-            <div className="h-24 animate-pulse bg-surface-subtle" />
-          </div>
-        </div>
-      }
-    >
-      <BuyView />
-    </Suspense>
-  );
+export default async function BuyPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = searchParams ? await searchParams : {};
+  const search = new URLSearchParams();
+  for (const [key, val] of Object.entries(params)) {
+    if (typeof val === "string") {
+      search.set(key, val);
+    } else if (Array.isArray(val)) {
+      val.forEach((v) => search.append(key, v));
+    }
+  }
+  const qs = search.toString();
+  redirect(qs ? `/dashboard?${qs}` : "/dashboard");
 }
