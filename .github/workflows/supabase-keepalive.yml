@@ -1,0 +1,32 @@
+name: Supabase Keepalive
+
+on:
+  schedule:
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  database-activity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Generate read-only database activity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          url="https://usesieve.vercel.app/api/history?wallet=11111111111111111111111111111111&limit=1&offset=0"
+
+          for attempt in 1 2 3; do
+            curl               --fail               --silent               --show-error               --max-time 20               "$url"               > /dev/null
+
+            if [ "$attempt" -lt 3 ]; then
+              sleep 2
+            fi
+          done
+
+          echo "Sieve database keepalive completed."
