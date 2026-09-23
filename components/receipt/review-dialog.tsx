@@ -235,7 +235,7 @@ export function ReviewDialog({
               <span>Please prepare the transaction again for fresh pricing.</span>
             </div>
           ) : (
-            <div className="mt-3 py-1.5 px-3 rounded-[4px] bg-sieveGreen-soft border border-emerald-300 text-xs text-sieveGreen font-mono flex items-center justify-between">
+            <div className="mt-3 py-1.5 px-3 rounded-[4px] bg-sky-500/[0.06] border border-sky-500/30 text-xs text-sieveBlue font-mono flex items-center justify-between">
               <span className="font-semibold">FRESH BUILD VERIFIED — ROUTE REVALIDATED</span>
               {secondsRemaining !== null && (
                 <span className="tabular-nums font-bold">
@@ -315,7 +315,7 @@ export function ReviewDialog({
           {/* Minimum Protected Output */}
           <div className="py-2.5 flex items-center justify-between">
             <span className="text-secondaryText">Minimum Protected Output</span>
-            <span className="font-mono font-bold text-sieveGreen tabular-nums">
+            <span className="font-mono font-bold text-primaryText tabular-nums">
               {isSell
                 ? (summary?.minimumAcceptableUsdc ? `${summary.minimumAcceptableUsdc} USDC` : (summary?.minimumSellPriceUsd ? `At $${summary.minimumSellPriceUsd} floor` : (anyCheck?.minimumSellPriceUsd ? `At $${anyCheck.minimumSellPriceUsd} floor` : "Enforced at build")))
                 : (hasFinalBuild && summary?.minimumAcceptableOutput
@@ -345,7 +345,7 @@ export function ReviewDialog({
           {/* Final Price */}
           <div className="py-2.5 flex items-center justify-between">
             <span className="text-secondaryText">{isSell ? "Final Sell Price" : "Final Buy Price"}</span>
-            <span className="font-mono font-bold text-sieveGreen tabular-nums">
+            <span className="font-mono font-bold text-primaryText tabular-nums">
               ${isSell
                 ? (summary?.currentSellPriceUsd || anyCheck?.verifiedCapacity?.effectiveSellPriceUsd || "—")
                 : (hasFinalBuild && summary ? summary.currentBuyPriceUsd : (anyCheck?.price?.currentBuyUsd || anyCheck?.verifiedCapacity?.effectiveBuyPriceUsd || "—"))}
@@ -355,7 +355,7 @@ export function ReviewDialog({
           {/* Premium / Discount */}
           <div className="py-2.5 flex items-center justify-between">
             <span className="text-secondaryText">{isSell ? "Discount from Reference" : "Premium over Reference"}</span>
-            <span className="font-mono font-medium text-sieveGreen tabular-nums">
+            <span className="font-mono font-medium text-sieveBlue tabular-nums">
               {isSell
                 ? `-${summary?.discountBps ? (summary.discountBps / 100).toFixed(2) : (anyCheck?.maxDiscountPct || "0.00")}%`
                 : `+${hasFinalBuild && summary ? summary.premiumPct : (anyCheck?.price?.premiumPct || anyCheck?.maxPremiumPct || "0.00")}%`}
@@ -422,7 +422,7 @@ export function ReviewDialog({
               type="button"
               onClick={onConfirmInWallet}
               disabled={isBuilding || isExpired}
-              className="inline-flex items-center gap-2 rounded-btn bg-sieveGreen px-5 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-xs min-h-[40px] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-btn bg-sieveBlue px-5 py-2 text-xs font-bold text-slate-950 hover:bg-sieveBlue-hover transition-colors shadow-xs min-h-[40px] disabled:opacity-50"
             >
               <span>Confirm in wallet</span>
               <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />

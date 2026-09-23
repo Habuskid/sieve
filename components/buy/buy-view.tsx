@@ -20,6 +20,8 @@ import type { SellCapacityResponseDto } from "@/server/services/sell-capacity-se
 import type { MarketItem } from "../markets/market-row";
 import { ArrowRight } from "lucide-react";
 import { RefreshMark } from "@/components/ui/refresh-mark";
+import { WalletButton } from "../app-shell/wallet-button";
+import { cn } from "@/lib/utils";
 
 interface BuildData {
   buildIntentId: string;
@@ -29,7 +31,11 @@ interface BuildData {
   summary: BuildSummaryDto;
 }
 
-export function BuyView() {
+interface BuyViewProps {
+  isDashboard?: boolean;
+}
+
+export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
   const searchParams = useSearchParams();
   const mintFromUrl = searchParams.get("mint");
 
@@ -348,7 +354,7 @@ export function BuyView() {
   // If receipt is active, show the completed receipt view
   if (receipt) {
     return (
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+      <div className={cn("mx-auto py-8", isDashboard ? "max-w-4xl px-4 sm:px-6" : "max-w-7xl px-4 sm:px-6 lg:px-8")}>
         <TradeReceiptView
           receipt={receipt}
           onDone={() => {
@@ -363,54 +369,138 @@ export function BuyView() {
     );
   }
 
-  const showAuxiliaryState = !["IDLE", "GOOD_TO_GO", "PRICE_TOO_HIGH"].includes(bannerState);
+  // Gate disconnected dashboard: show only the connection gate, no interactive execution form underneath
+  if (isDashboard && (!connected || !publicKey)) {
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 sm:py-16">
+        <div className="mx-auto max-w-lg rounded-panel border border-borderBase bg-surface p-8 text-center shadow-xs sm:p-10 space-y-6">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sieveBlue font-mono">
+              Dashboard
+            </p>
+            <h1 className="text-2xl font-bold tracking-tight text-primaryText sm:text-3xl">
+              Connect wallet to continue
+            </h1>
+            <p className="text-xs sm:text-sm text-secondaryText leading-relaxed">
+              Connect your wallet to check and enforce your execution boundary.
+            </p>
+          </div>
 
-  return (
-    <div className="mx-auto max-w-7xl px-5 py-7 sm:px-8 sm:py-10 lg:px-10 lg:py-12">
-      {/* Header */}
-      <div className="flex flex-col gap-6 border-b border-borderBase pb-7 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-mutedText">
-            {side === "BUY" ? "Buy PreStocks" : "Sell PreStocks"}
-          </p>
-          <h1 className="mt-2 text-balance text-4xl font-semibold leading-tight text-primaryText sm:text-5xl">
-            {selectedMarketDisplayName}
-          </h1>
-          <p className="mt-3 max-w-2xl text-pretty text-sm leading-6 text-secondaryText sm:text-base">
-            Set your amount and limit. Sieve checks the executable route before any transaction is prepared.
-          </p>
-
-          {/* Side Toggle */}
-          <div className="mt-4 flex items-center gap-2" role="tablist" aria-label="Trade Side">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={side === "BUY"}
-              onClick={() => setSide("BUY")}
-              className={`rounded-btn px-4 py-2 text-xs font-bold transition-colors ${
-                side === "BUY"
-                  ? "bg-sieveBlue text-slate-950"
-                  : "border border-borderBase text-secondaryText hover:text-primaryText hover:bg-surface-subtle"
-              }`}
-            >
-              BUY
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={side === "SELL"}
-              onClick={() => setSide("SELL")}
-              className={`rounded-btn px-4 py-2 text-xs font-bold transition-colors ${
-                side === "SELL"
-                  ? "bg-sieveBlue text-slate-950"
-                  : "border border-borderBase text-secondaryText hover:text-primaryText hover:bg-surface-subtle"
-              }`}
-            >
-              SELL
-            </button>
+          <div className="pt-2 flex justify-center">
+            <WalletButton />
           </div>
         </div>
       </div>
+    );
+  }
+
+  const showAuxiliaryState = !["IDLE", "GOOD_TO_GO", "PRICE_TOO_HIGH"].includes(bannerState);
+
+  return (
+    <div
+      className={cn(
+        "mx-auto",
+        isDashboard
+          ? "max-w-4xl px-4 py-8 sm:px-6 sm:py-10"
+          : "max-w-7xl px-5 py-7 sm:px-8 sm:py-10 lg:px-10 lg:py-12"
+      )}
+    >
+      {/* Header */}
+      {isDashboard ? (
+        <div>
+          <div className="flex flex-col gap-4 border-b border-borderBase pb-6 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sieveBlue">
+                Dashboard
+              </p>
+              <h1 className="mt-1 text-2xl font-semibold tracking-tight text-primaryText sm:text-3xl">
+                Execution
+              </h1>
+              <p className="mt-1 text-xs text-secondaryText sm:text-sm">
+                Configure trade side, asset, amount, and execution boundary. Sieve verifies route capacity before transaction preparation.
+              </p>
+            </div>
+
+            {/* Segmented Buy / Sell Control */}
+            <div
+              className="flex items-center gap-1 rounded-panel border border-borderBase bg-surface p-1 shadow-xs"
+              role="tablist"
+              aria-label="Trade Side"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={side === "BUY"}
+                onClick={() => setSide("BUY")}
+                className={`min-h-9 rounded px-4 text-xs font-bold transition-colors ${
+                  side === "BUY"
+                    ? "bg-sieveBlue text-slate-950 shadow-xs"
+                    : "text-secondaryText hover:text-primaryText"
+                }`}
+              >
+                Buy
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={side === "SELL"}
+                onClick={() => setSide("SELL")}
+                className={`min-h-9 rounded px-4 text-xs font-bold transition-colors ${
+                  side === "SELL"
+                    ? "bg-sieveBlue text-slate-950 shadow-xs"
+                    : "text-secondaryText hover:text-primaryText"
+                }`}
+              >
+                Sell
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-6 border-b border-borderBase pb-7 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-mutedText">
+              {side === "BUY" ? "Buy PreStocks" : "Sell PreStocks"}
+            </p>
+            <h1 className="mt-2 text-balance text-4xl font-semibold leading-tight text-primaryText sm:text-5xl">
+              {selectedMarketDisplayName}
+            </h1>
+            <p className="mt-3 max-w-2xl text-pretty text-sm leading-6 text-secondaryText sm:text-base">
+              Set your amount and limit. Sieve checks the executable route before any transaction is prepared.
+            </p>
+
+            {/* Side Toggle */}
+            <div className="mt-4 flex items-center gap-2" role="tablist" aria-label="Trade Side">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={side === "BUY"}
+                onClick={() => setSide("BUY")}
+                className={`rounded-btn px-4 py-2 text-xs font-bold transition-colors ${
+                  side === "BUY"
+                    ? "bg-sieveBlue text-slate-950"
+                    : "border border-borderBase text-secondaryText hover:text-primaryText hover:bg-surface-subtle"
+                }`}
+              >
+                BUY
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={side === "SELL"}
+                onClick={() => setSide("SELL")}
+                className={`rounded-btn px-4 py-2 text-xs font-bold transition-colors ${
+                  side === "SELL"
+                    ? "bg-sieveBlue text-slate-950"
+                    : "border border-borderBase text-secondaryText hover:text-primaryText hover:bg-surface-subtle"
+                }`}
+              >
+                SELL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Order Inputs */}
       <section className="py-8 sm:py-10" aria-labelledby="order-heading">
@@ -421,11 +511,11 @@ export function BuyView() {
           </span>
         </div>
 
-        <div className="grid gap-7 lg:grid-cols-3 lg:gap-10">
+        <div className={cn("grid gap-7", isDashboard ? "sm:grid-cols-2 lg:grid-cols-3 sm:gap-6" : "lg:grid-cols-3 lg:gap-10")}>
           {/* Asset Dropdown */}
           <div>
             <label htmlFor="target-asset" className="mb-2 block text-sm font-medium text-secondaryText">
-              Asset
+              {isDashboard ? "PreStock" : "Asset"}
             </label>
             <select
               id="target-asset"
@@ -495,9 +585,11 @@ export function BuyView() {
         {checkResult && (
           <div className="mt-7" data-testid="boundary-capacity-result">
             {checkResult.status === "FULLY_WITHIN_BOUNDARY" && (
-              <div className="p-4 rounded-[6px] bg-sieveGreen-soft border border-emerald-300 text-xs text-primaryText font-mono space-y-2">
+              <div className="p-4 rounded-[6px] text-xs font-mono space-y-2 bg-sky-500/[0.04] border border-sky-500/25 text-primaryText">
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-sieveGreen text-sm">Within boundary</span>
+                  <span className="font-bold text-sm text-sieveBlue">
+                    Within boundary
+                  </span>
                   <span className="text-secondaryText">Boundary Capacity Verified</span>
                 </div>
                 <p className="text-secondaryText">
@@ -505,7 +597,7 @@ export function BuyView() {
                     ? `The requested ${checkResult.requestedAmount} ${(checkResult as BuyCapacityResponseDto).fundingAsset} is fully verified within your execution boundary.`
                     : `The requested ${checkResult.requestedAmount} ${checkResult.asset.symbol} is fully verified within your execution boundary.`}
                 </p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-emerald-200 text-[11px]">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 text-[11px] border-t border-sky-500/15">
                   <div>
                     <span className="text-mutedText block">Verified Amount</span>
                     <span className="font-bold">
@@ -535,7 +627,14 @@ export function BuyView() {
             )}
 
             {checkResult.status === "PARTIALLY_WITHIN_BOUNDARY" && (
-              <div className="p-4 rounded-[6px] bg-sieveAmber-soft border border-amber-300 text-xs text-primaryText font-mono space-y-3">
+              <div
+                className={cn(
+                  "p-4 rounded-[6px] text-xs font-mono space-y-3",
+                  isDashboard
+                    ? "bg-amber-500/[0.04] border border-amber-500/25 text-primaryText"
+                    : "bg-sieveAmber-soft border border-amber-300 text-primaryText"
+                )}
+              >
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-amber-900 text-sm">Partial capacity</span>
                   <span className="text-amber-800">Boundary Capacity</span>
@@ -565,7 +664,7 @@ export function BuyView() {
                 </p>
                 <div className="flex items-center justify-between pt-2 border-t border-amber-200">
                   {selectedVerifiedCheck ? (
-                    <span className="text-sieveGreen font-bold">
+                    <span className="font-bold text-sieveBlue">
                       Using verified amount: {side === "BUY"
                         ? `${(checkResult as BuyCapacityResponseDto).verifiedCapacity?.fundingAmount} ${(checkResult as BuyCapacityResponseDto).fundingAsset}`
                         : `${(checkResult as SellCapacityResponseDto).verifiedCapacity?.economicAmount} ${checkResult.asset.symbol}`}
@@ -580,11 +679,30 @@ export function BuyView() {
             )}
 
             {checkResult.status === "NO_VERIFIED_CAPACITY" && (
-              <div className="p-4 rounded-[6px] bg-sieveRed-soft border border-rose-300 text-xs text-primaryText font-mono space-y-2">
+              <div
+                className={cn(
+                  "p-4 rounded-[6px] text-xs font-mono space-y-2",
+                  isDashboard
+                    ? "bg-surface-subtle border border-borderStrong text-primaryText"
+                    : "bg-sieveRed-soft border border-rose-300 text-primaryText"
+                )}
+              >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-sieveRed text-sm">No verified capacity</span>
+                  <span
+                    className={cn(
+                      "font-bold text-sm",
+                      isDashboard ? "text-secondaryText" : "text-sieveRed"
+                    )}
+                  >
+                    No verified capacity
+                  </span>
                 </div>
-                <p className="text-sieveRed font-medium">
+                <p
+                  className={cn(
+                    "font-medium",
+                    isDashboard ? "text-secondaryText" : "text-sieveRed"
+                  )}
+                >
                   No verified capacity within this boundary.
                 </p>
                 <p className="text-secondaryText">
@@ -596,7 +714,7 @@ export function BuyView() {
         )}
 
         {/* Action Controls */}
-        <div className="mt-8 flex justify-end border-t border-borderBase pt-6">
+        <div className="mt-8 flex flex-col sm:flex-row items-stretch sm:items-center sm:justify-end gap-3 border-t border-borderBase pt-6">
           {!connected || !publicKey ? (
             <button
               type="button"

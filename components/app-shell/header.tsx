@@ -5,10 +5,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { WalletButton } from "./wallet-button";
 import { SieveLogo } from "../brand/sieve-logo";
+
 export function Header() {
   const pathname = usePathname();
 
   const navLinks = [
+    { href: "/dashboard", label: "Dashboard" },
     { href: "/markets", label: "Markets" },
     { href: "/buy", label: "Buy" },
     { href: "/history", label: "History" },

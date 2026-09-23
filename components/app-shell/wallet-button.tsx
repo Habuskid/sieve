@@ -70,10 +70,17 @@ export function WalletButton() {
     );
   }
 
+  const handleConnectClick = () => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("sieve:wallet-connect-intent"));
+    }
+    setVisible(true);
+  };
+
   return (
     <button
       type="button"
-      onClick={() => setVisible(true)}
+      onClick={handleConnectClick}
       disabled={connecting}
       className="inline-flex min-h-9 items-center gap-1.5 bg-sieveBlue px-3.5 py-1.5 text-xs font-semibold text-slate-950 transition-colors duration-150 hover:bg-sieveBlue-hover disabled:opacity-50 sm:text-sm"
     >

@@ -3,12 +3,13 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, ShoppingCart, History, Settings } from "lucide-react";
+import { LayoutDashboard, BarChart3, ShoppingCart, History, Settings } from "lucide-react";
 
 export function BottomNav() {
   const pathname = usePathname();
 
   const navLinks = [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/markets", label: "Markets", icon: BarChart3 },
     { href: "/buy", label: "Buy", icon: ShoppingCart },
     { href: "/history", label: "History", icon: History },
@@ -28,7 +29,7 @@ export function BottomNav() {
             <Link
               key={link.href}
               href={link.href}
-              className={`flex min-h-12 min-w-16 flex-col items-center justify-center gap-1 border-t py-1 text-xs transition-colors duration-150 ${
+              className={`flex min-h-12 min-w-14 flex-col items-center justify-center gap-1 border-t py-1 text-xs transition-colors duration-150 ${
                 isActive
                   ? "border-sieveBlue font-medium text-sieveBlue"
                   : "border-transparent text-secondaryText hover:text-primaryText"

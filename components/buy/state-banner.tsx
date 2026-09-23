@@ -47,7 +47,7 @@ export function StateBanner({
 
   if (state === "GOOD_TO_GO") {
     return (
-      <div className="border-l border-sieveGreen pl-4" role="status" aria-live="polite">
+      <div className="border-l border-sieveBlue pl-4" role="status" aria-live="polite">
         <p className="text-sm font-medium text-primaryText">{title || "Within boundary"}</p>
         <p className="mt-1 text-sm text-secondaryText tabular-nums">
           {message || `Premium: ${premiumPct}% · Limit: ${limitPct}%`}

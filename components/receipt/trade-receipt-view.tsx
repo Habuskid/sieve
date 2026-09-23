@@ -96,7 +96,7 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
         {/* Actual Received */}
         <div className="py-2.5 flex items-center justify-between">
           <span className="text-secondaryText">Actual Received</span>
-          <span className="font-mono font-bold text-sieveGreen tabular-nums">
+          <span className="font-mono font-bold text-primaryText tabular-nums">
             {boughtDisplay}
           </span>
         </div>
@@ -112,7 +112,7 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
         {/* Executed Price */}
         <div className="py-2.5 flex items-center justify-between">
           <span className="text-secondaryText">{isSell ? "Executed Sell Price" : "Executed Buy Price"}</span>
-          <span className="font-mono font-bold text-sieveGreen tabular-nums">
+          <span className="font-mono font-bold text-primaryText tabular-nums">
             ${isSell ? (receipt as SellTradeReceipt).checkedSellPriceUsd : (receipt as TradeReceipt).checkedBuyPriceUsd}
           </span>
         </div>
@@ -120,7 +120,7 @@ export function TradeReceiptView({ receipt, onDone }: TradeReceiptViewProps) {
         {/* Premium / Discount */}
         <div className="py-2.5 flex items-center justify-between">
           <span className="text-secondaryText">{isSell ? "Discount from Reference" : "Premium over Reference"}</span>
-          <span className="font-mono font-medium text-sieveGreen tabular-nums">
+          <span className="font-mono font-medium text-sieveBlue tabular-nums">
             {isSell
               ? `-${((((receipt as SellTradeReceipt).realizedDiscountBps ?? (receipt as SellTradeReceipt).maxDiscountBps)) / 100).toFixed(2)}%`
               : `+${(((receipt as TradeReceipt).premiumBps) / 100).toFixed(2)}%`}
