@@ -17,7 +17,7 @@ interface SolanaProviderProps {
 
 export function SolanaWalletProvider({ children }: SolanaProviderProps) {
   const endpoint = useMemo(
-    () => process.env.NEXT_PUBLIC_SOLANA_RPC_URL || clusterApiUrl("mainnet-beta"),
+    () => clusterApiUrl("mainnet-beta"),
     []
   );
 

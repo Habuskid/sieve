@@ -11,7 +11,7 @@ async function runMigrations() {
 
   const sql = postgres(migrationDatabaseUrl, {
     max: 1,
-    ssl: "require",
+    ssl: { rejectUnauthorized: true, ...(process.env.DATABASE_CA_CERT ? { ca: process.env.DATABASE_CA_CERT } : {}) },
     connect_timeout: 10,
     idle_timeout: 5,
   });

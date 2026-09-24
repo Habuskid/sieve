@@ -1,3 +1,6 @@
+// @vitest-environment node
+import { testTransaction, testWallet } from "../helpers/security-fixtures";
+import { messageHash } from "../../server/security/transaction-binding";
 import { beforeEach, describe, expect, it } from "vitest";
 import { deriveSellInputConversion, economicSellAmountToRaw, rawToEconomicDisplay } from "../../core";
 import type { SellBuildIntent } from "../../core";
@@ -7,7 +10,7 @@ import { SellCheckService } from "../../server/services/sell-check-service";
 import { SellBuildService } from "../../server/services/sell-build-service";
 import { SellConfirmationService } from "../../server/services/sell-confirmation-service";
 
-const wallet = "11111111111111111111111111111111";
+const wallet = testWallet;
 const otherWallet = "22222222222222222222222222222222";
 const mint = "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF";
 const usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -41,13 +44,13 @@ function makeHarness(initialOutputRaw = 97_000_000n, threshold: string | undefin
   const rawResponse = () => ({ inputMint: mint, outputMint: usdc, inAmount: "1000000000", outAmount: outputRaw.toString(), requestId: "quote", platformFee: null });
   const jupiter = {
     getQuote: async () => ({ quote: quote(), rawResponse: rawResponse() }),
-    buildTransaction: async () => ({ transactionBase64: "AA==", requestId: "sell-request", lastValidBlockHeight: "123", otherAmountThreshold: finalThreshold, quote: quote(), rawResponse: rawResponse(), platformFee: null }),
-    executeTransaction: async () => ({ status: "Success", signature: "sell-mainnet-signature-111111111111111111111", totalInputAmount: "1000000000", inputAmountResult: "1000000000", totalOutputAmount: outputRaw.toString() }),
+    buildTransaction: async () => ({ transactionBase64: testTransaction().unsigned, requestId: "sell-request", lastValidBlockHeight: "123", otherAmountThreshold: finalThreshold, quote: quote(), rawResponse: rawResponse(), platformFee: null }),
+    executeTransaction: async () => ({ status: "Success", signature: testTransaction().signature, totalInputAmount: "1000000000", inputAmountResult: "1000000000", totalOutputAmount: outputRaw.toString() }),
   } as any;
-  const solana = { resolveMintMetadata: async () => metadata(), checkTokenBalance: async () => ({ hasSufficient: true }) } as any;
+  const solana = { verifyExecution: async () => ({ confirmed: true, failed: false, inputRaw: "1000000000", outputRaw: outputRaw.toString() }), resolveMintMetadata: async () => metadata(), checkTokenBalance: async () => ({ hasSufficient: true }) } as any;
   const checker = new SellCheckService(markets, jupiter, solana, repo);
   const builder = new SellBuildService(markets, jupiter, solana, checker, repo);
-  const confirmer = new SellConfirmationService(jupiter, repo);
+  const confirmer = new SellConfirmationService(jupiter, repo, solana);
   return {
     repo, checker, builder, confirmer,
     setOutputRaw(value: bigint) { outputRaw = value; },
@@ -122,11 +125,30 @@ describe("Mainnet-only Sell lifecycle with isolated fixtures", () => {
     const check = await harness.checker.executeCheck(checkInput);
     const build = await harness.builder.buildTransaction({ checkId: check.checkId, wallet });
     if (build.status !== "READY_FOR_WALLET") throw new Error("expected ready build");
-    const first = await harness.confirmer.confirm({ buildIntentId: build.buildIntentId, signedTransaction: "signed", wallet });
-    const second = await harness.confirmer.confirm({ buildIntentId: build.buildIntentId, signedTransaction: "signed", signature: first.signature!, wallet });
-    expect(first.receipt.side).toBe("SELL");
-    expect(first.receipt.network).toBe("mainnet");
+    const first = await harness.confirmer.confirm({ buildIntentId: build.buildIntentId, signedTransaction: testTransaction().signed, wallet });
+    const second = await harness.confirmer.confirm({ buildIntentId: build.buildIntentId, signedTransaction: testTransaction().signed, signature: first.signature!, wallet });
+    expect(first.receipt!.side).toBe("SELL");
+    expect(first.receipt!.network).toBe("mainnet");
     expect(second.receiptId).toBe(first.receiptId);
+  });
+
+  it("binds SELL build to SNAPSHOT_BOUND_V1 execution snapshot with <= 30s signing expiry", async () => {
+    const check = await harness.checker.executeCheck(checkInput);
+    const build = await harness.builder.buildTransaction({ checkId: check.checkId, wallet });
+    if (build.status !== "READY_FOR_WALLET") throw new Error("expected ready build");
+    const snapshot = build.summary.executionSnapshot;
+    expect(snapshot).toBeDefined();
+    expect(snapshot?.semantics).toBe("SNAPSHOT_BOUND_V1");
+    expect(snapshot?.side).toBe("SELL");
+    expect(snapshot?.wallet).toBe(wallet);
+    expect(snapshot?.checkId).toBe(check.checkId);
+    expect(snapshot?.clientIntentVersion).toBe("v1");
+    expect(snapshot?.inputMint).toBe(mint);
+    expect(snapshot?.outputMint).toBe(usdc);
+    expect(snapshot?.transactionMessageHash).toBe(messageHash(build.serializedTransaction));
+    expect(snapshot?.signingExpiresAt).toBe(build.expiresAt);
+    expect(Date.parse(build.expiresAt)).toBeLessThanOrEqual(Date.now() + 30_000);
+    expect(build.summary.minimumAcceptableUsdc).toBeDefined();
   });
 });
 
@@ -154,23 +176,23 @@ describe("Sell Jupiter wallet-output accounting", () => {
 
 describe("Sell Mainnet execution reconciliation", () => {
   function buildIntent(): SellBuildIntent {
-    return { id: "11111111-1111-4111-8111-111111111111", checkId: "22222222-2222-4222-8222-222222222222", network: "mainnet", wallet, transactionBase64: "", requestId: "request", minimumUsdcOutputRaw: 95_000_000n, expiresAt: new Date(Date.now() + 60_000).toISOString(), summary: { side: "SELL", targetSymbol: "OPENAI", targetMint: mint, requestedEconomicAmount: "1", actualEconomicAmount: "999", rawWalletInput: "500000", rawTransferFee: "5000", rawRouteInput: "495000", expectedUsdcProceeds: "95", referencePriceUsd: "100", currentSellPriceUsd: "95", minimumSellPriceUsd: "95", maxDiscountPct: "5", discountBps: 500, inputDecimals: 6, activeMultiplier: "2" } };
+    return { id: "11111111-1111-4111-8111-111111111111", checkId: "22222222-2222-4222-8222-222222222222", network: "mainnet", wallet, transactionBase64: testTransaction().unsigned, transactionMessageHash: testTransaction().hash, requestId: "request", minimumUsdcOutputRaw: 95_000_000n, expiresAt: new Date(Date.now() + 60_000).toISOString(), summary: { side: "SELL", targetSymbol: "OPENAI", targetMint: mint, requestedEconomicAmount: "1", actualEconomicAmount: "999", rawWalletInput: "500000", rawTransferFee: "5000", rawRouteInput: "495000", expectedUsdcProceeds: "95", referencePriceUsd: "100", currentSellPriceUsd: "95", minimumSellPriceUsd: "95", maxDiscountPct: "5", discountBps: 500, inputDecimals: 6, activeMultiplier: "2" } };
   }
 
-  it("derives actual economic input from totalInputAmount", async () => {
+  it("derives actual economic input from verified chain wallet debit", async () => {
     const repo = new InMemorySieveRepository();
     await repo.saveSellBuildIntent(buildIntent());
-    const jupiter = { executeTransaction: async () => ({ status: "Success", signature: "mainnet-signature", totalInputAmount: "500000", inputAmountResult: "495000", totalOutputAmount: "95000000" }) } as any;
-    const result = await new SellConfirmationService(jupiter, repo).confirm({ buildIntentId: buildIntent().id, signedTransaction: "signed", wallet });
-    expect(result.receipt.rawInput).toBe("500000");
-    expect(result.receipt.actualEconomicInput).toBe("1");
-    expect(result.receipt.realizedDiscountBps).toBe(500);
+    const jupiter = { executeTransaction: async () => ({ status: "Success", signature: testTransaction().signature, totalInputAmount: "500000", inputAmountResult: "495000", totalOutputAmount: "95000000" }) } as any;
+    const result = await new SellConfirmationService(jupiter, repo, { verifyExecution: async () => ({ confirmed: true, failed: false, inputRaw: "500000", outputRaw: "95000000" }) } as any).confirm({ buildIntentId: buildIntent().id, signedTransaction: testTransaction().signed, wallet });
+    expect(result.receipt!.rawInput).toBe("500000");
+    expect(result.receipt!.actualEconomicInput).toBe("1");
+    expect(result.receipt!.realizedDiscountBps).toBe(500);
   });
 
   it("fails closed when exact-input execution debits a different amount", async () => {
     const repo = new InMemorySieveRepository();
     await repo.saveSellBuildIntent(buildIntent());
-    const jupiter = { executeTransaction: async () => ({ status: "Success", signature: "mainnet-signature", totalInputAmount: "499999", inputAmountResult: "494999", totalOutputAmount: "95000000" }) } as any;
-    await expect(new SellConfirmationService(jupiter, repo).confirm({ buildIntentId: buildIntent().id, signedTransaction: "signed" })).rejects.toMatchObject({ details: { code: "CONFIRMATION_FAILED" } });
+    const jupiter = { executeTransaction: async () => ({ status: "Success", signature: testTransaction().signature, totalInputAmount: "499999", inputAmountResult: "494999", totalOutputAmount: "95000000" }) } as any;
+    await expect(new SellConfirmationService(jupiter, repo, { verifyExecution: async () => ({ confirmed: true, failed: false, inputRaw: "499999", outputRaw: "95000000" }) } as any).confirm({ buildIntentId: buildIntent().id, signedTransaction: testTransaction().signed, wallet })).rejects.toMatchObject({ details: { code: "CONFIRMATION_FAILED" } });
   });
 });

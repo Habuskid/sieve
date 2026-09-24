@@ -1,3 +1,4 @@
+import { validateCheckInput } from "../security/validation";
 import { defaultMarketService, MarketService } from "./market-service";
 import {
   defaultSellCheckService,
@@ -72,6 +73,7 @@ export class SellCapacityService {
   ) {}
 
   async executeCapacity(input: SellCapacityRequest): Promise<SellCapacityResponseDto> {
+    validateCheckInput(input);
     // 1. Input validation
     if (!input.wallet || input.wallet.length < 32 || input.wallet.length > 44) {
       throw new SieveAppError(
@@ -169,6 +171,7 @@ export class SellCapacityService {
       maxProbes: input.maxProbes ?? 10,
     });
 
+    if (Date.now() - now >= 30_000 || Date.now() - Date.parse(asset.observedAt) >= 60_000) throw new SieveAppError("QUOTE_EXPIRED");
     // 6. Server authority & persistence:
     // Persist ONLY the final verified candidate (or none if NO_VERIFIED_CAPACITY).
     // Exploratory or lower passing candidates are ephemeral and never persisted.

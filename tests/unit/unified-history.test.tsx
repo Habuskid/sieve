@@ -1,3 +1,5 @@
+// UI tests inject an authenticated transport; cryptographic auth is tested separately.
+vi.mock("../../lib/wallet-fetch", () => ({ walletFetch: (url: string, init: RequestInit) => fetch(url, init) }));
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
@@ -299,8 +301,8 @@ describe("FINAL HISTORY CORRECTNESS PASS - COMPREHENSIVE SUITE", () => {
         bps: 500,
         pct: "5.00",
       });
-      expect(receipt.realizedBoundaryBps).toBe(200);
-      expect(receipt.realizedBoundaryPct).toBe("2.00");
+      expect(receipt.realizedBoundaryBps).toBeNull();
+      expect(receipt.realizedBoundaryPct).toBeNull();
 
       // Buy Check
       expect(check.side).toBe("BUY");

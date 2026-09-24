@@ -1,3 +1,5 @@
+import { messageHash } from "../security/transaction-binding";
+import { executionSnapshot } from "./execution-snapshot";
 import { v4 as uuidv4 } from "uuid";
 import { activeChecksStore, type CheckResponseDto } from "./check-service";
 import { defaultJupiterAdapter, JupiterAdapter } from "../jupiter/adapter";
@@ -98,19 +100,8 @@ export class TransactionBuildService {
     let revalQuoteExpectedAmount = check.quote?.expectedTargetAmount ?? "0";
     let revalPriceImpact = check.quote?.priceImpactPct ?? null;
     let serializedTx = "";
-    let lastValidBlockHeight: string | undefined;
-    let requestId: string | undefined;
     let freshFundingUsdValue = check.funding.inputUsdValue;
     let targetMetadata: import("../solana/adapter").ValidatedMintMetadata | null = null;
-    let buildResultFeeInfo: {
-      signatureFeeLamports?: number | null;
-      signatureFeePayer?: string | null;
-      prioritizationFeeLamports?: number | null;
-      prioritizationFeePayer?: string | null;
-      rentFeeLamports?: number | null;
-      rentFeePayer?: string | null;
-      gasless?: boolean | null;
-    } | undefined;
 
     targetMetadata = await this.solanaAdapter.resolveMintMetadata(freshAsset.mint, "mainnet", { bypassCache: true });
     if (!targetMetadata.supported) {
@@ -162,7 +153,7 @@ export class TransactionBuildService {
       expectedTargetTokens: revalQuoteExpectedAmount,
       maxPremiumPct: check.maxPremiumPct,
       priceImpactPct: revalPriceImpact,
-      now,
+      now: Date.now(),
     });
 
     // 7. If decision is not GOOD_TO_GO, block the build!
@@ -252,6 +243,8 @@ export class TransactionBuildService {
         outputDecimals: targetDecimals,
         taker: input.wallet,
         slippageBps: protection.slippageBps,
+        minimumNetOutputRaw: protection.minimumAcceptableOutputRaw,
+        side: "BUY",
       });
 
       // Boundary enforcement: ensure assembled transaction slippage threshold strictly satisfies Sieve policy
@@ -301,9 +294,9 @@ export class TransactionBuildService {
       }
 
       serializedTx = buildResult.transactionBase64;
-      lastValidBlockHeight = buildResult.lastValidBlockHeight;
-      requestId = buildResult.requestId;
-      buildResultFeeInfo = {
+      const lastValidBlockHeight = buildResult.lastValidBlockHeight;
+      const requestId = buildResult.requestId;
+      const buildResultFeeInfo = {
         signatureFeeLamports: buildResult.signatureFeeLamports ?? null,
         signatureFeePayer: buildResult.signatureFeePayer ?? null,
         prioritizationFeeLamports: buildResult.prioritizationFeeLamports ?? null,
@@ -334,8 +327,9 @@ export class TransactionBuildService {
       }
     }
 
+    if (isExpired(check.expiresAt, Date.now()) || Date.now() - Date.parse(freshAsset.observedAt) > 60_000) throw new SieveAppError("TRANSACTION_EXPIRED");
     const buildIntentId = uuidv4();
-    const expiresAt = new Date(now + 60_000).toISOString();
+    const expiresAt = new Date(Math.min(Date.now() + 30_000, Date.parse(check.expiresAt))).toISOString();
 
     const buildIntent: BuildIntent = {
       id: buildIntentId,
@@ -345,10 +339,12 @@ export class TransactionBuildService {
       minimumAcceptableOutputRaw: protection.minimumAcceptableOutputRaw,
       protectionMethod: `JUPITER_SLIPPAGE_BPS_${protection.slippageBps}`,
       transactionBase64: serializedTx,
+      transactionMessageHash: messageHash(serializedTx),
       lastValidBlockHeight,
       requestId,
       expiresAt,
       summary: {
+        executionSnapshot: executionSnapshot({ asset: freshAsset, metadata: targetMetadata, wallet: input.wallet, checkId: check.id, clientIntentVersion: check.clientIntentVersion, side: "BUY", inputMint: check.funding.fundingAsset === "USDC" ? CANONICAL_MINTS.mainnet.USDC : CANONICAL_MINTS.mainnet.WSOL, outputMint: freshAsset.mint, inputRaw: check.funding.inputRaw, minimumNetOutputRaw: protection.minimumAcceptableOutputRaw, transactionBase64: serializedTx, lastValidBlockHeight, signingExpiresAt: expiresAt }),
         fundingAsset: check.funding.fundingAsset,
         fundingAmount: check.funding.inputDisplay,
         targetSymbol: freshAsset.symbol,
@@ -374,7 +370,6 @@ export class TransactionBuildService {
     };
 
 
-    activeBuildIntentsStore.set(buildIntentId, buildIntent);
     await this.repo.saveBuildIntent(buildIntent);
 
     return {

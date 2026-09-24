@@ -1,6 +1,11 @@
+import { positiveRawSchema, publicKeySchema } from "../security/validation";
+import { buildVerifiedSwap } from "./verified-build";
+import { defaultSolanaAdapter } from "../solana/adapter";
+import type { Connection } from "@solana/web3.js";
+import { decodeTransaction, messageHash } from "../security/transaction-binding";
+import { providerFetch } from "../security/provider-fetch";
 import {
   JupiterOrderResponseSchema,
-  JupiterExecuteResponseSchema,
   type JupiterOrderResponse,
   type JupiterExecuteResponse,
 } from "./schema";
@@ -11,6 +16,7 @@ export interface JupiterAdapterConfig {
   apiBase?: string;
   apiKey?: string;
   timeoutMs?: number;
+  connection?: Connection;
 }
 
 export interface JupiterQuoteParams {
@@ -24,6 +30,8 @@ export interface JupiterQuoteParams {
 export interface JupiterBuildParams extends JupiterQuoteParams {
   taker: string;
   slippageBps: number;
+  minimumNetOutputRaw?: bigint;
+  side?: "BUY" | "SELL";
 }
 
 export interface JupiterExecuteParams {
@@ -36,11 +44,13 @@ export class JupiterAdapter {
   private apiBase: string;
   private apiKey?: string;
   private timeoutMs: number;
+  private connection?: Connection;
 
   constructor(config: JupiterAdapterConfig = {}) {
     this.apiBase = config.apiBase || process.env.JUPITER_API_BASE || "https://api.jup.ag";
     this.apiKey = config.apiKey || process.env.JUPITER_API_KEY;
     this.timeoutMs = config.timeoutMs ?? 10000;
+    this.connection = config.connection;
   }
 
   private getHeaders(): Record<string, string> {
@@ -63,6 +73,9 @@ export class JupiterAdapter {
     inUsdValue?: number | null;
     outUsdValue?: number | null;
   }> {
+    positiveRawSchema.parse(params.amount.toString());
+    publicKeySchema.parse(params.inputMint);
+    publicKeySchema.parse(params.outputMint);
     const amountStr = typeof params.amount === "bigint" ? params.amount.toString() : params.amount;
     const url = new URL(`${this.apiBase}/swap/v2/order`);
     url.searchParams.set("inputMint", params.inputMint);
@@ -95,6 +108,7 @@ export class JupiterAdapter {
     }
 
     const data = parseResult.data;
+    this.validateOrder(data, params);
     if (data.error || data.errorMessage) {
       throw new Error(`Jupiter quote error: ${data.errorMessage || data.error}`);
     }
@@ -147,111 +161,27 @@ export class JupiterAdapter {
     platformFee?: { feeMint?: string; feeBps?: number; amount?: string } | null;
     quote: MarketQuote;
     rawResponse: JupiterOrderResponse;
+    verification?: Awaited<ReturnType<typeof buildVerifiedSwap>>["verification"];
   }> {
-    const amountStr = typeof params.amount === "bigint" ? params.amount.toString() : params.amount;
-    const url = new URL(`${this.apiBase}/swap/v2/order`);
-    url.searchParams.set("inputMint", params.inputMint);
-    url.searchParams.set("outputMint", params.outputMint);
-    url.searchParams.set("amount", amountStr);
-    url.searchParams.set("taker", params.taker);
-    url.searchParams.set("slippageBps", params.slippageBps.toString());
-
-    const response = await this.fetchWithTimeout(url.toString(), {
-      method: "GET",
-      headers: this.getHeaders(),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      throw new Error(`Jupiter /order build error (${response.status}): ${errorText}`);
-    }
-
-    const json = await response.json();
-    const parseResult = JupiterOrderResponseSchema.safeParse(json);
-    if (!parseResult.success) {
-      throw new Error(`Jupiter /order build schema mismatch: ${parseResult.error.message}`);
-    }
-
-    const data = parseResult.data;
-    if (!data.transaction) {
-      const errCode = data.errorCode ? ` (code: ${data.errorCode})` : "";
-      throw new Error(`Jupiter failed to assemble transaction${errCode}: ${data.errorMessage || data.error || "Empty transaction"}`);
-    }
-
-    const observedAt = new Date().toISOString();
-    const outputRaw = BigInt(data.outAmount);
-    const expectedTargetAmount = rawToDisplay(outputRaw, params.outputDecimals).toString();
-    const priceImpactPct = data.priceImpact != null ? data.priceImpact.toString() : null;
-
-    const quote: MarketQuote = {
-      provider: "JUPITER",
-      inputMint: params.inputMint,
-      outputMint: params.outputMint,
-      inputRaw: BigInt(data.inAmount),
-      outputRaw,
-      outputDecimals: params.outputDecimals,
-      expectedTargetAmount,
-      priceImpactPct,
-      observedAt,
-      expiresAt: null,
-      routeFingerprint: data.requestId,
-      providerPayloadRef: data.requestId,
-    };
-
-    return {
-      transactionBase64: data.transaction,
-      requestId: data.requestId,
-      lastValidBlockHeight: data.lastValidBlockHeight ?? undefined,
-      otherAmountThreshold: data.otherAmountThreshold ?? undefined,
-      signatureFeeLamports: data.signatureFeeLamports ?? null,
-      signatureFeePayer: data.signatureFeePayer ?? null,
-      prioritizationFeeLamports: data.prioritizationFeeLamports ?? null,
-      prioritizationFeePayer: data.prioritizationFeePayer ?? null,
-      rentFeeLamports: data.rentFeeLamports ?? null,
-      rentFeePayer: data.rentFeePayer ?? null,
-      gasless: data.gasless ?? null,
-      feeMint: data.feeMint ?? null,
-      feeBps: data.feeBps ?? null,
-      platformFee: data.platformFee ?? null,
-      quote,
-      rawResponse: data,
-    };
+    return buildVerifiedSwap(params, this.apiBase,
+      (url) => this.fetchWithTimeout(url, { method: "GET", headers: this.getHeaders() }),
+      this.connection ?? defaultSolanaAdapter.getConnection());
   }
 
   /**
    * Executes a signed order transaction using Jupiter's managed landing infrastructure.
    */
   async executeTransaction(params: JupiterExecuteParams): Promise<JupiterExecuteResponse> {
-    const url = `${this.apiBase}/swap/v2/execute`;
-    const body: Record<string, unknown> = {
-      signedTransaction: params.signedTransaction,
-      requestId: params.requestId,
-    };
-    if (params.lastValidBlockHeight) {
-      body.lastValidBlockHeight = params.lastValidBlockHeight;
-    }
-
-    const response = await this.fetchWithTimeout(url, {
-      method: "POST",
-      headers: {
-        ...this.getHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      throw new Error(`Jupiter /execute error (${response.status}): ${errorText}`);
-    }
-
-    const json = await response.json();
-    const parseResult = JupiterExecuteResponseSchema.safeParse(json);
-    if (!parseResult.success) {
-      throw new Error(`Jupiter /execute schema mismatch: ${parseResult.error.message}`);
-    }
-
-    return parseResult.data;
+    // /build transactions use self-managed RPC submission, not /order execute.
+    // Old opaque orders cannot enter this execution path after migration.
+    if (params.requestId !== `sieve-rpc:${messageHash(params.signedTransaction)}` || !params.lastValidBlockHeight) throw new Error("Unverified execution transport");
+    const rpc = this.connection ?? defaultSolanaAdapter.getConnection();
+    const tx = decodeTransaction(params.signedTransaction);
+    const [height, valid] = await Promise.all([rpc.getBlockHeight("confirmed"), rpc.isBlockhashValid(tx.message.recentBlockhash, { commitment: "confirmed" })]);
+    if (!valid.value || BigInt(height) >= BigInt(params.lastValidBlockHeight)) throw new Error("Transaction blockhash expired");
+    const signature = await rpc.sendRawTransaction(Buffer.from(params.signedTransaction, "base64"), { skipPreflight: false, maxRetries: 2 });
+    // Submitted is not confirmed. Confirmation services independently verify chain.
+    return { status: "Submitted", signature };
   }
 
   /**
@@ -280,10 +210,12 @@ export class JupiterAdapter {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      return await fetch(url, {
+      return await providerFetch(url, {
         ...init,
+        cache: "no-store",
+        redirect: "error",
         signal: controller.signal,
-      });
+      }, this.timeoutMs);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
         throw new Error(`Jupiter request timed out after ${this.timeoutMs}ms`);
@@ -291,6 +223,15 @@ export class JupiterAdapter {
       throw err;
     } finally {
       clearTimeout(timeoutId);
+    }
+  }
+  private validateOrder(data: JupiterOrderResponse, params: JupiterQuoteParams): void {
+    if (data.inputMint !== params.inputMint || data.outputMint !== params.outputMint ||
+        data.inAmount !== params.amount.toString() || data.swapMode !== "ExactIn" ||
+        data.error || data.errorMessage || data.errorCode != null ||
+        (data.otherAmountThreshold != null && BigInt(data.otherAmountThreshold) > BigInt(data.outAmount)) ||
+        (data.platformFee?.feeMint && data.feeMint && data.platformFee.feeMint !== data.feeMint)) {
+      throw new Error("Jupiter order does not match requested intent");
     }
   }
 }

@@ -1,3 +1,5 @@
+// @vitest-environment node
+import { testTransaction } from "../helpers/security-fixtures";
 import { describe, it, expect, beforeEach } from "vitest";
 import { InMemorySieveRepository } from "../../server/database/repository";
 import { SellCheckService } from "../../server/services/sell-check-service";
@@ -138,7 +140,7 @@ function makeSellCapacityHarness(options: HarnessOptions = {}) {
       };
     },
     buildTransaction: async ({ amount }: any) => ({
-      transactionBase64: "AA==",
+      transactionBase64: testTransaction().unsigned,
       requestId: "fixture-sell-request",
       lastValidBlockHeight: "123",
       otherAmountThreshold: ((amount * 95n) / 1000n).toString(),

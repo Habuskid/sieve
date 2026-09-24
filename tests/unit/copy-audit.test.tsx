@@ -1,3 +1,5 @@
+// UI tests inject an authenticated transport; cryptographic auth is tested separately.
+vi.mock("../../lib/wallet-fetch", () => ({ walletFetch: (url: string, init: RequestInit) => fetch(url, init) }));
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";

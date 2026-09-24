@@ -1,3 +1,4 @@
+import { validateCheckInput } from "../security/validation";
 import { defaultMarketService, MarketService } from "./market-service";
 import { defaultPriceCheckService, PriceCheckService, activeChecksStore } from "./check-service";
 import { defaultSolanaAdapter, SolanaAdapter, CANONICAL_MINTS } from "../solana/adapter";
@@ -72,6 +73,7 @@ export class BuyCapacityService {
   ) {}
 
   async executeCapacity(input: BuyCapacityRequest): Promise<BuyCapacityResponseDto> {
+    validateCheckInput(input);
     // 1. Input validation
     if (!input.wallet || input.wallet.length < 32 || input.wallet.length > 44) {
       throw new SieveAppError(
@@ -157,6 +159,7 @@ export class BuyCapacityService {
       maxProbes: 10,
     });
 
+    if (Date.now() - now >= 30_000 || Date.now() - Date.parse(asset.observedAt) >= 60_000) throw new SieveAppError("QUOTE_EXPIRED");
     // 6. Server authority & persistence:
     // Persist ONLY the final verified candidate (or none if NO_VERIFIED_CAPACITY).
     // Exploratory or lower passing candidates are ephemeral and never persisted.
@@ -164,12 +167,10 @@ export class BuyCapacityService {
 
     if (searchResult.status === "FULLY_WITHIN_BOUNDARY") {
       finalCheck = candidateSnapshots.get(requestedAmountRaw)!.priceCheck;
-      activeChecksStore.set(finalCheck.id, finalCheck);
       await this.repo.savePriceCheck(finalCheck);
     } else if (searchResult.status === "PARTIALLY_WITHIN_BOUNDARY") {
       const passAmount = searchResult.verifiedCapacityCandidate!.amountRaw;
       finalCheck = candidateSnapshots.get(passAmount)!.priceCheck;
-      activeChecksStore.set(finalCheck.id, finalCheck);
       await this.repo.savePriceCheck(finalCheck);
     }
 

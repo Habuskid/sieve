@@ -1,3 +1,5 @@
+import { verifySignedTransaction } from "../security/transaction-binding";
+import { defaultSolanaAdapter, type SolanaAdapter } from "../solana/adapter";
 import { v4 as uuidv4 } from "uuid";
 import { deriveCurrentSellPrice, deriveDiscountPct, isExpired, pctToBps, rawToDisplay, rawToEconomicDisplay } from "../../core";
 import type { SellBuildIntent, SellTradeReceipt } from "../../core";
@@ -33,14 +35,16 @@ function reconcileExecutedInput(build: SellBuildIntent, totalInputAmount: string
 }
 
 export class SellConfirmationService {
-  constructor(private jupiter: JupiterAdapter = defaultJupiterAdapter, private repo: ISellRepository = getRepository()) {}
+  constructor(private jupiter: JupiterAdapter = defaultJupiterAdapter, private repo: ISellRepository = getRepository(), private solana: SolanaAdapter = defaultSolanaAdapter) {}
 
   async confirm(input: { buildIntentId: string; signature?: string; signedTransaction?: string; wallet?: string }) {
     const build = await this.repo.getSellBuildIntent(input.buildIntentId);
     if (!build) throw new SieveAppError("TRANSACTION_EXPIRED");
-    if (input.wallet && input.wallet !== build.wallet) throw new SieveAppError("WALLET_MISMATCH");
-    if (isExpired(build.expiresAt, Date.now())) throw new SieveAppError("TRANSACTION_EXPIRED");
+    if (!input.wallet || input.wallet !== build.wallet) throw new SieveAppError("WALLET_MISMATCH");
+    // Expiry prevents resubmission; chain reconciliation is still allowed.
     if (!input.signedTransaction) throw new SieveAppError("VALIDATION_ERROR", "Mainnet Sell confirmation requires signedTransaction");
+    const expectedSignature = verifySignedTransaction({ ...input, signedTransaction: input.signedTransaction, wallet: build.wallet, transactionMessageHash: build.transactionMessageHash });
+    input.signature = expectedSignature;
     if (input.signature) {
       const existing = await this.repo.getSellTradeReceiptBySignature(input.signature);
       if (existing) {
@@ -56,7 +60,18 @@ export class SellConfirmationService {
     let failure: string | null = null;
     let confirmed = false;
     if (!build.requestId) throw new SieveAppError("DATABASE_INTEGRITY_ERROR", "Sell build missing Jupiter requestId");
-      const result = await this.jupiter.executeTransaction({ signedTransaction: input.signedTransaction!, requestId: build.requestId, lastValidBlockHeight: build.lastValidBlockHeight });
+      const result: import("../jupiter/schema").JupiterExecuteResponse = isExpired(build.expiresAt, Date.now()) ? { status: "Failed" } : await this.jupiter.executeTransaction({ signedTransaction: input.signedTransaction!, requestId: build.requestId, lastValidBlockHeight: build.lastValidBlockHeight }).catch(() => ({ status: "Failed" as const }));
+      // Transport failure is not proof of chain failure; reconcile the bound signature.
+      if (result.signature && result.signature !== expectedSignature) throw new SieveAppError("CONFIRMATION_FAILED", "Provider signature mismatch");
+      const chain = await this.solana.verifyExecution(expectedSignature, build.transactionMessageHash!, build.wallet, build.summary.targetMint, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+      if (!chain.confirmed && !chain.failed) return { status: "PENDING", signature: expectedSignature };
+      if (chain.confirmed && (chain.outputRaw == null || BigInt(chain.outputRaw) < build.minimumUsdcOutputRaw || chain.inputRaw !== build.summary.rawWalletInput)) throw new SieveAppError("CONFIRMATION_FAILED", "Chain amounts violate built intent");
+      result.signature = expectedSignature;
+      result.status = chain.confirmed ? "Success" : "Failed";
+      result.error = chain.failed ? "Transaction failed on-chain" : undefined;
+      result.totalInputAmount = chain.inputRaw ?? undefined;
+      result.totalOutputAmount = chain.outputRaw ?? undefined;
+      result.inputAmountResult = undefined;
       signature = result.signature ?? null;
       confirmed = result.status === "Success" && !!signature;
       if (result.totalOutputAmount != null) realized = rawToDisplay(BigInt(result.totalOutputAmount), 6).toString();

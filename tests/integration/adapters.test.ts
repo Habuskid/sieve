@@ -80,6 +80,7 @@ describe("PreStocks Adapter Contracts", () => {
 
 describe("Jupiter Adapter Contracts", () => {
   const validOrderResponse = {
+    inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", outputMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
     inAmount: "10000000",
     outAmount: "5798185",
     inUsdValue: 9.9975,
@@ -145,7 +146,7 @@ describe("Jupiter Adapter Contracts", () => {
     await expect(
       adapter.getQuote({
         inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        outputMint: "InvalidMint111111111111111111111111111111",
+        outputMint: "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
         amount: "10000000",
         outputDecimals: 6,
       })
@@ -160,7 +161,7 @@ describe("Jupiter Adapter Contracts", () => {
       status: 200,
       json: async () => ({
         ...validOrderResponse,
-        inUsdValue: 150.25,
+        inUsdValue: 150.25, inputMint: "So11111111111111111111111111111111111111112", outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", inAmount: "1000000000",
       }),
     });
     vi.stubGlobal("fetch", mockFetch);
@@ -178,7 +179,7 @@ describe("Jupiter Adapter Contracts", () => {
       status: 200,
       json: async () => ({
         ...validOrderResponse,
-        inUsdValue: null,
+        inUsdValue: null, inputMint: "So11111111111111111111111111111111111111112", outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", inAmount: "1000000000",
       }),
     });
     vi.stubGlobal("fetch", mockFetch);
@@ -213,12 +214,12 @@ describe("Solana Adapter Contracts", () => {
       }),
     });
 
-    const meta = await adapter.resolveMintMetadata("PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF", "mainnet");
+    const meta = await adapter.resolveMintMetadata(CANONICAL_MINTS.mainnet.USDC, "mainnet");
     expect(meta.decimals).toBe(6);
     expect(meta.extensions).toEqual([]);
     expect(meta.supported).toBe(true);
 
-    const decimals = await adapter.resolveMintDecimals("PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF", "mainnet");
+    const decimals = await adapter.resolveMintDecimals(CANONICAL_MINTS.mainnet.USDC, "mainnet");
     expect(decimals).toBe(6);
   });
 
@@ -643,6 +644,7 @@ describe("Solana Adapter Contracts", () => {
       const buffer = createExtensionMintBuffer(ExtensionType.ScaledUiAmountConfig, 56);
       // Write multiplier = 1.4861347 at offset 32 (double)
       buffer.writeDoubleLE(1.4861347, 165 + 1 + 4 + 32);
+      buffer.writeDoubleLE(1.4861347, 165 + 1 + 4 + 48);
 
       (adapter as any).getConnection = () => ({
         getAccountInfo: async () => ({

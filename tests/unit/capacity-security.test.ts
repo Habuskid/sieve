@@ -1,3 +1,5 @@
+// @vitest-environment node
+import { testTransaction } from "../helpers/security-fixtures";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as postBuyBuild } from "../../app/api/build/route";
@@ -45,7 +47,7 @@ function createHarness(options: {
   let transferFeeBps = options.transferFeeBps ?? 0;
   let activeMultiplier = options.activeMultiplier ?? "1";
   let newMultiplierEffectiveTimestamp = options.newMultiplierEffectiveTimestamp ?? null;
-  let chainTimestamp = options.chainTimestamp ?? 1_700_000_000;
+  const chainTimestamp = options.chainTimestamp ?? 1_700_000_000;
 
   const buyChecks = new Map<string, PriceCheck>();
   const buyBuildIntents = new Map<string, BuildIntent>();
@@ -153,7 +155,7 @@ function createHarness(options: {
           thresholdStr = ((amount * 97n) / 10n).toString();
         }
         return {
-          transactionBase64: "dGVzdC10cmFuc2FjdGlvbg==",
+          transactionBase64: testTransaction().unsigned,
           requestId: "fixture-buy-request",
           lastValidBlockHeight: "123",
           otherAmountThreshold: thresholdStr,
@@ -177,7 +179,7 @@ function createHarness(options: {
           thresholdStr = ((amount * 95n) / 1000n).toString();
         }
         return {
-          transactionBase64: "dGVzdC1zZWxsLXRyYW5zYWN0aW9u",
+          transactionBase64: testTransaction().unsigned,
           requestId: "fixture-sell-request",
           lastValidBlockHeight: "123",
           otherAmountThreshold: thresholdStr,
@@ -358,7 +360,7 @@ describe("Task 8 - Capacity -> Check -> Build Security Proof (Deterministic Test
         wallet: "" as any,
         clientIntentVersion: "v1",
       })
-    ).rejects.toMatchObject({ details: { code: "WALLET_NOT_CONNECTED" } });
+    ).rejects.toMatchObject({ details: { code: "VALIDATION_ERROR" } });
 
     await expect(
       h.sellCapacityService.executeCapacity({
@@ -368,7 +370,7 @@ describe("Task 8 - Capacity -> Check -> Build Security Proof (Deterministic Test
         wallet: "" as any,
         clientIntentVersion: "v1",
       })
-    ).rejects.toMatchObject({ details: { code: "WALLET_NOT_CONNECTED" } });
+    ).rejects.toMatchObject({ details: { code: "VALIDATION_ERROR" } });
 
     // Also via API
     const resBuy = await postBuyCapacity(
@@ -666,15 +668,7 @@ describe("Task 8 - Capacity -> Check -> Build Security Proof (Deterministic Test
     // With multiplier 2.0, 1 economic PreStock = 0.5 * 10^9 raw tokens instead of 10^9 raw tokens
     // Default quoter gives (500_000_000 * 97) / 1000 = 48.5 USDC proceeds
     // But reference price is still $100 for 1 economic PreStock -> effective sell price $48.50 is below $95 floor!
-    const buildRes = await h.sellBuilder.buildTransaction({
-      checkId: capacityRes.checkId!,
-      wallet: walletA,
-    });
-
-    expect(buildRes.status).toBe("BLOCKED");
-    if (buildRes.status === "BLOCKED") {
-      expect(buildRes.reason).toBe("PRICE_MOVED");
-    }
+    await expect(h.sellBuilder.buildTransaction({ checkId: capacityRes.checkId!, wallet: walletA })).rejects.toMatchObject({ details: { code: "PRICE_MOVED_OUTSIDE_LIMIT" } });
   });
 
   // 19b. Buy active ScaledUiAmount multiplier changed between capacity and Buy build -> build re-evaluates boundary and blocks when violated
@@ -1278,11 +1272,11 @@ describe("Task 8 - Capacity -> Check -> Build Security Proof (Deterministic Test
     if (buildRes.status === "READY_FOR_WALLET") {
       // Transaction is base64 string
       expect(typeof buildRes.serializedTransaction).toBe("string");
-      expect(buildRes.serializedTransaction).toBe("dGVzdC10cmFuc2FjdGlvbg==");
+      expect(buildRes.serializedTransaction).toBe(testTransaction().unsigned);
       // Verify build intent is persisted as unsigned
       const intent = await h.repo.getBuildIntent(buildRes.buildIntentId);
       expect(intent).not.toBeNull();
-      expect(intent!.transactionBase64).toBe("dGVzdC10cmFuc2FjdGlvbg==");
+      expect(intent!.transactionBase64).toBe(testTransaction().unsigned);
     }
   });
 });

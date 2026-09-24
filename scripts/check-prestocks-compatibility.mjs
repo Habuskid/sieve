@@ -41,7 +41,7 @@ const MAINNET_RPC_URL =
 async function checkPreStocksCompatibility() {
   console.log("=== Sieve PreStocks Read-Only Compatibility Diagnostic ===");
   console.log(`Source API: ${PRESTOCKS_API_URL}`);
-  console.log(`Solana RPC: ${MAINNET_RPC_URL}`);
+  console.log("Solana RPC: configured server endpoint (redacted)");
   console.log(`Mode: 100% READ-ONLY (Zero signatures, Zero broadcasts, Zero fund movement)\n`);
 
   let rawMarkets;

@@ -1,10 +1,13 @@
+// @vitest-environment node
+import { testTransaction, testWallet } from "../helpers/security-fixtures";
+import { messageHash } from "../../server/security/transaction-binding";
 import { beforeEach, describe, expect, it } from "vitest";
 import { InMemorySieveRepository } from "../../server/database/repository";
 import { PriceCheckService } from "../../server/services/check-service";
 import { TransactionBuildService } from "../../server/services/build-service";
 import { ConfirmationService } from "../../server/services/confirmation-service";
 
-const wallet = "11111111111111111111111111111111";
+const wallet = testWallet;
 const otherWallet = "22222222222222222222222222222222";
 const mint = "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF";
 const usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -36,10 +39,11 @@ function makeHarness(initialOutputRaw = 970_000n) {
   const jupiter = {
     getQuote: async () => ({ quote: quote(), rawResponse: { inUsdValue: 100 } }),
     getSolUsdPrice: async () => "150",
-    buildTransaction: async () => ({ transactionBase64: "AA==", requestId: "fixture-request", lastValidBlockHeight: "123", otherAmountThreshold: finalThreshold.toString(), quote: quote() }),
-    executeTransaction: async () => ({ status: "Success", signature: "fixture-mainnet-signature-111111111111111111111111", totalInputAmount: "100000000", totalOutputAmount: outputRaw.toString() }),
+    buildTransaction: async () => ({ transactionBase64: testTransaction().unsigned, requestId: "fixture-request", lastValidBlockHeight: "123", otherAmountThreshold: finalThreshold.toString(), quote: quote() }),
+    executeTransaction: async () => ({ status: "Success", signature: testTransaction().signature, totalInputAmount: "100000000", totalOutputAmount: outputRaw.toString() }),
   } as any;
   const solana = {
+    verifyExecution: async () => ({ confirmed: true, failed: false, inputRaw: "100000000", outputRaw: outputRaw.toString() }),
     resolveMintMetadata: async () => metadata,
     checkBalance: async () => ({ hasSufficient: true }),
     checkDestinationAccount: async () => ({ exists: true, isFrozen: false, address: wallet }),
@@ -92,10 +96,28 @@ describe("Mainnet-only Buy lifecycle with isolated fixtures", () => {
     const check = await harness.checker.executeCheck(checkInput);
     const build = await harness.builder.buildTransaction({ checkId: check.checkId, wallet });
     if (build.status !== "READY_FOR_WALLET") throw new Error("expected ready build");
-    const first = await harness.confirmer.confirmTransaction({ buildIntentId: build.buildIntentId, signedTransaction: "signed-fixture", wallet });
-    const second = await harness.confirmer.confirmTransaction({ buildIntentId: build.buildIntentId, signedTransaction: "signed-fixture", signature: first.signature!, wallet });
+    const first = await harness.confirmer.confirmTransaction({ buildIntentId: build.buildIntentId, signedTransaction: testTransaction().signed, wallet });
+    const second = await harness.confirmer.confirmTransaction({ buildIntentId: build.buildIntentId, signedTransaction: testTransaction().signed, signature: first.signature!, wallet });
     expect(first.status).toBe("CONFIRMED");
     expect(first.receipt?.network).toBe("mainnet");
     expect(second.receiptId).toBe(first.receiptId);
+  });
+
+  it("binds BUY build to SNAPSHOT_BOUND_V1 execution snapshot with <= 30s signing expiry", async () => {
+    const check = await harness.checker.executeCheck(checkInput);
+    const build = await harness.builder.buildTransaction({ checkId: check.checkId, wallet });
+    if (build.status !== "READY_FOR_WALLET") throw new Error("expected ready build");
+    const snapshot = build.summary.executionSnapshot;
+    expect(snapshot).toBeDefined();
+    expect(snapshot?.semantics).toBe("SNAPSHOT_BOUND_V1");
+    expect(snapshot?.side).toBe("BUY");
+    expect(snapshot?.wallet).toBe(wallet);
+    expect(snapshot?.checkId).toBe(check.checkId);
+    expect(snapshot?.clientIntentVersion).toBe("v1");
+    expect(snapshot?.inputMint).toBe(usdc);
+    expect(snapshot?.outputMint).toBe(mint);
+    expect(snapshot?.transactionMessageHash).toBe(messageHash(build.serializedTransaction));
+    expect(snapshot?.signingExpiresAt).toBe(build.expiresAt);
+    expect(Date.parse(build.expiresAt)).toBeLessThanOrEqual(Date.now() + 30_000);
   });
 });

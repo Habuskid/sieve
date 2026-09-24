@@ -1,3 +1,4 @@
+import { validateCheckInput } from "../security/validation";
 import { v4 as uuidv4 } from "uuid";
 import { defaultMarketService, MarketService } from "./market-service";
 import { defaultJupiterAdapter, JupiterAdapter } from "../jupiter/adapter";
@@ -82,6 +83,7 @@ export class PriceCheckService {
   ) {}
 
   async executeCheck(input: CheckRequestInput): Promise<CheckResponseDto> {
+    validateCheckInput(input);
     // 1. Input validation
     if (!isPositiveFinite(input.amount)) {
       throw new SieveAppError("PRICE_REFERENCE_INVALID", "Invalid funding amount");
@@ -122,7 +124,6 @@ export class PriceCheckService {
     });
 
     const priceCheck = evaluated.priceCheck;
-    activeChecksStore.set(priceCheck.id, priceCheck);
     await this.repo.savePriceCheck(priceCheck);
 
     return this.toDto(priceCheck, targetMetadata);
@@ -247,7 +248,7 @@ export class PriceCheckService {
       quoteObservedAt: quote.observedAt,
       quoteExpiresAt: quote.expiresAt,
       priceImpactPct: quote.priceImpactPct,
-      now,
+      now: Date.now(),
     });
 
     const checkId = uuidv4();

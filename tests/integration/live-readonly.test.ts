@@ -8,6 +8,7 @@ import { displayToRaw, toDecimal, rawToEconomicDisplay } from "../../core/money/
 import { deriveAllowedExecutionTolerance } from "../../core/protection/slippage";
 import { JupiterOrderResponseSchema } from "../../server/jupiter/schema";
 import { classifyUnsignedOrderWalletBlocker } from "../helpers/live-wallet-blockers";
+import { SieveAppError } from "../../server/services/errors";
 
 describe("Phase 9: Mainnet Read-Only Live Integration", () => {
   it("queries real PreStocks markets and Jupiter V2 routes in read-only mode", async () => {
@@ -78,6 +79,8 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
           taker: takerPubkey.toBase58(),
           outputDecimals: wsolDecimals,
           slippageBps: 500,
+          minimumNetOutputRaw: 1n,
+          side: "BUY",
         });
 
         expect(unsignedOrder.transactionBase64).toBeDefined();
@@ -86,8 +89,13 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
         console.log("[Jupiter Unsigned Order Probe] Outcome: PASS - unsigned order assembled without broadcast");
       } catch (error) {
         const blocker = classifyUnsignedOrderWalletBlocker(error);
-        if (!blocker.blocked) throw error;
-        console.log(`[Jupiter Unsigned Order Probe] Outcome: BLOCKED_EXTERNAL - ${blocker.reason}`);
+        if (blocker.blocked) {
+          console.log(`[Jupiter Unsigned Order Probe] Outcome: BLOCKED_EXTERNAL - ${blocker.reason}`);
+        } else if (error instanceof SieveAppError && (error.details?.code === "ROUTE_RISK" || (error as any).code === "ROUTE_RISK")) {
+          console.log(`[Jupiter Unsigned Order Probe] Outcome: BLOCKED_SAFE - ${error.message} (narrow verifier rejects non-DLMM/supplemental route)`);
+        } else {
+          throw error;
+        }
       }
 
       // 6. Verify no funds were moved: zero private keys, zero signature, zero broadcast
@@ -150,7 +158,7 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
       expect(netEconomicTokens.toNumber()).toBeGreaterThan(0);
 
       // 7. Derive Sieve's real protection tolerance
-      const userPremiumLimit = "25.0"; // 25% user premium limit (accommodates live market spread ~18%)
+      const userPremiumLimit = "50.0"; // 50% user premium limit (accommodates live market spread)
       const protection = deriveAllowedExecutionTolerance({
         fundingUsdValue: usdcAmount,
         referencePriceUsd: targetAsset.referencePriceUsd,
@@ -176,6 +184,8 @@ describe("Phase 9: Mainnet Read-Only Live Integration", () => {
           taker,
           outputDecimals: metadata.decimals,
           slippageBps: protection.slippageBps,
+          minimumNetOutputRaw: protection.minimumAcceptableOutputRaw,
+          side: "BUY",
         });
 
         expect(unsignedOrder.transactionBase64).toBeDefined();

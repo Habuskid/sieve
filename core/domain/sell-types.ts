@@ -1,4 +1,4 @@
-import type { IssuerControls, MainnetNetwork, MarketAsset, SellPriceDecision } from "./types";
+import type { ExecutionSnapshot, IssuerControls, MainnetNetwork, MarketAsset, SellPriceDecision } from "./types";
 
 export type SellInputConversion = {
   requestedEconomicAmount: string;
@@ -20,9 +20,12 @@ export type SellPriceCheck = {
 
 export type SellBuildIntent = {
   id: string; checkId: string; network: MainnetNetwork; wallet: string;
-  transactionBase64: string; requestId?: string; lastValidBlockHeight?: string;
+  transactionBase64: string; transactionMessageHash?: string; requestId?: string; lastValidBlockHeight?: string;
   minimumUsdcOutputRaw: bigint; expiresAt: string;
   summary: {
+    executionSnapshot?: ExecutionSnapshot;
+    minimumAcceptableUsdc?: string;
+    feeInfo?: { signatureFeeLamports: number | null; signatureFeePayer: string | null; prioritizationFeeLamports: number | null; prioritizationFeePayer: string | null; rentFeeLamports: number | null; rentFeePayer: string | null; gasless: boolean | null };
     side: "SELL"; targetSymbol: string; targetMint: string;
     requestedEconomicAmount: string; actualEconomicAmount: string;
     rawWalletInput: string; rawTransferFee: string; rawRouteInput: string;

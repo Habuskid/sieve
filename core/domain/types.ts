@@ -13,6 +13,8 @@ export type DecisionStatus =
   | "ROUTE_RISK";
 
 export type MarketAsset = {
+  assetId?: string;
+  expectedTokenProgram?: string;
   name: string;
   symbol: string;
   mint: string;
@@ -24,7 +26,10 @@ export type MarketAsset = {
   impliedValuationUsd: string | null;
   supply: string | null;
   source: "PRESTOCKS";
+  /** Retrieval time, NOT the upstream reference valuation's update time. */
   observedAt: string;
+  referenceRetrievedAt?: string;
+  referenceSourceUpdatedAt?: string | null;
   network: MainnetNetwork;
 };
 
@@ -127,11 +132,12 @@ export type BuildIntent = {
   wallet: string;
   minimumAcceptableOutputRaw: bigint;
   protectionMethod: string;
-  transactionBase64: string;
+  transactionBase64: string; transactionMessageHash?: string;
   lastValidBlockHeight?: string;
   requestId?: string;
   expiresAt: string;
   summary: {
+    executionSnapshot?: ExecutionSnapshot;
     fundingAsset: FundingAsset;
     fundingAmount: string;
     targetSymbol: string;
@@ -158,6 +164,28 @@ export type BuildIntent = {
       gasless?: boolean | null;
     };
   };
+};
+
+export type ExecutionSnapshot = {
+  semantics: "SNAPSHOT_BOUND_V1";
+  snapshotAt: string;
+  referenceRetrievedAt: string;
+  referenceSourceUpdatedAt: string | null;
+  referencePriceUsd: string;
+  tokenStateValidatedAt: string;
+  tokenChainTimestamp: number | null;
+  activeMultiplier: string;
+  wallet: string;
+  checkId: string;
+  clientIntentVersion: string;
+  side: "BUY" | "SELL";
+  inputMint: string;
+  outputMint: string;
+  inputRaw: string;
+  minimumNetOutputRaw: string;
+  transactionMessageHash: string;
+  lastValidBlockHeight: string | null;
+  signingExpiresAt: string;
 };
 
 export type TradeReceipt = {

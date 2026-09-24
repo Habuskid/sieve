@@ -1,0 +1,58 @@
+[
+  {
+    "symbol": "ANDURIL",
+    "mint": "PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB",
+    "page": "https://prestocks.com/anduril",
+    "sha256": "a8f545c18681e6d6f2d691859872a2af311378068ca4486823c1a8090495054c",
+    "evidence": "Official product-page Solscan token link and embedded company.splMint both identify PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB"
+  },
+  {
+    "symbol": "ANTHROPIC",
+    "mint": "Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw",
+    "page": "https://prestocks.com/anthropic",
+    "sha256": "d488f56e0d2d4a658325592c6ceca855b98120768d67187c74dc1b607742a451",
+    "evidence": "Official product-page Solscan token link and embedded company.splMint both identify Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw"
+  },
+  {
+    "symbol": "FIGUREAI",
+    "mint": "PreZad18qfPtbxNpMtMuAuX2zVpvkEU8DnJx56faCWd",
+    "page": "https://prestocks.com/figureai",
+    "sha256": "e6e97d3ea10efe927f706a3ba7269669ce4d0965b20cadda342b15d315d0c513",
+    "evidence": "Official product-page Solscan token link and embedded company.splMint both identify PreZad18qfPtbxNpMtMuAuX2zVpvkEU8DnJx56faCWd"
+  },
+  {
+    "symbol": "KALSHI",
+    "mint": "PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua",
+    "page": "https://prestocks.com/kalshi",
+    "sha256": "3d527eff8f0f910b18a1156e02ceb0930473a839060767fdb0cd49c5fe880284",
+    "evidence": "Official product-page Solscan token link and embedded company.splMint both identify PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua"
+  },
+  {
+    "symbol": "NEURALINK",
+    "mint": "PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S",
+    "page": "https://prestocks.com/neuralink",
+    "sha256": "13d1e5df2de3d61c26ef4131533d9d421425784124ec3d2bc16729c392cdbfec",
+    "evidence": "Official product-page Solscan token link and embedded company.splMint both identify PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S"
+  },
+  {
+    "symbol": "OPENAI",
+    "mint": "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF",
+    "page": "https://prestocks.com/openai",
+    "sha256": "e390a01b2538d2815c5ef3cc059d86e68438ce492612c7ada64bb842e3bdccd8",
+    "evidence": "Official product-page Solscan token link and embedded company.splMint both identify PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF"
+  },
+  {
+    "symbol": "POLYMARKET",
+    "mint": "Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP",
+    "page": "https://prestocks.com/polymarket",
+    "sha256": "3942d6a1572e1e53d4f349523d2c93bd420a3ce23a35c16f51d6b64d6c1cfd26",
+    "evidence": "Official product-page Solscan token link and embedded company.splMint both identify Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP"
+  },
+  {
+    "symbol": "SPACEX",
+    "mint": "PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh",
+    "page": "https://prestocks.com/spacex",
+    "sha256": "cf646e4822a8f5a1ffdfe13457a7d9e27903e69030469b66da1a25b27cc79ce4",
+    "evidence": "Official product-page Solscan token link and embedded company.splMint both identify PreANxuXjsy2pvisWWMNB6YaJNzr7681wJJr2rHsfTh"
+  }
+]

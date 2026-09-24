@@ -15,15 +15,17 @@ import { SieveAppError } from "../services/errors";
 
 export class PostgresSieveRepository implements ISieveRepository {
   private sql: postgres.Sql;
+  async health(): Promise<void> { await this.sql`SELECT 1`; }
 
   constructor(connectionStringOrSql: string | postgres.Sql) {
     if (typeof connectionStringOrSql === "string") {
       this.sql = postgres(connectionStringOrSql, {
         max: 1,
         prepare: false,
-        ssl: "require",
+        ssl: { rejectUnauthorized: true, ...(process.env.DATABASE_CA_CERT ? { ca: process.env.DATABASE_CA_CERT } : {}) },
         idle_timeout: 20,
         connect_timeout: 10,
+        connection: { statement_timeout: 10000 },
       });
     } else {
       this.sql = connectionStringOrSql;
@@ -110,7 +112,7 @@ export class PostgresSieveRepository implements ISieveRepository {
         id, check_id, wallet, network,
         revalidation_reference_price_usd, revalidation_buy_price_usd, revalidation_premium_bps,
         minimum_output_raw, protection_method, protection_value,
-        provider_request_id, transaction_hash, last_valid_block_height,
+        provider_request_id, transaction_hash, transaction_message_hash, last_valid_block_height,
         funding_asset, funding_amount_display, target_symbol, expected_target_amount, max_premium_pct,
         expires_at, status, created_at,
         target_decimals, active_multiplier, chain_timestamp, epoch
@@ -118,7 +120,7 @@ export class PostgresSieveRepository implements ISieveRepository {
         ${intent.id}, ${intent.checkId}, ${intent.wallet}, ${intent.network},
         ${intent.summary.referencePriceUsd}, ${intent.summary.currentBuyPriceUsd}, ${premiumBps},
         ${intent.minimumAcceptableOutputRaw.toString()}, ${intent.protectionMethod}, null,
-        ${intent.requestId ?? null}, null, ${intent.lastValidBlockHeight ?? null},
+        ${intent.requestId ?? null}, null, ${intent.transactionMessageHash ?? null}, ${intent.lastValidBlockHeight ?? null},
         ${intent.summary.fundingAsset}, ${intent.summary.fundingAmount}, ${intent.summary.targetSymbol}, ${intent.summary.expectedTargetAmount}, ${intent.summary.maxPremiumPct},
         ${intent.expiresAt}, 'READY_FOR_WALLET', NOW(),
         ${intent.summary.targetDecimals ?? null}, ${intent.summary.activeMultiplier ?? null}, ${intent.summary.chainTimestamp ?? null}, ${intent.summary.epoch ?? null}
@@ -166,7 +168,7 @@ export class PostgresSieveRepository implements ISieveRepository {
       wallet: r.wallet,
       minimumAcceptableOutputRaw: BigInt(r.minimum_output_raw),
       protectionMethod: r.protection_method,
-      transactionBase64: "", // Not persisted in DB for size/security
+      transactionBase64: "", transactionMessageHash: r.transaction_message_hash ?? undefined,
       lastValidBlockHeight: r.last_valid_block_height?.toString(),
       requestId: r.provider_request_id,
       expiresAt: r.expires_at instanceof Date ? r.expires_at.toISOString() : new Date(r.expires_at).toISOString(),
@@ -381,8 +383,8 @@ export class PostgresSieveRepository implements ISieveRepository {
       expiresAt: new Date(r.expires_at).toISOString(),
     };
   }
-  async saveSellBuildIntent(i: SellBuildIntent): Promise<void> { await this.sql`INSERT INTO sell_build_intents (id,check_id,wallet,network,minimum_usdc_output_raw,provider_request_id,last_valid_block_height,summary,status,expires_at) VALUES (${i.id},${i.checkId},${i.wallet},${i.network},${i.minimumUsdcOutputRaw.toString()},${i.requestId??null},${i.lastValidBlockHeight??null},${this.sql.json(i.summary as any)},'READY_FOR_WALLET',${i.expiresAt}) ON CONFLICT (id) DO NOTHING`; }
-  async getSellBuildIntent(id:string):Promise<SellBuildIntent|null>{const rows=await this.sql`SELECT * FROM sell_build_intents WHERE id=${id} LIMIT 1`;if(!rows.length)return null;const r=rows[0];if(r.network!=="mainnet")throw new SieveAppError("DATABASE_INTEGRITY_ERROR","Non-Mainnet Sell build cannot be loaded by the Mainnet-only runtime");return{id:r.id,checkId:r.check_id,network:"mainnet",wallet:r.wallet,transactionBase64:"",requestId:r.provider_request_id??undefined,lastValidBlockHeight:r.last_valid_block_height?.toString(),minimumUsdcOutputRaw:BigInt(r.minimum_usdc_output_raw),expiresAt:new Date(r.expires_at).toISOString(),summary:r.summary as SellBuildIntent["summary"]};}
+  async saveSellBuildIntent(i: SellBuildIntent): Promise<void> { await this.sql`INSERT INTO sell_build_intents (id,check_id,wallet,network,minimum_usdc_output_raw,provider_request_id,last_valid_block_height,summary,status,expires_at,transaction_message_hash) VALUES (${i.id},${i.checkId},${i.wallet},${i.network},${i.minimumUsdcOutputRaw.toString()},${i.requestId??null},${i.lastValidBlockHeight??null},${this.sql.json(i.summary as any)},'READY_FOR_WALLET',${i.expiresAt},${i.transactionMessageHash??null}) ON CONFLICT (id) DO NOTHING`; }
+  async getSellBuildIntent(id:string):Promise<SellBuildIntent|null>{const rows=await this.sql`SELECT * FROM sell_build_intents WHERE id=${id} LIMIT 1`;if(!rows.length)return null;const r=rows[0];if(r.network!=="mainnet")throw new SieveAppError("DATABASE_INTEGRITY_ERROR","Non-Mainnet Sell build cannot be loaded by the Mainnet-only runtime");return{id:r.id,checkId:r.check_id,network:"mainnet",wallet:r.wallet,transactionBase64:"",transactionMessageHash:r.transaction_message_hash??undefined,requestId:r.provider_request_id??undefined,lastValidBlockHeight:r.last_valid_block_height?.toString(),minimumUsdcOutputRaw:BigInt(r.minimum_usdc_output_raw),expiresAt:new Date(r.expires_at).toISOString(),summary:r.summary as SellBuildIntent["summary"]};}
   async saveSellTradeReceipt(x:SellTradeReceipt):Promise<SellTradeReceipt>{const rows=await this.sql`INSERT INTO sell_trade_receipts (id,check_id,build_intent_id,side,wallet,network,signature,internal_execution_id,status,target_symbol,target_mint,requested_economic_amount,actual_economic_input,raw_input,expected_usdc_proceeds,realized_usdc_proceeds,reference_price_usd,checked_sell_price_usd,minimum_sell_price_usd,max_discount_bps,realized_discount_bps,submitted_at,confirmed_at,failure_code) VALUES (${x.id},${x.checkId},${x.buildIntentId},'SELL',${x.wallet},${x.network},${x.signature},${x.internalExecutionId??null},${x.status},${x.targetSymbol},${x.targetMint},${x.requestedEconomicAmount},${x.actualEconomicInput},${x.rawInput},${x.expectedUsdcProceeds},${x.realizedUsdcProceeds},${x.referencePriceUsd},${x.checkedSellPriceUsd},${x.minimumSellPriceUsd},${x.maxDiscountBps},${x.realizedDiscountBps},${x.submittedAt},${x.confirmedAt},${x.failureCode??null}) ON CONFLICT (signature) DO NOTHING RETURNING *`;if(rows.length)return this.mapSellReceipt(rows[0]);if(!x.signature)throw new SieveAppError("INTERNAL_ERROR");const e=await this.getSellTradeReceiptBySignature(x.signature);if(!e||e.buildIntentId!==x.buildIntentId)throw new SieveAppError("IDEMPOTENCY_VIOLATION");return e;}
   async getSellTradeReceiptBySignature(signature:string):Promise<SellTradeReceipt|null>{const rows=await this.sql`SELECT * FROM sell_trade_receipts WHERE signature=${signature} LIMIT 1`;return rows.length?this.mapSellReceipt(rows[0]):null;}
 

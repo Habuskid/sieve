@@ -1,3 +1,4 @@
+import { verifySignedTransaction } from "../security/transaction-binding";
 import { v4 as uuidv4 } from "uuid";
 import { activeBuildIntentsStore } from "./build-service";
 import { activeChecksStore } from "./check-service";
@@ -44,20 +45,18 @@ export class ConfirmationService {
     }
 
     // 2. Context binding validation (Audit Repair 5)
-    if (input.wallet && input.wallet !== buildIntent.wallet) {
+    if (!input.wallet || input.wallet !== buildIntent.wallet) {
       throw new SieveAppError("WALLET_MISMATCH", "Wallet address does not match build intent");
     }
 
-    // 3. Validate expiry (Audit Repair 8)
-    if (isExpired(buildIntent.expiresAt, Date.now())) {
-      throw new SieveAppError("TRANSACTION_EXPIRED", "Transaction build intent expired before confirmation");
-    }
-
+    // Expired messages may be reconciled, but are never submitted again.
     // 4. Mainnet signature-only rejection (Audit Defect 1)
     if (!input.signedTransaction) {
       throw new SieveAppError("VALIDATION_ERROR", "Mainnet confirmation requires signedTransaction");
     }
 
+    const expectedSignature = verifySignedTransaction({ ...input, signedTransaction: input.signedTransaction, wallet: buildIntent.wallet, transactionMessageHash: buildIntent.transactionMessageHash });
+    input.signature = expectedSignature;
     // 5. Cross-build idempotency check on provided signature (Audit Defect 2)
     if (input.signature) {
       const existingFromRepo = await this.repo.getTradeReceiptBySignature(input.signature);
@@ -100,12 +99,24 @@ export class ConfirmationService {
     if (!buildIntent.requestId) {
         throw new SieveAppError("TRANSACTION_FAILED", "Missing Jupiter requestId for execution");
       }
-      const execResult = await this.jupiterAdapter.executeTransaction({
+      const execResult: import("../jupiter/schema").JupiterExecuteResponse = isExpired(buildIntent.expiresAt, Date.now()) ? { status: "Failed" } : await this.jupiterAdapter.executeTransaction({
         signedTransaction: input.signedTransaction!,
         requestId: buildIntent.requestId,
         lastValidBlockHeight: buildIntent.lastValidBlockHeight,
-      });
+      }).catch(() => ({ status: "Failed" as const }));
+      // A transport failure may follow successful submission. Only chain evidence
+      // below may create a terminal receipt; unknown landing remains pending.
 
+      if (execResult.signature && execResult.signature !== expectedSignature) throw new SieveAppError("CONFIRMATION_FAILED", "Provider signature mismatch");
+      const inputMint = check.funding.fundingAsset === "USDC" ? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" : "So11111111111111111111111111111111111111112";
+      const chain = await this.solanaAdapter.verifyExecution(expectedSignature, buildIntent.transactionMessageHash!, buildIntent.wallet, inputMint, check.asset.mint);
+      if (!chain.confirmed && !chain.failed) return { status: "PENDING", signature: expectedSignature };
+      if (chain.confirmed && (chain.outputRaw == null || BigInt(chain.outputRaw) < buildIntent.minimumAcceptableOutputRaw || (chain.inputRaw != null && BigInt(chain.inputRaw) !== check.funding.inputRaw))) throw new SieveAppError("CONFIRMATION_FAILED", "Chain amounts violate built intent");
+      execResult.signature = expectedSignature;
+      execResult.status = chain.confirmed ? "Success" : "Failed";
+      execResult.error = chain.failed ? "Transaction failed on-chain" : undefined;
+      execResult.totalInputAmount = chain.inputRaw ?? undefined;
+      execResult.totalOutputAmount = chain.outputRaw ?? undefined;
       if (execResult.status === "Success" && execResult.signature) {
         signature = execResult.signature;
         isConfirmed = true;
@@ -227,13 +238,7 @@ export class ConfirmationService {
       );
     }
 
-    if (savedReceipt.signature) {
-      receiptsBySignatureStore.set(savedReceipt.signature, savedReceipt);
-    }
 
-    const walletReceipts = receiptsByWalletStore.get(buildIntent.wallet) ?? [];
-    walletReceipts.unshift(savedReceipt);
-    receiptsByWalletStore.set(buildIntent.wallet, walletReceipts);
 
     return {
       status: savedReceipt.status,

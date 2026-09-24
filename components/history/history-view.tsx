@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import type { HistoryItem } from "@/server/services/history-service";
+import { walletFetch } from "@/lib/wallet-fetch";
 import { ExternalLink } from "lucide-react";
 import { RefreshAction } from "@/components/ui/refresh-action";
 
@@ -30,28 +31,32 @@ function formatDisplayPrice(priceStr?: string | number | null): string {
 }
 
 export function HistoryView() {
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, signMessage } = useWallet();
   const { setVisible: setWalletModalVisible } = useWalletModal();
 
+  const currentWallet = React.useRef(publicKey?.toBase58());
+  currentWallet.current = publicKey?.toBase58();
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<HistoryFilter>("ALL");
 
   const fetchHistory = React.useCallback(async () => {
     if (!publicKey) return;
+    const wallet = publicKey.toBase58();
+    setItems([]);
     setLoading(true);
     try {
-      const res = await fetch(`/api/history?wallet=${publicKey.toBase58()}`);
+      const res = await walletFetch(`/api/history?wallet=${wallet}`, {}, wallet, signMessage);
       if (res.ok) {
         const data = await res.json();
-        setItems(data.items || []);
+        if (currentWallet.current === wallet) setItems(data.items || []);
       }
     } catch (err) {
       console.error("Failed to fetch history", err);
     } finally {
       setLoading(false);
     }
-  }, [publicKey]);
+  }, [publicKey, signMessage]);
 
   useEffect(() => {
     if (connected && publicKey) {

@@ -2,7 +2,7 @@ import Decimal from "decimal.js";
 
 // Configure Decimal for financial precision
 Decimal.set({
-  precision: 40,
+  precision: 80,
   rounding: Decimal.ROUND_HALF_UP,
   toExpNeg: -20,
   toExpPos: 40,
@@ -11,7 +11,10 @@ Decimal.set({
 export { Decimal };
 
 export function toDecimal(value: string | number | Decimal): Decimal {
-  if (value instanceof Decimal) return value;
+  if (value instanceof Decimal) {
+    if (!value.isFinite()) throw new Error("Invalid decimal value");
+    return value;
+  }
   try {
     const d = new Decimal(value);
     if (!d.isFinite()) {
@@ -116,6 +119,7 @@ export function rawToEconomicDisplay(
   multiplier: Decimal | string | number = 1
 ): Decimal {
   const mult = toDecimal(multiplier);
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) throw new Error("Unsupported token decimals");
   if (mult.lessThanOrEqualTo(0)) {
     throw new Error("Scaled UI multiplier must be positive");
   }
@@ -133,6 +137,7 @@ export function rawToEconomicDisplay(
   const multNum = mult.toNumber();
   const scaledAmount = Number(rawBigInt) * multNum;
   const truncated = Math.trunc(scaledAmount);
+  if (!Number.isSafeInteger(truncated)) throw new Error("Scaled amount exceeds safe integer precision");
   const factor = new Decimal(10).pow(decimals);
   return new Decimal(truncated).div(factor);
 }

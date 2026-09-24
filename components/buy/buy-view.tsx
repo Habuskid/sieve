@@ -21,9 +21,13 @@ import type { MarketItem } from "../markets/market-row";
 import { ArrowRight } from "lucide-react";
 import { RefreshMark } from "@/components/ui/refresh-mark";
 import { WalletButton } from "../app-shell/wallet-button";
+import { walletFetch } from "@/lib/wallet-fetch";
 import { cn } from "@/lib/utils";
 
 interface BuildData {
+  wallet: string;
+  side: "BUY" | "SELL";
+  intentVersion: number;
   buildIntentId: string;
   serializedTransaction: string;
   lastValidBlockHeight?: string;
@@ -39,7 +43,7 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
   const searchParams = useSearchParams();
   const mintFromUrl = searchParams.get("mint");
 
-  const { publicKey, signTransaction, connected } = useWallet();
+  const { publicKey, signTransaction, signMessage, connected } = useWallet();
   const { setVisible: setWalletModalVisible } = useWalletModal();
 
   // Mode state
@@ -112,6 +116,8 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
     setCheckResult(null);
     setSelectedVerifiedCheck(null);
     setBuildData(null);
+    setIsBuilding(false);
+    setIsReviewOpen(false);
     setBannerState("IDLE");
     setErrorMessage(null);
   }, [selectedMint, fundingAsset, amount, userLimitPct, side]);
@@ -125,6 +131,8 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
       setCheckResult(null);
       setSelectedVerifiedCheck(null);
       setBuildData(null);
+      setIsBuilding(false);
+      setIsReviewOpen(false);
       setBannerState("IDLE");
       setErrorMessage(null);
     }
@@ -201,11 +209,11 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
               clientIntentVersion: currentVersion,
             };
 
-      const res = await fetch(endpoint, {
+      const res = await walletFetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-      });
+      }, currentWallet, signMessage);
 
       const data = await res.json();
 
@@ -257,21 +265,23 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
       return;
     }
 
+    const buildVersion = intentVersionRef.current;
     setIsBuilding(true);
     setErrorMessage(null);
 
     try {
       const buildEndpoint = side === "SELL" ? "/api/sell/build" : "/api/build";
-      const buildRes = await fetch(buildEndpoint, {
+      const buildRes = await walletFetch(buildEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           checkId: checkIdToBuild,
           wallet: currentWallet,
         }),
-      });
+      }, currentWallet, signMessage);
 
       const data = await buildRes.json();
+      if (buildVersion !== intentVersionRef.current || previousWalletRef.current !== currentWallet) return;
       setIsBuilding(false);
 
       if (!buildRes.ok || data.status === "BLOCKED") {
@@ -290,7 +300,7 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
         return;
       }
 
-      setBuildData(data);
+      setBuildData({ ...data, wallet: currentWallet, side, intentVersion: buildVersion });
       setIsReviewOpen(true);
     } catch (err) {
       setIsBuilding(false);
@@ -313,18 +323,22 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
     setIsWaitingForWallet(true);
 
     try {
+      if (buildData.wallet !== currentWallet || buildData.side !== side || buildData.intentVersion !== intentVersionRef.current || Date.parse(buildData.expiresAt) <= Date.now()) throw new Error("Prepared transaction expired or wallet/intent changed. Check again.");
       let signedTxBase64: string | undefined;
       if (signTransaction) {
         const txBuffer = Buffer.from(buildData.serializedTransaction, "base64");
         const transaction = VersionedTransaction.deserialize(txBuffer);
+        const reviewedMessage = Buffer.from(transaction.message.serialize());
         const signedTx = await signTransaction(transaction);
+        if (buildData.intentVersion !== intentVersionRef.current || previousWalletRef.current !== currentWallet || Date.parse(buildData.expiresAt) <= Date.now()) throw new Error("Wallet or intent changed while signing. Transaction was not submitted by Sieve.");
+        if (!Buffer.from(signedTx.message.serialize()).equals(reviewedMessage)) throw new Error("Wallet changed transaction message.");
         signedTxBase64 = Buffer.from(signedTx.serialize()).toString("base64");
       } else {
         throw new Error("Wallet does not support transaction signing");
       }
 
       const confirmEndpoint = side === "SELL" ? "/api/sell/confirm" : "/api/confirm";
-      const confirmRes = await fetch(confirmEndpoint, {
+      const confirmRes = await walletFetch(confirmEndpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -332,13 +346,16 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
           signedTransaction: signedTxBase64,
           wallet: currentWallet,
         }),
-      });
+      }, currentWallet, signMessage);
 
       const confirmData = await confirmRes.json();
       setIsWaitingForWallet(false);
 
       if (confirmData.status === "CONFIRMED" && confirmData.receipt) {
         setReceipt(confirmData.receipt);
+      } else if (confirmData.status === "PENDING") {
+        setBannerState("ERROR");
+        setErrorMessage("Transaction submitted; confirmation is pending. Check its signature on Solscan before creating another trade.");
       } else {
         setBannerState("ERROR");
         setErrorMessage(confirmData.error?.message || "Transaction could not be confirmed");

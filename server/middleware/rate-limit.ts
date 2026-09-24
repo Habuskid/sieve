@@ -26,8 +26,12 @@ export function checkRateLimit(
   options: RateLimitOptions = { windowMs: 60_000, max: 60 }
 ): RateLimitResult {
   const now = Date.now();
+  for (const [id, value] of requestBuckets) if (value.resetAt <= now) requestBuckets.delete(id);
   const fullKey = `${options.keyPrefix ?? "rl"}:${key}`;
   const bucket = requestBuckets.get(fullKey);
+  if (!bucket && requestBuckets.size >= 10000) {
+    return { allowed: false, limit: options.max, remaining: 0, resetMs: options.windowMs };
+  }
 
   if (!bucket || now >= bucket.resetAt) {
     requestBuckets.set(fullKey, {
@@ -68,19 +72,10 @@ export function checkRateLimit(
  * shared production rate limit across distributed/serverless infrastructure.
  */
 export function getClientIdentifier(request: Request, wallet?: string | null): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  let ip = "anonymous";
-  if (forwarded) {
-    ip = forwarded.split(",")[0].trim();
-  } else {
-    const realIp = request.headers.get("x-real-ip");
-    if (realIp) ip = realIp.trim();
-  }
-
-  if (wallet) {
-    return `ip:${ip}:wallet:${wallet}`;
-  }
-  return `ip:${ip}`;
+  // Set only when ingress overwrites this header and direct origin access is blocked.
+  const header = process.env.TRUSTED_CLIENT_IP_HEADER;
+  const value = header ? request.headers.get(header)?.trim() : null;
+  return value && value.length <= 64 && /^[0-9a-fA-F:.]+$/.test(value) ? `ip:${value}` : "anonymous";
 }
 
 export function clearRateLimitBuckets(): void {

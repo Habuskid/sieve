@@ -1,3 +1,5 @@
+import { authenticatedHeaders, testWallet } from "../helpers/security-fixtures";
+import { clearRateLimitBuckets } from "../../server/middleware/rate-limit";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import { POST as postBuyCapacity } from "../../app/api/capacity/buy/route";
@@ -6,7 +8,7 @@ import { defaultBuyCapacityService } from "../../server/services/buy-capacity-se
 import { defaultSellCapacityService } from "../../server/services/sell-capacity-service";
 import { SieveAppError } from "../../server/services/errors";
 
-const wallet = "11111111111111111111111111111111";
+const wallet = testWallet;
 const mint = "PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF";
 const checkId = "11111111-1111-4111-8111-111111111111";
 
@@ -14,7 +16,7 @@ function makeBuyRequest(body: Record<string, unknown>, includeWallet = true) {
   const fullBody = includeWallet ? { wallet, ...body } : body;
   return new NextRequest("http://localhost:3000/api/capacity/buy", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authenticatedHeaders(),
     body: JSON.stringify(fullBody),
   });
 }
@@ -23,7 +25,7 @@ function makeSellRequest(body: Record<string, unknown>, includeWallet = true) {
   const fullBody = includeWallet ? { wallet, ...body } : body;
   return new NextRequest("http://localhost:3000/api/capacity/sell", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: authenticatedHeaders(),
     body: JSON.stringify(fullBody),
   });
 }
@@ -103,6 +105,7 @@ const mockSellSuccessResponse = {
 describe("Strict Boundary Capacity APIs (Task 7)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    clearRateLimitBuckets();
   });
 
   // ==========================================

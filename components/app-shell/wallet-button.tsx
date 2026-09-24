@@ -58,6 +58,7 @@ export function WalletButton() {
               type="button"
               onClick={async () => {
                 try {
+                  await fetch("/api/auth/session", { method: "DELETE" });
                   await disconnect();
                 } catch (err) {
                   console.error("Disconnect error", err);

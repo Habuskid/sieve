@@ -1,5 +1,7 @@
+import { providerFetch } from "../security/provider-fetch";
 import { RawPreStocksResponseSchema } from "./schema";
 import type { MarketAsset } from "../../core/domain/types";
+import { requireCanonicalPreStock } from "./registry";
 
 export interface PreStocksAdapterConfig {
   apiUrl?: string;
@@ -7,9 +9,9 @@ export interface PreStocksAdapterConfig {
   cacheTtlMs?: number;
 }
 
-let cache: { data: MarketAsset[]; timestamp: number } | null = null;
 
 export class PreStocksAdapter {
+  private cache: { data: MarketAsset[]; timestamp: number } | null = null;
   private apiUrl: string;
   private timeoutMs: number;
   private cacheTtlMs: number;
@@ -25,22 +27,24 @@ export class PreStocksAdapter {
    */
   async fetchMarkets(bypassCache: boolean = false): Promise<MarketAsset[]> {
     const now = Date.now();
-    if (!bypassCache && cache && now - cache.timestamp < this.cacheTtlMs) {
-      return cache.data;
+    if (!bypassCache && this.cache && now - this.cache.timestamp < this.cacheTtlMs) {
+      return this.cache.data;
     }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const response = await fetch(this.apiUrl, {
+      const response = await providerFetch(this.apiUrl, {
         method: "GET",
+        cache: "no-store",
+        redirect: "error",
         headers: {
           Accept: "application/json",
           "User-Agent": "Sieve-App/1.0",
         },
         signal: controller.signal,
-      });
+      }, this.timeoutMs);
 
       if (!response.ok) {
         throw new Error(`PreStocks API returned HTTP status ${response.status}: ${response.statusText}`);
@@ -55,6 +59,8 @@ export class PreStocksAdapter {
 
       const observedAt = new Date().toISOString();
       const normalized: MarketAsset[] = parseResult.data.map((item) => ({
+        assetId: requireCanonicalPreStock(item.contract_address, item.symbol).id,
+        expectedTokenProgram: requireCanonicalPreStock(item.contract_address, item.symbol).tokenProgram,
         name: item.name,
         symbol: item.symbol,
         mint: item.contract_address,
@@ -67,10 +73,12 @@ export class PreStocksAdapter {
         supply: item.supply != null ? item.supply.toString() : null,
         source: "PRESTOCKS",
         observedAt,
+        referenceRetrievedAt: observedAt,
+        referenceSourceUpdatedAt: null,
         network: "mainnet",
       }));
 
-      cache = { data: normalized, timestamp: now };
+      this.cache = { data: normalized, timestamp: now };
       return normalized;
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {

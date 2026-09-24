@@ -1,3 +1,5 @@
+import { messageHash } from "../security/transaction-binding";
+import { executionSnapshot } from "./execution-snapshot";
 import { v4 as uuidv4 } from "uuid";
 import { deriveAllowedSellExecutionTolerance, deriveSellInputConversion, evaluateSellPriceBoundary, isExpired, rawToDisplay } from "../../core";
 import type { SellBuildIntent } from "../../core";
@@ -26,6 +28,7 @@ export class SellBuildService {
     const metadata = await this.solana.resolveMintMetadata(asset.mint, "mainnet", { bypassCache: true });
       if (!metadata.supported) throw new SieveAppError("ROUTE_RISK", metadata.blockers.join("; "));
       const conversion = deriveSellInputConversion({ requestedEconomicAmount: check.input.requestedEconomicAmount, decimals: metadata.decimals, activeMultiplier: metadata.scaledUiAmount?.activeMultiplier, transferFee: metadata.transferFee });
+      if (conversion.rawWalletInput !== check.input.rawWalletInput || metadata.decimals !== check.input.decimals) throw new SieveAppError("PRICE_MOVED_OUTSIDE_LIMIT", "Token conversion changed; check again");
       const balance = await this.solana.checkTokenBalance(input.wallet, asset.mint, conversion.rawWalletInput, "mainnet");
       if (!balance.hasSufficient) throw new SieveAppError("INSUFFICIENT_FUNDS", balance.error);
       const quote = await this.jupiter.getQuote({ inputMint: asset.mint, outputMint: CANONICAL_MINTS.mainnet.USDC, amount: conversion.rawWalletInput, outputDecimals: 6 });
@@ -40,27 +43,74 @@ export class SellBuildService {
     const protection = deriveAllowedSellExecutionTolerance({ economicTokensSold: conversion.actualEconomicAmount, referencePriceUsd: asset.referencePriceUsd, maxDiscountPct: check.maxDiscountPct, expectedNetProceedsUsd: proceeds, outputDecimals: 6 });
     if (!protection.isExecutable) throw new SieveAppError("PRICE_MOVED_OUTSIDE_LIMIT");
 
-    let transactionBase64: string;
-    let requestId: string | undefined;
-    let lastValidBlockHeight: string | undefined;
-    let jupiterFeeMint: string | null | undefined;
-    let jupiterPlatformFeeRaw: string | null | undefined;
       if (metadata.scaledUiAmount?.newMultiplierEffectiveTimestamp != null) {
         const effectiveAt = metadata.scaledUiAmount.newMultiplierEffectiveTimestamp;
         const chainTime = metadata.chainTimestamp;
         if (chainTime == null || (effectiveAt > chainTime && effectiveAt <= chainTime + 120)) throw new SieveAppError("ROUTE_RISK", "Scaled UI multiplier transition prevents safe Sell build");
       }
-      const built = await this.jupiter.buildTransaction({ inputMint: asset.mint, outputMint: CANONICAL_MINTS.mainnet.USDC, amount: conversion.rawWalletInput, outputDecimals: 6, taker: input.wallet, slippageBps: protection.slippageBps });
+      const built = await this.jupiter.buildTransaction({ inputMint: asset.mint, outputMint: CANONICAL_MINTS.mainnet.USDC, amount: conversion.rawWalletInput, outputDecimals: 6, taker: input.wallet, slippageBps: protection.slippageBps, minimumNetOutputRaw: protection.minimumAcceptableOutputRaw, side: "SELL" });
       if (!built.otherAmountThreshold) throw new SieveAppError("ROUTE_RISK", "Final Jupiter order is missing otherAmountThreshold");
       const finalMinimum = guaranteedWalletUsdcOutput({ rawAmount: BigInt(built.otherAmountThreshold), field: "otherAmountThreshold", outputMint: built.quote.outputMint, expectedUsdcMint: CANONICAL_MINTS.mainnet.USDC, feeMint: built.feeMint, platformFeeAmount: built.platformFee?.amount });
       if (finalMinimum < protection.minimumAcceptableOutputRaw) throw new SieveAppError("PRICE_MOVED_OUTSIDE_LIMIT", "Final Jupiter minimum USDC output is below the Sieve Sell floor");
-      transactionBase64 = built.transactionBase64;
-      requestId = built.requestId;
-      lastValidBlockHeight = built.lastValidBlockHeight;
-      jupiterFeeMint = built.feeMint;
-      jupiterPlatformFeeRaw = built.platformFee?.amount ?? null;
+      const transactionBase64 = built.transactionBase64;
+      const requestId = built.requestId;
+      const lastValidBlockHeight = built.lastValidBlockHeight;
+      const jupiterFeeMint = built.feeMint;
+      const jupiterPlatformFeeRaw = built.platformFee?.amount ?? null;
 
-    const intent: SellBuildIntent = { id: uuidv4(), checkId: check.id, network: check.network, wallet: input.wallet, transactionBase64, requestId, lastValidBlockHeight, minimumUsdcOutputRaw: protection.minimumAcceptableOutputRaw, expiresAt: new Date(Date.now() + 60_000).toISOString(), summary: { side: "SELL", targetSymbol: asset.symbol, targetMint: asset.mint, requestedEconomicAmount: conversion.requestedEconomicAmount, actualEconomicAmount: conversion.actualEconomicAmount, rawWalletInput: conversion.rawWalletInput.toString(), rawTransferFee: conversion.rawTransferFee.toString(), rawRouteInput: conversion.rawRouteInput.toString(), expectedUsdcProceeds: proceeds, referencePriceUsd: decision.referencePriceUsd, currentSellPriceUsd: decision.currentSellPriceUsd!, minimumSellPriceUsd: decision.minimumSellPriceUsd, maxDiscountPct: check.maxDiscountPct, discountBps: decision.discountBps!, inputDecimals: conversion.decimals, activeMultiplier: conversion.activeMultiplier, chainTimestamp: metadata?.chainTimestamp ?? undefined, epoch: metadata?.epoch?.toString(), jupiterFeeMint, jupiterPlatformFeeRaw, issuerControls: metadata?.issuerControls } };
+    if (isExpired(check.expiresAt, Date.now()) || Date.now() - Date.parse(asset.observedAt) > 60_000) throw new SieveAppError("TRANSACTION_EXPIRED");
+    const expiresAt = new Date(Math.min(Date.now() + 30_000, Date.parse(check.expiresAt))).toISOString();
+    const intent: SellBuildIntent = {
+      id: uuidv4(),
+      checkId: check.id,
+      network: check.network,
+      wallet: input.wallet,
+      transactionBase64,
+      transactionMessageHash: messageHash(transactionBase64),
+      requestId,
+      lastValidBlockHeight,
+      minimumUsdcOutputRaw: protection.minimumAcceptableOutputRaw,
+      expiresAt,
+      summary: {
+        executionSnapshot: executionSnapshot({
+          asset,
+          metadata,
+          wallet: input.wallet,
+          checkId: check.id,
+          clientIntentVersion: check.clientIntentVersion,
+          side: "SELL",
+          inputMint: asset.mint,
+          outputMint: CANONICAL_MINTS.mainnet.USDC,
+          inputRaw: conversion.rawWalletInput,
+          minimumNetOutputRaw: protection.minimumAcceptableOutputRaw,
+          transactionBase64,
+          lastValidBlockHeight,
+          signingExpiresAt: expiresAt,
+        }),
+        minimumAcceptableUsdc: rawToDisplay(protection.minimumAcceptableOutputRaw, 6).toString(),
+        side: "SELL",
+        targetSymbol: asset.symbol,
+        targetMint: asset.mint,
+        requestedEconomicAmount: conversion.requestedEconomicAmount,
+        actualEconomicAmount: conversion.actualEconomicAmount,
+        rawWalletInput: conversion.rawWalletInput.toString(),
+        rawTransferFee: conversion.rawTransferFee.toString(),
+        rawRouteInput: conversion.rawRouteInput.toString(),
+        expectedUsdcProceeds: proceeds,
+        referencePriceUsd: decision.referencePriceUsd,
+        currentSellPriceUsd: decision.currentSellPriceUsd!,
+        minimumSellPriceUsd: decision.minimumSellPriceUsd,
+        maxDiscountPct: check.maxDiscountPct,
+        discountBps: decision.discountBps!,
+        inputDecimals: conversion.decimals,
+        activeMultiplier: conversion.activeMultiplier,
+        chainTimestamp: metadata?.chainTimestamp ?? undefined,
+        epoch: metadata?.epoch?.toString(),
+        jupiterFeeMint,
+        jupiterPlatformFeeRaw,
+        issuerControls: metadata?.issuerControls,
+      },
+    };
     await this.repo.saveSellBuildIntent(intent);
     return { status: "READY_FOR_WALLET", buildIntentId: intent.id, network: intent.network, serializedTransaction: transactionBase64, expiresAt: intent.expiresAt, summary: intent.summary };
   }

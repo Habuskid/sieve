@@ -1,3 +1,5 @@
+// UI tests inject an authenticated transport; cryptographic auth is tested separately.
+vi.mock("../../lib/wallet-fetch", () => ({ walletFetch: (url: string, init: RequestInit) => fetch(url, init) }));
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
@@ -167,6 +169,7 @@ describe("TASK - LOGOUT REDIRECT + HISTORY UX (10 Focused Invariant Proofs)", ()
     const toggleBtn = screen.getByRole("button", { name: /9wzd/i });
     fireEvent.click(toggleBtn);
 
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
     // Click Disconnect
     const disconnectBtn = screen.getByRole("menuitem", { name: /disconnect/i });
     fireEvent.click(disconnectBtn);

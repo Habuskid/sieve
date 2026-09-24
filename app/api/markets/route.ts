@@ -1,3 +1,4 @@
+import { limitRequest, publicError } from "@/server/security/http";
 import { NextRequest, NextResponse } from "next/server";
 import { defaultMarketService } from "@/server/services/market-service";
 
@@ -5,6 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_request: NextRequest) {
   try {
+    limitRequest(_request, "markets", 60);
     const markets = await defaultMarketService.getMarkets();
     const observedAt = new Date().toISOString();
 
@@ -36,10 +38,6 @@ export async function GET(_request: NextRequest) {
       markets: responseMarkets,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to fetch markets";
-    return NextResponse.json(
-      { error: { code: "MARKET_FETCH_FAILED", message } },
-      { status: 500 }
-    );
+    return publicError(err);
   }
 }

@@ -1,3 +1,5 @@
+// UI tests inject an authenticated transport; cryptographic auth is tested separately.
+vi.mock("../../lib/wallet-fetch", () => ({ walletFetch: (url: string, init: RequestInit) => fetch(url, init) }));
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
@@ -1087,6 +1089,7 @@ describe("TASK 9 - Frontend Boundary Capacity User Action Flow (36 Invariant Tes
     });
 
     const deserializeSpy = vi.spyOn(VersionedTransaction, "deserialize").mockReturnValue({
+      message: { serialize: () => Buffer.from("reviewed-message") },
       serialize: () => Buffer.from("signed-tx"),
     } as any);
 
@@ -1116,5 +1119,25 @@ describe("TASK 9 - Frontend Boundary Capacity User Action Flow (36 Invariant Tes
     await waitFor(() => expect(screen.getByText("Trade complete")).toBeInTheDocument());
 
     deserializeSpy.mockRestore();
+  });
+  it("discards a delayed build after wallet change", async () => {
+    let resolveBuild: (response: Response) => void = () => {};
+    fetchSpy.mockImplementation(async (url: string) => {
+      if (url === "/api/markets") return new Response(JSON.stringify({ markets: mockMarkets }));
+      if (url === "/api/capacity/buy") return new Response(JSON.stringify({ side: "BUY", asset: mockMarkets[0], fundingAsset: "USDC", requestedAmount: "100", status: "FULLY_WITHIN_BOUNDARY", checkId: "check", verifiedCapacity: { fundingAmount: "100", effectiveBuyPriceUsd: "505", expectedTargetAmount: "0.198" }, display: { title: "Within boundary", message: "Verified" } }));
+      if (url === "/api/build") return new Promise<Response>((resolve) => { resolveBuild = resolve; });
+      throw new Error("Unexpected request");
+    });
+    const view = render(<BuyView />);
+    await screen.findByText("OpenAI (OPENAI)");
+    fireEvent.change(screen.getByPlaceholderText("0.00"), { target: { value: "100" } });
+    fireEvent.click(screen.getByRole("button", { name: "Check boundary" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Prepare transaction" }));
+    await waitFor(() => expect(fetchSpy.mock.calls.some(([url]: any[]) => url === "/api/build")).toBe(true));
+    mockPublicKey = { toBase58: () => "11111111111111111111111111111111" };
+    view.rerender(<BuyView />);
+    resolveBuild(new Response(JSON.stringify({ status: "READY_FOR_WALLET", buildIntentId: "old", serializedTransaction: "AA==", expiresAt: new Date(Date.now() + 60000).toISOString(), summary: {} })));
+    await waitFor(() => expect(screen.queryByText("Final transaction review")).not.toBeInTheDocument());
+    expect(mockSignTransaction).not.toHaveBeenCalled();
   });
 });

@@ -23,6 +23,7 @@
 
 # Local env files
 .env
+.env*
 .env*.local
 !.env.example
 
@@ -36,6 +37,12 @@ next-env.d.ts
 # Internal planning / hackathon specs
 *.md
 !README.md
+!SECURITY_AUDIT.md
+
+# Local audit command evidence (summarized in SECURITY_AUDIT.md)
+/*-tests.json
+/dependency-audit.json
+/*-result.txt
 
 # Antigravity workspace configuration
 .agents/

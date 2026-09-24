@@ -1,3 +1,4 @@
+import { validateCheckInput } from "../security/validation";
 import { v4 as uuidv4 } from "uuid";
 import { calculateFee } from "@solana/spl-token";
 import {
@@ -172,7 +173,7 @@ export class SellCheckService {
       netProceedsUsd: proceeds,
       maxDiscountPct,
       priceImpactPct,
-      now,
+      now: Date.now(),
     });
 
     const checkId = uuidv4();
@@ -208,6 +209,7 @@ export class SellCheckService {
   }
 
   async executeCheck(input: SellCheckRequest): Promise<SellCheckResponse> {
+    validateCheckInput(input);
     if (!isPositiveFinite(input.amount)) {
       throw new SieveAppError("VALIDATION_ERROR", "Sell amount must be positive");
     }

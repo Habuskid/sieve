@@ -26,6 +26,7 @@ export interface ISellRepository {
 }
 
 export interface ISieveRepository extends ISellRepository {
+  health(): Promise<void>;
   savePriceCheck(check: PriceCheck): Promise<void>;
   getPriceCheck(id: string): Promise<PriceCheck | null>;
   listPriceChecks(params?: ListFilterParams): Promise<PriceCheck[]>;
@@ -40,6 +41,7 @@ export interface ISieveRepository extends ISellRepository {
 }
 
 export class InMemorySieveRepository implements ISieveRepository {
+  async health(): Promise<void> {}
   private checks = new Map<string, PriceCheck>();
   private buildIntents = new Map<string, BuildIntent>();
   private receipts = new Map<string, TradeReceipt>(); // Keyed by signature
@@ -75,6 +77,7 @@ export class InMemorySieveRepository implements ISieveRepository {
   }
 
   async saveBuildIntent(intent: BuildIntent): Promise<void> {
+    if (Array.from(this.buildIntents.values()).some((build) => build.checkId === intent.checkId)) throw new SieveAppError("IDEMPOTENCY_VIOLATION");
     this.buildIntents.set(intent.id, { ...intent });
   }
 
@@ -142,7 +145,7 @@ export class InMemorySieveRepository implements ISieveRepository {
     const limit = params.limit ?? 50;
     return list.slice(offset, offset + limit);
   }
-  async saveSellBuildIntent(intent: SellBuildIntent) { this.sellBuilds.set(intent.id, { ...intent }); }
+  async saveSellBuildIntent(intent: SellBuildIntent) { if (Array.from(this.sellBuilds.values()).some((build) => build.checkId === intent.checkId)) throw new SieveAppError("IDEMPOTENCY_VIOLATION"); this.sellBuilds.set(intent.id, { ...intent }); }
   async getSellBuildIntent(id: string) { return this.sellBuilds.get(id) ?? null; }
   async saveSellTradeReceipt(receipt: SellTradeReceipt) {
     if (receipt.signature) {

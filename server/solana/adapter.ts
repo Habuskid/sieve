@@ -21,6 +21,11 @@ import {
   AccountState,
 } from "@solana/spl-token";
 import { Decimal } from "../../core/money/decimal";
+import { providerFetch } from "../security/provider-fetch";
+import { createHash } from "node:crypto";
+import { SieveAppError } from "../services/errors";
+import { assertOrdinaryCredits, validateConfidentialMintForOrdinaryTransfers } from "../security/swap-semantics";
+import { canonicalPreStock } from "../prestocks/registry";
 import type { FundingAsset, MainnetNetwork } from "../../core/domain/types";
 
 export const CANONICAL_MINTS = {
@@ -134,6 +139,7 @@ export function clearValidatedMintCache(): void {
 
 export class SolanaAdapter {
   private mainnetConnection: Connection;
+  private metadataCache = new Map<string, ValidatedMintMetadata>();
 
   /**
    * Minimum SOL reserve required for rent-exemption and gas fees (0.005 SOL = 5,000,000 lamports).
@@ -148,6 +154,15 @@ export class SolanaAdapter {
     this.mainnetConnection = new Connection(mainnetUrl, {
       commitment: "confirmed",
       confirmTransactionInitialTimeout: 30000,
+      disableRetryOnRateLimit: true,
+      fetch: async (url, init) => {
+        // Verify cluster on every logical RPC call. This detects configuration
+        // errors, not a malicious RPC that forges genesis and account responses.
+        const genesis = await providerFetch(mainnetUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getGenesisHash", params: [] }) });
+        const result = await genesis.json();
+        if (result.result !== "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d") throw new Error("RPC is not Solana Mainnet");
+        return providerFetch(String(url), init as RequestInit);
+      },
     });
   }
 
@@ -242,6 +257,10 @@ export class SolanaAdapter {
 
     try {
       const account = unpackAccount(ataPubkey, accInfo, programId);
+      assertOrdinaryCredits(account.tlvData);
+      if (!account.isInitialized || !account.owner.equals(walletPubkey) || !account.mint.equals(mintPubkey)) {
+        throw new Error("Destination token account ownership or mint mismatch");
+      }
       if (account.isFrozen) {
         return {
           exists: true,
@@ -274,8 +293,9 @@ export class SolanaAdapter {
     network: MainnetNetwork = "mainnet",
     options?: { bypassCache?: boolean }
   ): Promise<ValidatedMintMetadata> {
-    if (!options?.bypassCache && validatedMintCache.has(mintAddress)) {
-      return validatedMintCache.get(mintAddress)!;
+    const cached = this.metadataCache.get(mintAddress);
+    if (!options?.bypassCache && cached && Date.now() - cached.validatedAt < 5000) {
+      return cached;
     }
 
     const pubkey = new PublicKey(mintAddress);
@@ -288,6 +308,8 @@ export class SolanaAdapter {
 
     const isToken = accountInfo.owner.equals(TOKEN_PROGRAM_ID);
     const isToken2022 = accountInfo.owner.equals(TOKEN_2022_PROGRAM_ID);
+    const registered = canonicalPreStock(mintAddress);
+    if (registered && accountInfo.owner.toBase58() !== registered.tokenProgram) throw new SieveAppError("ROUTE_RISK", "Registry token-program mismatch");
 
     if (!isToken && !isToken2022) {
       throw new Error(
@@ -336,6 +358,7 @@ export class SolanaAdapter {
 
     if (isToken2022) {
       const mint = unpackMint(pubkey, sanitizedAccountInfo as unknown as AccountInfo<Buffer>, TOKEN_2022_PROGRAM_ID);
+      if (!mint.isInitialized) throw new Error("Mint is uninitialized");
       if (mint.tlvData && typeof (mint.tlvData as any).readUInt16LE !== "function") {
         const view = new DataView(
           mint.tlvData.buffer,
@@ -350,6 +373,7 @@ export class SolanaAdapter {
       // 1. Process TransferFeeConfig (PRICE_AFFECTING)
       if (extensions.includes(ExtensionType.TransferFeeConfig)) {
         const feeConfig = getTransferFeeConfig(mint);
+        if (!feeConfig) throw new Error("Missing TransferFeeConfig data");
         if (feeConfig) {
           const clock = await getOrFetchChainClock();
           const olderFee: ActiveTransferFee = {
@@ -377,9 +401,11 @@ export class SolanaAdapter {
       if (extensions.includes(ExtensionType.ScaledUiAmountConfig)) {
         try {
           const scaled = getScaledUiAmountConfig(mint);
+          if (!scaled) throw new Error("Missing ScaledUiAmountConfig data");
           if (scaled) {
             const multiplierDec = new Decimal(scaled.multiplier ?? 1);
             const newMultiplierDec = scaled.newMultiplier != null ? new Decimal(scaled.newMultiplier) : null;
+            if (!multiplierDec.isFinite() || multiplierDec.lte(0) || (newMultiplierDec && (!newMultiplierDec.isFinite() || newMultiplierDec.lte(0)))) throw new Error("Invalid scaled multiplier");
             const effTs = Number(scaled.newMultiplierEffectiveTimestamp || 0);
             let activeMultiplier = multiplierDec;
             if (effTs > 0 && newMultiplierDec != null) {
@@ -407,6 +433,7 @@ export class SolanaAdapter {
         issuerControls.pausable = true;
         try {
           const pausable = getPausableConfig(mint);
+          if (!pausable) throw new Error("Missing PausableConfig data");
           if (pausable?.paused) {
             issuerControls.isPaused = true;
             blockers.push("Mint is currently paused by issuer; transfers are disabled");
@@ -422,6 +449,7 @@ export class SolanaAdapter {
       if (extensions.includes(ExtensionType.DefaultAccountState)) {
         try {
           const defState = getDefaultAccountState(mint);
+          if (!defState) throw new Error("Missing DefaultAccountState data");
           if (defState?.state === AccountState.Frozen) {
             issuerControls.defaultAccountState = "Frozen";
             blockers.push("Default account state is Frozen; newly created token accounts cannot receive transfers");
@@ -443,6 +471,7 @@ export class SolanaAdapter {
       if (extensions.includes(ExtensionType.TransferHook) || extensions.includes(ExtensionType.TransferHookAccount)) {
         try {
           const hook = getTransferHook(mint);
+          if (!hook) throw new Error("Missing TransferHook data");
           if (hook) {
             transferHook = {
               programId: hook.programId.toBase58(),
@@ -461,8 +490,9 @@ export class SolanaAdapter {
       }
 
       // 7. Check for unsupported or blocked extensions
+      try { validateConfidentialMintForOrdinaryTransfers(mint.tlvData); }
+      catch (error) { blockers.push(error instanceof Error ? error.message : "Invalid confidential mint configuration"); }
       for (const ext of extensions) {
-        const extNum = ext as number;
         if (ext === ExtensionType.NonTransferable || ext === ExtensionType.NonTransferableAccount) {
           blockers.push("NonTransferable tokens cannot be traded; Sieve fails closed");
         } else if (ext === ExtensionType.InterestBearingConfig) {
@@ -472,33 +502,31 @@ export class SolanaAdapter {
         } else if (
           // Known allowed / handled extensions
           ext !== ExtensionType.TransferFeeConfig &&
+          ext !== ExtensionType.ConfidentialTransferMint &&
+          (ext as number) !== 16 /* ConfidentialTransferFeeConfig */ &&
           ext !== ExtensionType.ScaledUiAmountConfig &&
           ext !== ExtensionType.PausableConfig &&
           ext !== ExtensionType.DefaultAccountState &&
           ext !== ExtensionType.PermanentDelegate &&
           ext !== ExtensionType.TransferHook &&
-          ext !== ExtensionType.TransferHookAccount &&
           ext !== ExtensionType.MetadataPointer &&
           ext !== ExtensionType.TokenMetadata &&
           ext !== ExtensionType.GroupPointer &&
           ext !== ExtensionType.TokenGroup &&
           ext !== ExtensionType.GroupMemberPointer &&
           ext !== ExtensionType.TokenGroupMember &&
-          ext !== ExtensionType.MintCloseAuthority &&
-          ext !== ExtensionType.ConfidentialTransferMint &&
-          ext !== ExtensionType.ConfidentialTransferAccount &&
-          ext !== ExtensionType.TransferFeeAmount &&
-          extNum !== 16 && // ConfidentialTransferFeeConfig
-          extNum !== 17 // ConfidentialTransferFeeAmount
+          ext !== ExtensionType.MintCloseAuthority
         ) {
           blockers.push(`Mint has unclassified or unsupported Token-2022 extension (type ${ext}); Sieve fails closed`);
         }
       }
     } else {
       const mint = unpackMint(pubkey, sanitizedAccountInfo as unknown as AccountInfo<Buffer>, TOKEN_PROGRAM_ID);
+      if (!mint.isInitialized) throw new Error("Mint is uninitialized");
       decimals = mint.decimals;
     }
 
+    if (!Number.isInteger(decimals) || decimals < 0 || decimals > 18) blockers.push("Unsupported mint decimals");
     const supported = blockers.length === 0;
 
     const metadata: ValidatedMintMetadata = {
@@ -527,7 +555,8 @@ export class SolanaAdapter {
       throw new Error(`Mint ${mintAddress} is blocked: ${blockers.join("; ")}`);
     }
 
-    validatedMintCache.set(mintAddress, metadata);
+    if (this.metadataCache.size >= 1000) this.metadataCache.clear();
+    this.metadataCache.set(mintAddress, metadata);
     return metadata;
   }
 
@@ -663,6 +692,22 @@ export class SolanaAdapter {
     } catch (err) {
       return { confirmed: false, err };
     }
+  }
+
+  async verifyExecution(signature: string, expectedHash: string, wallet: string, inputMint: string, outputMint: string): Promise<{ confirmed: boolean; failed: boolean; inputRaw: string | null; outputRaw: string | null }> {
+    const transaction = await this.getConnection().getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+    if (!transaction?.meta) return { confirmed: false, failed: false, inputRaw: null, outputRaw: null };
+    const hash = createHash("sha256").update(transaction.transaction.message.serialize()).digest("hex");
+    if (hash !== expectedHash) throw new SieveAppError("CONFIRMATION_FAILED", "Chain transaction message mismatch");
+    if (transaction.meta.err) return { confirmed: false, failed: true, inputRaw: null, outputRaw: null };
+    const delta = (mint: string): bigint => {
+      const sum = (balances: typeof transaction.meta.preTokenBalances) => (balances ?? []).filter((b) => b.owner === wallet && b.mint === mint).reduce((total, b) => total + BigInt(b.uiTokenAmount.amount), 0n);
+      return sum(transaction.meta!.postTokenBalances) - sum(transaction.meta!.preTokenBalances);
+    };
+    const output = delta(outputMint);
+    const input = -delta(inputMint);
+    // Native SOL cost includes rent/fees; don't invent a trade-only debit from it.
+    return { confirmed: true, failed: false, inputRaw: inputMint === CANONICAL_MINTS.mainnet.WSOL ? null : input.toString(), outputRaw: output.toString() };
   }
 
   /**

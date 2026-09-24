@@ -134,8 +134,8 @@ export class HistoryService {
           bps: r.maxPremiumBps,
           pct: boundaryPct,
         },
-        realizedBoundaryBps: r.premiumBps,
-        realizedBoundaryPct: realizedPct,
+        realizedBoundaryBps: null,
+        realizedBoundaryPct: null,
         network: r.network,
         signature: r.signature ?? undefined,
       });
