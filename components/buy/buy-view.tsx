@@ -660,8 +660,8 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
                     <span className="text-mutedText block">Effective Price</span>
                     <span className="font-bold">
                       ${side === "BUY"
-                        ? (checkResult as BuyCapacityResponseDto).verifiedCapacity?.effectiveBuyPriceUsd
-                        : (checkResult as SellCapacityResponseDto).verifiedCapacity?.effectiveSellPriceUsd}
+                        ? Number((checkResult as BuyCapacityResponseDto).verifiedCapacity?.effectiveBuyPriceUsd).toFixed(2)
+                        : Number((checkResult as SellCapacityResponseDto).verifiedCapacity?.effectiveSellPriceUsd).toFixed(2)}
                     </span>
                   </div>
                   <div>
