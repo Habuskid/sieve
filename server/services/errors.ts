@@ -2,6 +2,7 @@ export type ErrorCode =
   | "PRICE_REFERENCE_UNAVAILABLE"
   | "PRICE_REFERENCE_INVALID"
   | "QUOTE_NO_ROUTE"
+  | "NO_ROUTE"
   | "QUOTE_EXPIRED"
   | "PRICE_MOVED_OUTSIDE_LIMIT"
   | "ROUTE_RISK"
@@ -53,8 +54,16 @@ export const ERROR_REGISTRY: Record<ErrorCode, SieveErrorDetails> = {
   },
   QUOTE_NO_ROUTE: {
     code: "QUOTE_NO_ROUTE",
-    userTitle: "There isn't a market route for this amount right now.",
-    userMessage: "Try a different amount or check again later.",
+    userTitle: "Route unavailable.",
+    userMessage: "No executable Jupiter route is available for this market right now. Try another funding asset or market.",
+    retryable: true,
+    fundsMoved: "no",
+    status: 404,
+  },
+  NO_ROUTE: {
+    code: "NO_ROUTE",
+    userTitle: "Route unavailable.",
+    userMessage: "No executable Jupiter route is available for this market right now. Try another funding asset or market.",
     retryable: true,
     fundsMoved: "no",
     status: 404,
@@ -77,8 +86,8 @@ export const ERROR_REGISTRY: Record<ErrorCode, SieveErrorDetails> = {
   },
   ROUTE_RISK: {
     code: "ROUTE_RISK",
-    userTitle: "Current route is unavailable.",
-    userMessage: "The market price impact exceeds execution thresholds. Try a smaller amount or check again.",
+    userTitle: "Route not supported.",
+    userMessage: "A market route exists, but it is not currently supported by Sieve's verified execution path.",
     retryable: true,
     fundsMoved: "no",
     status: 400,

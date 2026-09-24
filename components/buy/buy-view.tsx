@@ -223,8 +223,16 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
       }
 
       if (!res.ok) {
-        setBannerState("ERROR");
-        setErrorMessage(data.error?.message || "Failed to check boundary capacity");
+        if (data.error?.code === "NO_ROUTE" || data.error?.code === "QUOTE_NO_ROUTE") {
+          setBannerState("NO_ROUTE");
+          setErrorMessage(null);
+        } else if (data.error?.code === "ROUTE_RISK") {
+          setBannerState("ROUTE_RISK");
+          setErrorMessage(null);
+        } else {
+          setBannerState("ERROR");
+          setErrorMessage(data.error?.message || "Failed to check boundary capacity");
+        }
         return;
       }
 
@@ -287,15 +295,28 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
       if (!buildRes.ok || data.status === "BLOCKED") {
         setIsReviewOpen(false);
         if (data.status === "BLOCKED") {
-          setBannerState("PRICE_TOO_HIGH");
-          setErrorMessage(
-            data.reason === "PRICE_MOVED"
-              ? "Boundary changed. Check again."
-              : "Execution conditions moved outside your boundary before transaction construction."
-          );
+          if (data.reason === "ROUTE_RISK") {
+            setBannerState("ROUTE_RISK");
+            setErrorMessage(null);
+          } else {
+            setBannerState("PRICE_TOO_HIGH");
+            setErrorMessage(
+              data.reason === "PRICE_MOVED"
+                ? "Boundary changed. Check again."
+                : "Execution conditions moved outside your boundary before transaction construction."
+            );
+          }
         } else {
-          setBannerState("ERROR");
-          setErrorMessage(data.error?.message || "Failed to prepare transaction");
+          if (data.error?.code === "NO_ROUTE" || data.error?.code === "QUOTE_NO_ROUTE") {
+            setBannerState("NO_ROUTE");
+            setErrorMessage(null);
+          } else if (data.error?.code === "ROUTE_RISK") {
+            setBannerState("ROUTE_RISK");
+            setErrorMessage(null);
+          } else {
+            setBannerState("ERROR");
+            setErrorMessage(data.error?.message || "Failed to prepare transaction");
+          }
         }
         return;
       }
@@ -591,8 +612,20 @@ export function BuyView({ isDashboard = false }: BuyViewProps = {}) {
           <div className="mt-7">
             <StateBanner
               state={bannerState}
-              title={checkResult?.display.title}
-              message={checkResult?.display.message}
+              title={
+                bannerState === "NO_ROUTE"
+                  ? "Route unavailable"
+                  : bannerState === "ROUTE_RISK"
+                  ? "Route not supported"
+                  : checkResult?.display.title
+              }
+              message={
+                bannerState === "NO_ROUTE"
+                  ? "No executable Jupiter route is available for this market right now. Try another funding asset or market."
+                  : bannerState === "ROUTE_RISK"
+                  ? "A market route exists, but it is not currently supported by Sieve's verified execution path."
+                  : checkResult?.display.message
+              }
               onRefresh={handleCheckBoundary}
             />
           </div>

@@ -9,6 +9,18 @@ export function publicError(error: unknown): NextResponse {
   if (error instanceof SieveAppError) return NextResponse.json({ error: {
     code: error.details.code, message: error.details.userMessage, retryable: error.details.retryable,
   } }, { status: error.details.status });
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    if (msg.includes("no route") || msg.includes("no routes found") || msg.includes("quote_no_route")) {
+      return publicError(new SieveAppError("NO_ROUTE"));
+    }
+    if (msg.includes("route_risk") || msg.includes("direct route") || msg.includes("multi-hop") || msg.includes("dlmm")) {
+      return publicError(new SieveAppError("ROUTE_RISK"));
+    }
+    if (msg.includes("rate limit") || msg.includes("too many requests")) {
+      return publicError(new SieveAppError("RATE_LIMITED"));
+    }
+  }
   return NextResponse.json({ error: { code: "INTERNAL_ERROR", message: "Request could not be completed.", retryable: true } }, { status: 500 });
 }
 

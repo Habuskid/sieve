@@ -12,6 +12,7 @@ export type BannerState =
   | "PRICE_TOO_HIGH"
   | "STALE_DATA"
   | "NO_ROUTE"
+  | "ROUTE_RISK"
   | "ERROR";
 
 interface StateBannerProps {
@@ -69,6 +70,7 @@ export function StateBanner({
 
   const isStale = state === "STALE_DATA";
   const isNoRoute = state === "NO_ROUTE";
+  const isRouteRisk = state === "ROUTE_RISK";
 
   return (
     <div className="border-l border-sieveAmber pl-4" role="alert" aria-live="polite">
@@ -76,15 +78,17 @@ export function StateBanner({
         <div>
           <p className="flex items-center gap-2 text-sm font-medium text-primaryText">
             <AlertTriangle className="size-4 shrink-0 text-sieveAmber" aria-hidden="true" />
-            {title || (isStale ? "Price expired" : isNoRoute ? "No route found" : "Check failed")}
+            {title || (isStale ? "Price expired" : isNoRoute ? "Route unavailable" : isRouteRisk ? "Route not supported" : "Check failed")}
           </p>
           <p className="mt-1 pl-6 text-sm leading-6 text-secondaryText">
             {message ||
               (isStale
                 ? "Check the price again."
                 : isNoRoute
-                  ? "There is no route for this asset and amount."
-                  : "Please try again.")}
+                  ? "No executable Jupiter route is available for this market right now. Try another funding asset or market."
+                  : isRouteRisk
+                    ? "A market route exists, but it is not currently supported by Sieve's verified execution path."
+                    : "Please try again.")}
           </p>
         </div>
         {onRefresh && (

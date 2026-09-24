@@ -11,6 +11,7 @@ import {
 } from "./schema";
 import { rawToDisplay, toDecimal, Decimal } from "../../core/money/decimal";
 import type { MarketQuote } from "../../core/domain/types";
+import { SieveAppError } from "../services/errors";
 
 export interface JupiterAdapterConfig {
   apiBase?: string;
@@ -92,25 +93,37 @@ export class JupiterAdapter {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
-      if (response.status === 400 && errorText.includes("No routes found")) {
-        throw new Error(`NO_ROUTE: No routes found between ${params.inputMint} and ${params.outputMint}`);
+      if (response.status === 400 && (errorText.includes("No routes found") || errorText.includes("NO_ROUTE") || errorText.includes("no route"))) {
+        throw new SieveAppError("NO_ROUTE", `NO_ROUTE: No routes found between ${params.inputMint} and ${params.outputMint}`);
       }
       if (response.status === 429) {
-        throw new Error(`RATE_LIMIT: Jupiter API rate limit reached`);
+        throw new SieveAppError("RATE_LIMITED", "Please wait a moment before trying again.");
       }
-      throw new Error(`Jupiter /order quote error (${response.status}): ${errorText}`);
+      if (response.status === 504 || response.status === 502) {
+        throw new SieveAppError("SOURCE_TIMEOUT", "The market is taking too long to respond.");
+      }
+      if (response.status === 400 || response.status === 404) {
+        throw new SieveAppError("NO_ROUTE", "No executable Jupiter route is available for this market right now. Try another funding asset or market.");
+      }
+      throw new SieveAppError("DATA_UNAVAILABLE", "Market quote is temporarily unavailable.");
     }
 
     const json = await response.json();
     const parseResult = JupiterOrderResponseSchema.safeParse(json);
-    if (!parseResult.success) {
-      throw new Error(`Jupiter /order response schema mismatch: ${parseResult.error.message}`);
-    }
+    if (!parseResult.success) throw new SieveAppError("DATA_UNAVAILABLE", "Market quote is temporarily unavailable.");
 
     const data = parseResult.data;
-    this.validateOrder(data, params);
     if (data.error || data.errorMessage) {
-      throw new Error(`Jupiter quote error: ${data.errorMessage || data.error}`);
+      const errStr = (data.errorMessage || data.error || "").toLowerCase();
+      if (errStr.includes("no route") || errStr.includes("not found")) {
+        throw new SieveAppError("NO_ROUTE", "No executable Jupiter route is available for this market right now. Try another funding asset or market.");
+      }
+      throw new SieveAppError("ROUTE_RISK", "A market route exists, but it is not currently supported by Sieve's verified execution path.");
+    }
+    try {
+      this.validateOrder(data, params);
+    } catch {
+      throw new SieveAppError("ROUTE_RISK", "A market route exists, but it is not currently supported by Sieve's verified execution path.");
     }
 
     const observedAt = new Date().toISOString();
@@ -217,10 +230,11 @@ export class JupiterAdapter {
         signal: controller.signal,
       }, this.timeoutMs);
     } catch (err) {
+      if (err instanceof SieveAppError) throw err;
       if (err instanceof Error && err.name === "AbortError") {
-        throw new Error(`Jupiter request timed out after ${this.timeoutMs}ms`);
+        throw new SieveAppError("SOURCE_TIMEOUT", "The market is taking too long to respond.");
       }
-      throw err;
+      throw new SieveAppError("DATA_UNAVAILABLE", "Market quote is temporarily unavailable.");
     } finally {
       clearTimeout(timeoutId);
     }
