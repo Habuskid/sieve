@@ -20,10 +20,20 @@ Sieve does not decide what a user should buy or sell. The user defines the polic
   <img src="https://img.shields.io/badge/Vercel-Deployment-000000?logo=vercel&logoColor=white" alt="Vercel" />
 </p>
 
+## Videos
+
+| Pitch | Technical walkthrough |
+| --- | --- |
+| [![Watch the Sieve pitch](https://img.youtube.com/vi/ElVEez1zC8E/hqdefault.jpg)](https://youtu.be/ElVEez1zC8E) | [![Watch the Sieve technical walkthrough](https://img.youtube.com/vi/IxfPqoYxHp8/hqdefault.jpg)](https://youtu.be/IxfPqoYxHp8) |
+| [Watch pitch video](https://youtu.be/ElVEez1zC8E) | [Watch technical video](https://youtu.be/IxfPqoYxHp8) |
+
+**Full product demo on X:** https://x.com/Habuskiid/status/2103226163833290816?s=20
+
 ---
 
 ## Table of Contents
 
+- [Videos](#videos)
 - [Problem](#problem)
 - [What Sieve Does](#what-sieve-does)
 - [Core Use Cases](#core-use-cases)
